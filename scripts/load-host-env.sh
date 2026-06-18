@@ -34,3 +34,24 @@ load_host_env_file() {
   DB_CONNECTION="${DB_CONNECTION//Connection Pruning Interval=/ConnectionPruningInterval=}"
   export DB_CONNECTION
 }
+
+# Rebuild a minimal Npgsql connection string from key parts (avoids parser issues in host .env files).
+normalize_db_connection() {
+  local cs="$1"
+  local host="" port="" db="" user="" pass=""
+  if [[ "$cs" =~ Host=([^;]+) ]]; then host="${BASH_REMATCH[1]}"; fi
+  if [[ "$cs" =~ Port=([^;]+) ]]; then port="${BASH_REMATCH[1]}"; fi
+  if [[ "$cs" =~ Database=([^;]+) ]]; then db="${BASH_REMATCH[1]}"; fi
+  if [[ "$cs" =~ Username=([^;]+) ]]; then user="${BASH_REMATCH[1]}"; fi
+  if [[ "$cs" =~ Password=(.+)$ ]] || [[ "$cs" =~ Password=([^;]+) ]]; then
+    pass="${BASH_REMATCH[1]}"
+    pass="${pass#\'}"; pass="${pass%\'}"
+    pass="${pass#\"}"; pass="${pass%\"}"
+  fi
+  if [[ -z "$host" || -z "$db" || -z "$user" ]]; then
+    echo "$cs"
+    return
+  fi
+  [[ -z "$port" ]] && port="5432"
+  printf 'Host=%s;Port=%s;Database=%s;Username=%s;Password=%s' "$host" "$port" "$db" "$user" "$pass"
+}
