@@ -116,11 +116,11 @@ jobs:
             sudo docker push "${REGISTRY}/sap-ui:latest"
           fi
 
-      - name: Sync compose file to host
-        run: |
-          sudo mkdir -p "${DEPLOY_DIR}"
-          sudo cp "docker-compose.${ENV}.yml" "${COMPOSE_FILE}"
-          sudo cp deploy.env.example "${DEPLOY_DIR}/.env.${ENV}.example"
+      # - name: Sync compose file to host
+      #   run: |
+      #     sudo mkdir -p "${DEPLOY_DIR}"
+      #     sudo cp "docker-compose.${ENV}.yml" "${COMPOSE_FILE}"
+      #     sudo cp deploy.env.example "${DEPLOY_DIR}/.env.${ENV}.example"
 
       # - name: Validate host environment file
       #   run: |
@@ -160,10 +160,10 @@ jobs:
       - name: Deploy stack
         run: |
           # shellcheck source=scripts/load-host-env.sh
-          source scripts/load-host-env.sh
-          set -a
-          load_host_env_file "${ENV_FILE}"
-          set +a
+          # source scripts/load-host-env.sh
+          # set -a
+          # load_host_env_file "${ENV_FILE}"
+          # set +a
 
           export TAG DOCKER_REGISTRY="${REGISTRY}"
 
