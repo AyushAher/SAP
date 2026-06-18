@@ -21,15 +21,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DbConnection: ${DB_CONNECTION}
       ConnectionStrings__RedisConnection: ${REDIS_CONNECTION:-redis:6379,abortConnect=false}
-      ApplicationConfiguration__SapServiceLayerUrl: ${SAP_SERVICE_LAYER_URL}
-      SapCredentials__Username: ${SAP_USERNAME}
-      SapCredentials__CompanyDb: ${SAP_COMPANY_DB}
-      Security__HmacSecret: ${HMAC_SECRET}
-      Security__AesKeyBase64: ${AES_KEY_BASE64:-}
-      Jwt__SecretKey: ${JWT_SECRET_KEY}
-      Cors__Origins__0: ${CORS_ORIGIN}
     depends_on:
       - redis
     deploy:
