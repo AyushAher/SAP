@@ -22,6 +22,13 @@ jobs:
     environment: ${{ github.event.inputs.environment }}
 
     steps:
+      - name: Prepare workspace
+        run: |
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE" || true
+            sudo rm -rf "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?* 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -56,6 +63,8 @@ jobs:
       - name: Test API
         run: |
           sudo docker run --rm \
+            -u "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
             -v "$GITHUB_WORKSPACE:/src" \
             -w /src \
             mcr.microsoft.com/dotnet/sdk:10.0 \
