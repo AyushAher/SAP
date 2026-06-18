@@ -173,14 +173,11 @@ jobs:
             echo "Using Host=postgres via postgres_default network"
           fi
 
-          export TAG DOCKER_REGISTRY="${REGISTRY}"
+          export TAG="${SHA_TAG}" DOCKER_REGISTRY="${REGISTRY}"
 
           sudo -E docker stack deploy "${STACK_NAME}" \
             --compose-file "${COMPOSE_FILE}" \
             --with-registry-auth
-
-          sudo docker service update --force --detach=false "${STACK_NAME}_sap-api"
-          sudo docker service update --force --detach=false "${STACK_NAME}_sap-ui"
 
       - name: Verify deployment health
         run: |
