@@ -12,7 +12,7 @@ COPY SapApi/src/SapApi.Domain/SapApi.Domain.csproj SapApi/src/SapApi.Domain/
 COPY SapApi/src/SapApi.Shared/SapApi.Shared.csproj SapApi/src/SapApi.Shared/
 COPY JwtRotation/RotationJwt/RotatingJwt.csproj JwtRotation/RotationJwt/
 
-RUN dotnet restore "SapApi/src/SapApi.Api/SapApi.Api.csproj" -c $BUILD_CONFIGURATION
+RUN dotnet restore "SapApi/src/SapApi.Api/SapApi.Api.csproj"
 
 COPY SapApi/ SapApi/
 COPY JwtRotation/ JwtRotation/
