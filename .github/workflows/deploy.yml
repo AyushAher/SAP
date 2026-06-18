@@ -26,7 +26,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
-          submodules: recursive
 
       - name: Set deployment variables
         run: |
