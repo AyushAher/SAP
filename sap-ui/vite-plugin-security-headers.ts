@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadEnv, type Plugin } from 'vite'
 import { buildCspPolicy, SECURITY_HEADERS, type CspMode } from './src/config/csp'
@@ -36,11 +36,15 @@ function applySecurityHeaders(
 
 export function securityHeadersPlugin(mode: 'serve' | 'all' = 'all'): Plugin {
   let env: Record<string, string> = {}
+  let outDir = 'dist'
 
   return {
     name: 'security-headers',
     config(_, { mode: viteMode }) {
       env = loadEnv(viteMode, process.cwd(), '')
+    },
+    configResolved(config) {
+      outDir = config.build.outDir
     },
     configureServer(server) {
       if (mode === 'all') {
@@ -61,9 +65,10 @@ export function securityHeadersPlugin(mode: 'serve' | 'all' = 'all'): Plugin {
         apiBaseUrl: env.VITE_API_BASE_URL,
         reportUri: env.VITE_CSP_REPORT_URI,
       })
-      const outDir = join(process.cwd(), 'dist')
-      writeFileSync(join(outDir, '_headers'), formatHeadersFile(csp))
-      writeFileSync(join(outDir, 'nginx-security-headers.conf'), formatNginxSnippet(csp))
+      const outputDir = join(process.cwd(), outDir)
+      mkdirSync(outputDir, { recursive: true })
+      writeFileSync(join(outputDir, '_headers'), formatHeadersFile(csp))
+      writeFileSync(join(outputDir, 'nginx-security-headers.conf'), formatNginxSnippet(csp))
     },
   }
 }
