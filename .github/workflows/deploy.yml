@@ -122,45 +122,47 @@ jobs:
           sudo cp "docker-compose.${ENV}.yml" "${COMPOSE_FILE}"
           sudo cp deploy.env.example "${DEPLOY_DIR}/.env.${ENV}.example"
 
-      - name: Validate host environment file
-        run: |
-          ENV_FILE="${DEPLOY_DIR}/.env.${ENV}"
-          if [ ! -f "$ENV_FILE" ]; then
-            ENV_FILE="${DEPLOY_DIR}/.env"
-          fi
-          if [ ! -f "$ENV_FILE" ]; then
-            echo "::error::Missing host env file. Create ${DEPLOY_DIR}/.env.${ENV} from ${DEPLOY_DIR}/.env.${ENV}.example"
-            echo "See deploy.env.example in the repo for the required checklist."
-            exit 1
-          fi
+      # - name: Validate host environment file
+      #   run: |
+      #     ENV_FILE="${DEPLOY_DIR}/.env.${ENV}"
+      #     if [ ! -f "$ENV_FILE" ]; then
+      #       ENV_FILE="${DEPLOY_DIR}/.env"
+      #     fi
+      #     if [ ! -f "$ENV_FILE" ]; then
+      #       echo "::error::Missing host env file. Create ${DEPLOY_DIR}/.env.${ENV} from ${DEPLOY_DIR}/.env.${ENV}.example"
+      #       echo "See deploy.env.example in the repo for the required checklist."
+      #       exit 1
+      #     fi
 
-          set -a
-          # shellcheck disable=SC1090
-          source "$ENV_FILE"
-          set +a
+      #     # shellcheck source=scripts/load-host-env.sh
+      #     source scripts/load-host-env.sh
+      #     set -a
+      #     load_host_env_file "$ENV_FILE"
+      #     set +a
 
-          MISSING=()
-          for var in DB_CONNECTION SAP_SERVICE_LAYER_URL SAP_USERNAME SAP_COMPANY_DB HMAC_SECRET JWT_SECRET_KEY CORS_ORIGIN; do
-            if [ -z "${!var:-}" ]; then
-              MISSING+=("$var")
-            fi
-          done
+      #     MISSING=()
+      #     for var in DB_CONNECTION SAP_SERVICE_LAYER_URL SAP_USERNAME SAP_COMPANY_DB HMAC_SECRET JWT_SECRET_KEY CORS_ORIGIN; do
+      #       if [ -z "${!var:-}" ]; then
+      #         MISSING+=("$var")
+      #       fi
+      #     done
 
-          if [ "${#MISSING[@]}" -gt 0 ]; then
-            echo "::error::Host env file ${ENV_FILE} is missing required values:"
-            printf '  - %s\n' "${MISSING[@]}"
-            echo "Copy ${DEPLOY_DIR}/.env.${ENV}.example, fill in secrets, and redeploy."
-            exit 1
-          fi
+      #     if [ "${#MISSING[@]}" -gt 0 ]; then
+      #       echo "::error::Host env file ${ENV_FILE} is missing required values:"
+      #       printf '  - %s\n' "${MISSING[@]}"
+      #       echo "Copy ${DEPLOY_DIR}/.env.${ENV}.example, fill in secrets, and redeploy."
+      #       exit 1
+      #     fi
 
-          echo "ENV_FILE=${ENV_FILE}" >> "$GITHUB_ENV"
-          echo "Host environment file validated: ${ENV_FILE}"
+      #     echo "ENV_FILE=${ENV_FILE}" >> "$GITHUB_ENV"
+      #     echo "Host environment file validated: ${ENV_FILE}"
 
       - name: Deploy stack
         run: |
+          # shellcheck source=scripts/load-host-env.sh
+          source scripts/load-host-env.sh
           set -a
-          # shellcheck disable=SC1090
-          source "${ENV_FILE}"
+          load_host_env_file "${ENV_FILE}"
           set +a
 
           export TAG DOCKER_REGISTRY="${REGISTRY}"
