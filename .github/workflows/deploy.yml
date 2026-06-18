@@ -53,6 +53,18 @@ jobs:
             echo "UI_PORT=8080" >> "$GITHUB_ENV"
           fi
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: sap-ui/package-lock.json
+
       - name: Test API
         run: dotnet test SapApi/tests/SapApi.Tests/SapApi.Tests.csproj -c Debug
 
