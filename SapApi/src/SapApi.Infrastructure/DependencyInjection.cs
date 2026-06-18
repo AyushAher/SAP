@@ -55,7 +55,8 @@ public static class DependencyInjection
         AddDistributedCache(services, configuration);
         services.AddSingleton<ISapSessionStore, DistributedCacheSapSessionStore>();
 
-        var redisConnection = configuration.GetConnectionString("RedisConnection");
+        var redisConnection = RedisConnectionStringNormalizer.Normalize(
+            configuration.GetConnectionString("RedisConnection"));
         var useInMemoryDatabase = configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
 
         services.AddRotatingJwt(configuration);
@@ -131,7 +132,8 @@ public static class DependencyInjection
 
     private static void AddDistributedCache(IServiceCollection services, IConfiguration configuration)
     {
-        var redisConnection = configuration.GetConnectionString("RedisConnection");
+        var redisConnection = RedisConnectionStringNormalizer.Normalize(
+            configuration.GetConnectionString("RedisConnection"));
         var useInMemoryDatabase = configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
 
         if (!useInMemoryDatabase && !string.IsNullOrWhiteSpace(redisConnection))

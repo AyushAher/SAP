@@ -1,5 +1,25 @@
 #!/usr/bin/env bash
 # Load key=value host env files without breaking on semicolons in values (e.g. DB_CONNECTION).
+
+# Strip surrounding/mismatched quotes from .env values (e.g. REDIS_CONNECTION="...false").
+strip_env_value() {
+  local val="$1"
+  val="${val//$'\ufeff'/}"
+  val="${val#"${val%%[![:space:]]*}"}"
+  val="${val%"${val##*[![:space:]]}"}"
+  if [[ ${#val} -ge 2 ]]; then
+    local first="${val:0:1}" last="${val: -1}"
+    if [[ "$first" == "$last" ]] && { [[ "$first" == '"' ]] || [[ "$first" == "'" ]]; }; then
+      val="${val:1:${#val}-2}"
+    fi
+  fi
+  while [[ "$val" == \"* ]] || [[ "$val" == *\" ]] || [[ "$val" == \'* ]] || [[ "$val" == *\' ]]; do
+    val="${val#\"}"; val="${val%\"}"
+    val="${val#\'}"; val="${val%\'}"
+  done
+  printf '%s' "$val"
+}
+
 load_host_env_file() {
   local file="$1"
   if [ ! -f "$file" ]; then
@@ -12,7 +32,10 @@ load_host_env_file() {
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [[ -z "${line//[[:space:]]/}" ]] && continue
     if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-      export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+      local key="${BASH_REMATCH[1]}"
+      local value
+      value="$(strip_env_value "${BASH_REMATCH[2]}")"
+      export "${key}=${value}"
     fi
   done < "$file"
 
@@ -33,6 +56,31 @@ load_host_env_file() {
   DB_CONNECTION="${DB_CONNECTION//Connection Idle Lifetime=/ConnectionIdleLifetime=}"
   DB_CONNECTION="${DB_CONNECTION//Connection Pruning Interval=/ConnectionPruningInterval=}"
   export DB_CONNECTION
+
+  if [[ -n "${REDIS_CONNECTION:-}" ]]; then
+    export REDIS_CONNECTION="$(normalize_redis_connection "$REDIS_CONNECTION")"
+  fi
+}
+
+# Validate and normalize StackExchange.Redis connection strings from host .env files.
+normalize_redis_connection() {
+  local cs
+  cs="$(strip_env_value "$1")"
+  if [[ "$cs" =~ abortConnect=([^,;]+) ]]; then
+    local raw_ac="${BASH_REMATCH[1]}"
+    local ac
+    ac="$(strip_env_value "$raw_ac")"
+    if [[ "$ac" != "true" && "$ac" != "false" ]]; then
+      echo "normalize_redis_connection: invalid abortConnect value '${ac}' (expected true or false)" >&2
+      return 1
+    fi
+    cs="${cs/abortConnect=${raw_ac}/abortConnect=${ac}}"
+  fi
+  if [[ "$cs" == *\"* ]] || [[ "$cs" == *\'* ]]; then
+    echo "normalize_redis_connection: connection string still contains quotes after normalization" >&2
+    return 1
+  fi
+  printf '%s' "$cs"
 }
 
 # Rebuild a minimal Npgsql connection string from key parts (avoids parser issues in host .env files).

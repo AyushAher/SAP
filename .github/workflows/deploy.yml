@@ -159,6 +159,15 @@ jobs:
             exit 1
           fi
 
+          if [ -n "${REDIS_CONNECTION:-}" ]; then
+            if ! NORMALIZED_REDIS="$(normalize_redis_connection "$REDIS_CONNECTION")"; then
+              echo "::error::REDIS_CONNECTION is invalid. Use redis:6379,abortConnect=false with no quotes."
+              exit 1
+            fi
+            export REDIS_CONNECTION="$NORMALIZED_REDIS"
+            echo "REDIS_CONNECTION validated (length=${#REDIS_CONNECTION})"
+          fi
+
           echo "ENV_FILE=${ENV_FILE}" >> "$GITHUB_ENV"
           echo "Host environment file validated: ${ENV_FILE}"
 
@@ -176,6 +185,11 @@ jobs:
 
           export DB_CONNECTION="$(normalize_db_connection "$DB_CONNECTION")"
           echo "DB_CONNECTION normalized (length=${#DB_CONNECTION})"
+
+          if [ -n "${REDIS_CONNECTION:-}" ]; then
+            export REDIS_CONNECTION="$(normalize_redis_connection "$REDIS_CONNECTION")"
+            echo "REDIS_CONNECTION normalized (length=${#REDIS_CONNECTION})"
+          fi
 
           export TAG DOCKER_REGISTRY="${REGISTRY}"
 
