@@ -166,6 +166,12 @@ jobs:
           source scripts/load-host-env.sh
           load_host_env_file "${ENV_FILE}"
 
+          # Reach PostgreSQL via the shared swarm network when available.
+          if sudo docker network inspect postgres_default >/dev/null 2>&1; then
+            export DB_CONNECTION="$(printf '%s' "$DB_CONNECTION" | sed -E 's/(^|;)Host=[^;]+/\1Host=postgres/')"
+            echo "Using Host=postgres via postgres_default network"
+          fi
+
           export TAG DOCKER_REGISTRY="${REGISTRY}"
 
           sudo -E docker stack deploy "${STACK_NAME}" \

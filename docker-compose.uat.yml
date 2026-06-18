@@ -38,6 +38,7 @@ services:
         window: 120s
     networks:
       - sap-platform-uat
+      - postgres
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s
@@ -73,6 +74,9 @@ services:
 networks:
   sap-platform-uat:
     driver: overlay
+  postgres:
+    external: true
+    name: postgres_default
 
 volumes:
   sap-redis-data-uat:
