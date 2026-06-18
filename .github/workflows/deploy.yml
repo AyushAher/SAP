@@ -140,11 +140,15 @@ jobs:
           load_host_env_file "$ENV_FILE"
 
           MISSING=()
-          for var in DB_CONNECTION SAP_SERVICE_LAYER_URL SAP_USERNAME SAP_COMPANY_DB HMAC_SECRET JWT_SECRET_KEY CORS_ORIGIN; do
+          for var in DB_CONNECTION SAP_SERVICE_LAYER_URL SAP_USERNAME SAP_COMPANY_DB HMAC_SECRET CORS_ORIGIN; do
             if [ -z "${!var:-}" ]; then
               MISSING+=("$var")
             fi
           done
+
+          if [ -z "${JWT_SECRET_KEY:-}" ]; then
+            echo "::warning::JWT_SECRET_KEY is not set in ${ENV_FILE}; API will use a transient key (sessions reset on restart)."
+          fi
 
           if [ "${#MISSING[@]}" -gt 0 ]; then
             echo "::error::Host env file ${ENV_FILE} is missing required values:"
