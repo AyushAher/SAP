@@ -70,6 +70,21 @@ jobs:
             mcr.microsoft.com/dotnet/sdk:10.0 \
             dotnet test SapApi/tests/SapApi.Tests/SapApi.Tests.csproj -c Debug
 
+      - name: Prepare API RSA keys
+        run: |
+          KEYS_DIR="SapApi/src/SapApi.Api/Keys"
+          mkdir -p "${KEYS_DIR}"
+          cp sap-ui/src/config/keys/public.pem "${KEYS_DIR}/public.pem"
+
+          if [ -n "${{ secrets.RSA_PRIVATE_KEY }}" ]; then
+            printf '%s\n' "${{ secrets.RSA_PRIVATE_KEY }}" > "${KEYS_DIR}/private.pem"
+          elif [ -f "${DEPLOY_DIR}/keys/private.pem" ]; then
+            cp "${DEPLOY_DIR}/keys/private.pem" "${KEYS_DIR}/private.pem"
+          else
+            echo "::warning::RSA private key not found (RSA_PRIVATE_KEY secret or ${DEPLOY_DIR}/keys/private.pem). Encrypted login will not work."
+          fi
+          chmod 600 "${KEYS_DIR}/private.pem" 2>/dev/null || true
+
       - name: Build and push API image
         run: |
           sudo docker build . \
@@ -105,19 +120,48 @@ jobs:
         run: |
           sudo mkdir -p "${DEPLOY_DIR}"
           sudo cp "docker-compose.${ENV}.yml" "${COMPOSE_FILE}"
+          sudo cp deploy.env.example "${DEPLOY_DIR}/.env.${ENV}.example"
 
-      - name: Deploy stack
+      - name: Validate host environment file
         run: |
           ENV_FILE="${DEPLOY_DIR}/.env.${ENV}"
           if [ ! -f "$ENV_FILE" ]; then
             ENV_FILE="${DEPLOY_DIR}/.env"
           fi
-          if [ -f "$ENV_FILE" ]; then
-            set -a
-            # shellcheck disable=SC1090
-            source "$ENV_FILE"
-            set +a
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "::error::Missing host env file. Create ${DEPLOY_DIR}/.env.${ENV} from ${DEPLOY_DIR}/.env.${ENV}.example"
+            echo "See deploy.env.example in the repo for the required checklist."
+            exit 1
           fi
+
+          set -a
+          # shellcheck disable=SC1090
+          source "$ENV_FILE"
+          set +a
+
+          MISSING=()
+          for var in DB_CONNECTION SAP_SERVICE_LAYER_URL SAP_USERNAME SAP_COMPANY_DB HMAC_SECRET JWT_SECRET_KEY CORS_ORIGIN; do
+            if [ -z "${!var:-}" ]; then
+              MISSING+=("$var")
+            fi
+          done
+
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "::error::Host env file ${ENV_FILE} is missing required values:"
+            printf '  - %s\n' "${MISSING[@]}"
+            echo "Copy ${DEPLOY_DIR}/.env.${ENV}.example, fill in secrets, and redeploy."
+            exit 1
+          fi
+
+          echo "ENV_FILE=${ENV_FILE}" >> "$GITHUB_ENV"
+          echo "Host environment file validated: ${ENV_FILE}"
+
+      - name: Deploy stack
+        run: |
+          set -a
+          # shellcheck disable=SC1090
+          source "${ENV_FILE}"
+          set +a
 
           export TAG DOCKER_REGISTRY="${REGISTRY}"
 
@@ -128,17 +172,22 @@ jobs:
       - name: Verify deployment health
         run: |
           echo "Waiting for services to become healthy..."
-          sleep 20
+          sleep 30
 
-          for i in $(seq 1 12); do
+          for i in $(seq 1 18); do
             if curl -fsS "http://localhost:${UI_PORT}/" > /dev/null; then
               echo "UI is healthy on port ${UI_PORT}"
+              sudo docker service ls --filter "label=com.docker.stack.namespace=${STACK_NAME}"
               exit 0
             fi
-            echo "Attempt ${i}/12: UI not ready yet..."
+            echo "Attempt ${i}/18: UI not ready yet..."
             sleep 10
           done
 
           echo "UI health check failed on port ${UI_PORT}"
           sudo docker service ls
+          echo "--- sap-api tasks ---"
+          sudo docker service ps --no-trunc "${STACK_NAME}_sap-api" || true
+          echo "--- sap-ui tasks ---"
+          sudo docker service ps --no-trunc "${STACK_NAME}_sap-ui" || true
           exit 1

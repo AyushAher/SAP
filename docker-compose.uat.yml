@@ -20,13 +20,14 @@ services:
     image: ${DOCKER_REGISTRY:-ayushaher118}/sap-api:${TAG:-uat}
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DbConnection: ${DB_CONNECTION}
       ConnectionStrings__RedisConnection: ${REDIS_CONNECTION:-redis:6379,abortConnect=false}
       ApplicationConfiguration__SapServiceLayerUrl: ${SAP_SERVICE_LAYER_URL}
       SapCredentials__Username: ${SAP_USERNAME}
       SapCredentials__CompanyDb: ${SAP_COMPANY_DB}
       Security__HmacSecret: ${HMAC_SECRET}
-      Security__AesKeyBase64: ${AES_KEY_BASE64}
+      Security__AesKeyBase64: ${AES_KEY_BASE64:-}
       Jwt__SecretKey: ${JWT_SECRET_KEY}
       Cors__Origins__0: ${CORS_ORIGIN}
     depends_on:
@@ -37,35 +38,45 @@ services:
         parallelism: 1
         delay: 10s
         order: start-first
+        failure_action: rollback
       restart_policy:
         condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
     networks:
       - sap-platform-uat
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 60s
 
   sap-ui:
     image: ${DOCKER_REGISTRY:-ayushaher118}/sap-ui:${TAG:-uat}
     ports:
-      - "8082:80"
+      - target: 80
+        published: 8082
+        protocol: tcp
+        mode: host
     depends_on:
       - sap-api
     deploy:
       replicas: 1
       restart_policy:
         condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
     networks:
       - sap-platform-uat
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:80/"]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 15s
 
 networks:
   sap-platform-uat:
