@@ -51,7 +51,7 @@ services:
   sap-ui:
     image: ${DOCKER_REGISTRY:-ayushaher118}/sap-ui:${TAG:-uat}
     ports:
-      - "8081:80"
+      - "8082:80"
     depends_on:
       - sap-api
     deploy:
