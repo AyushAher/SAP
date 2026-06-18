@@ -183,6 +183,14 @@ jobs:
             --compose-file "${COMPOSE_FILE}" \
             --with-registry-auth
 
+          sudo docker service update \
+            --env-rm "ConnectionStrings__DbConnection" \
+            "${STACK_NAME}_sap-api" 2>/dev/null || true
+          sudo docker service update \
+            --env-add "ConnectionStrings__DbConnection=${DB_CONNECTION}" \
+            --detach=false \
+            "${STACK_NAME}_sap-api"
+
       - name: Verify deployment health
         run: |
           echo "Waiting for services to become healthy..."
