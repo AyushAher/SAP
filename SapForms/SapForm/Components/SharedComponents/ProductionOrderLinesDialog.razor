@@ -1,0 +1,93 @@
+﻿@attribute [Authorize]
+@using SapForm.Components.SharedComponents
+@using Shared.Responses.Sap
+@inject InventoryItemsTransferService itemsService
+
+<style>
+    /* Prevent input overflow */
+    .mud-data-grid .mud-input-root {
+        width: 100%;
+        table-layout: auto;
+    }
+    .width-10 {
+        width: 10%;
+    }
+    .width-15 {
+        width: 15%;
+    }
+    .min-max-width {
+        min-width: 400px;
+        max-width: 100%;    
+    }
+
+</style>
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Select Production Order Items - @SelectedProductionOrdersResponse?.DocumentNumber</MudText>
+    </TitleContent>
+    <DialogContent>
+
+        @if (SelectedProductionOrdersResponse?.ProductionOrderLines != null)
+        {
+            <MudDataGrid T="SapProductionOrderLines" Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+                         FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" MultiSelection="true"
+                         Style="table-layout:auto;"
+                         Items="@SelectedProductionOrdersResponse?.ProductionOrderLines" SelectedItemsChanged="@SelectProductionOrderLines">
+                <Columns>
+                    <SelectColumn T="SapProductionOrderLines" />
+                    <PropertyColumn Title="Sr. No." Style="width: 10%;" Class="width-10" Sortable="true" Property="x => (x.VisualOrder + 1)" />
+                    <PropertyColumn Title="Line No." Style="width: 15%;" Class="width-15" Property="x => x.LineNumber" />
+                    <PropertyColumn Title="Item No." Style="width: 15%;" Class="width-15" Property="x => x.ItemNo" />
+                    <TemplateColumn Title="Item Name" Style="min-width: 400px; max-width: 100%;" Class="min-max-width">
+                        <CellTemplate Context="context">
+                            @(context.Item.ItemName ?? ItemsList.FirstOrDefault(x=>x.ItemCode == context.Item.ItemNo)?.ItemName)
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Title="Issued Qty" Style="width: 15%;" Class="width-15" Property="x => x.IssuedQuantity" />
+                    <PropertyColumn Title="Planned Qty" Style="width: 15%;" Class="width-15" Property="x => x.PlannedQuantity" />
+                    <PropertyColumn Title="Issuing Warehouse" Style="width: 15%;" Class="width-15" Property="x => x.Warehouse" />
+                    <TemplateColumn Title="Stock Unit" Style="width: 15%;" Class="width-15">
+                        <CellTemplate>
+                            @(ItemsList.FirstOrDefault(x=>x.ItemCode == context.Item.ItemNo)?.InventoryUom)
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+
+                <PagerContent>
+                    <MudDataGridPager T="SapProductionOrderLines" />
+                </PagerContent>
+            </MudDataGrid>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Error" OnClick="SubmitProductionOrder">Select Production Order</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public SapProductionOrdersResponse? SelectedProductionOrdersResponse { get; set; }
+    List<SapProductionOrderLines> _selectedItems = [];
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; }
+    List<ItemsResponse> ItemsList = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        ItemsList = await itemsService.GetAllItems() ?? [];
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void SelectProductionOrderLines(HashSet<SapProductionOrderLines> items)
+    {
+        _selectedItems = items.ToList();
+    }
+
+    void SubmitProductionOrder()
+    {
+        if (SelectedProductionOrdersResponse is not null)
+            MudDialog.Close(DialogResult.Ok(_selectedItems));
+    }
+}

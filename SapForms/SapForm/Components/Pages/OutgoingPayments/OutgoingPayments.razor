@@ -1,0 +1,32 @@
+@page "/outgoing-payment"
+@inject SapVendorPaymentService vendorPaymentService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject SapSalesOrdersService SapSalesOrdersService
+@inject InventoryItemsTransferService ItemsTransferRequest
+@inject BusinessPartnerService BusinessPartnerService
+@inject SapPurchaseOrderService PurchaseOrderService
+@inject SapTaxCodesService TaxCodesService
+@inject SapProductionOrdersService SapProductionOrderService
+
+@* 
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+    <div class="d-flex justify-space-between align-center mb-2">
+        <MudText Typo="Typo.h6" Style="color:var(--sap-blue); font-weight:800;">
+            @(productionOrdersResponse.AbsoluteEntry > 0 ? $"Update Production Order #{productionOrdersResponse.DocumentNumber}" : "New Production Order")
+        </MudText>
+        <MudStack Row="true">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SubmitProductionOrder" Disabled="@_loading">
+                @if (_loading)
+                {
+                    <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                }
+                else
+                {
+                    @(productionOrdersResponse.AbsoluteEntry > 0 ? "Update" : "Add")
+                }
+            </MudButton>
+        </MudStack>
+    </div>
+
+</MudContainer> *@

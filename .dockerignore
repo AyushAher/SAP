@@ -1,0 +1,11 @@
+**/.git
+**/.vs
+**/.vscode
+**/bin
+**/obj
+**/TestResults
+**/node_modules
+**/.env
+SapForms/
+sap-ui/node_modules
+sap-ui/dist

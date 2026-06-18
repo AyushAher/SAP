@@ -1,0 +1,135 @@
+name: Deploy SAP Platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - uat
+          - prod
+      branch:
+        description: "Git branch to build and deploy (leave empty to use the branch selected in Run workflow)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build-and-deploy:
+    runs-on: docker
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+          submodules: recursive
+
+      - name: Set deployment variables
+        run: |
+          REGISTRY="${{ secrets.DOCKER_REGISTRY }}"
+          if [ -z "$REGISTRY" ]; then REGISTRY="ayushaher118"; fi
+
+          ENV="${{ github.event.inputs.environment }}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="${ENV}"
+          SHA_TAG="${ENV}-${SHORT_SHA}"
+
+          echo "REGISTRY=${REGISTRY}" >> "$GITHUB_ENV"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "SHA_TAG=${SHA_TAG}" >> "$GITHUB_ENV"
+          echo "ENV=${ENV}" >> "$GITHUB_ENV"
+          echo "API_IMAGE=${REGISTRY}/sap-api:${TAG}" >> "$GITHUB_ENV"
+          echo "UI_IMAGE=${REGISTRY}/sap-ui:${TAG}" >> "$GITHUB_ENV"
+          echo "DEPLOY_DIR=/home/ayush/services/sap-platform" >> "$GITHUB_ENV"
+          echo "COMPOSE_FILE=/home/ayush/services/sap-platform/docker-compose.${ENV}.yml" >> "$GITHUB_ENV"
+          echo "STACK_NAME=sap-platform-${ENV}" >> "$GITHUB_ENV"
+
+          if [ "$ENV" = "uat" ]; then
+            echo "UI_PORT=8081" >> "$GITHUB_ENV"
+          else
+            echo "UI_PORT=8080" >> "$GITHUB_ENV"
+          fi
+
+      - name: Test API
+        run: dotnet test SapApi/tests/SapApi.Tests/SapApi.Tests.csproj -c Debug
+
+      - name: Build UI
+        working-directory: sap-ui
+        run: npm ci && npm run build
+
+      - name: Build and push API image
+        run: |
+          sudo docker build . \
+            --file ./SapApi/Dockerfile \
+            --tag "${API_IMAGE}" \
+            --tag "${REGISTRY}/sap-api:${SHA_TAG}"
+
+          sudo docker push "${API_IMAGE}"
+          sudo docker push "${REGISTRY}/sap-api:${SHA_TAG}"
+
+          if [ "$ENV" = "prod" ]; then
+            sudo docker tag "${API_IMAGE}" "${REGISTRY}/sap-api:latest"
+            sudo docker push "${REGISTRY}/sap-api:latest"
+          fi
+
+      - name: Build and push UI image
+        working-directory: sap-ui
+        run: |
+          sudo docker build . \
+            --build-arg VITE_API_BASE_URL=/api \
+            --tag "${UI_IMAGE}" \
+            --tag "${REGISTRY}/sap-ui:${SHA_TAG}"
+
+          sudo docker push "${UI_IMAGE}"
+          sudo docker push "${REGISTRY}/sap-ui:${SHA_TAG}"
+
+          if [ "$ENV" = "prod" ]; then
+            sudo docker tag "${UI_IMAGE}" "${REGISTRY}/sap-ui:latest"
+            sudo docker push "${REGISTRY}/sap-ui:latest"
+          fi
+
+      - name: Sync compose file to host
+        run: |
+          sudo mkdir -p "${DEPLOY_DIR}"
+          sudo cp "docker-compose.${ENV}.yml" "${COMPOSE_FILE}"
+
+      - name: Deploy stack
+        run: |
+          ENV_FILE="${DEPLOY_DIR}/.env.${ENV}"
+          if [ ! -f "$ENV_FILE" ]; then
+            ENV_FILE="${DEPLOY_DIR}/.env"
+          fi
+          if [ -f "$ENV_FILE" ]; then
+            set -a
+            # shellcheck disable=SC1090
+            source "$ENV_FILE"
+            set +a
+          fi
+
+          export TAG DOCKER_REGISTRY="${REGISTRY}"
+
+          sudo -E docker stack deploy "${STACK_NAME}" \
+            --compose-file "${COMPOSE_FILE}" \
+            --with-registry-auth
+
+      - name: Verify deployment health
+        run: |
+          echo "Waiting for services to become healthy..."
+          sleep 20
+
+          for i in $(seq 1 12); do
+            if curl -fsS "http://localhost:${UI_PORT}/" > /dev/null; then
+              echo "UI is healthy on port ${UI_PORT}"
+              exit 0
+            fi
+            echo "Attempt ${i}/12: UI not ready yet..."
+            sleep 10
+          done
+
+          echo "UI health check failed on port ${UI_PORT}"
+          sudo docker service ls
+          exit 1

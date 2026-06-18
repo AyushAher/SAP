@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Internal Transfer Request</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .container {
+            border: 1px solid #000;
+            padding: 10px;
+        }
+
+        h1,
+        h2,
+        h3 {
+            text-align: center;
+            margin: 5px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid #000;
+        }
+
+        th,
+        td {
+            padding: 6px;
+            font-size: 14px;
+        }
+
+        .no-border {
+            border: none;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .center {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>PRIVILEGE BIKSONS BOILERS PVT. LTD.</h2>
+        <p class="center">
+            Office No.406 Konark Epitome Near Konark Campus Vimanagar, Pune-411014,
+            IN
+        </p>
+
+        <table>
+            <tr>
+                <td><b>PAN NO:</b> AAGCP3764P</td>
+                <td><b>GST NO:</b> 27AAGCP3764P1ZP</td>
+                <td><b>EMAIL:</b> -</td>
+            </tr>
+        </table>
+
+        <h3>Issue For Production Request</h3>
+
+        <table>
+            <tr>
+                <td><b>Request No.:</b> {{documentNo}}</td>
+                <td><b>Request Date:</b> {{documentDate}}</td>
+            </tr>
+            <tr>
+                <td><b>Production No:</b> {{productionNo}}</td>
+                <td><b>Production Date:</b> {{productionDate}}</td>
+            </tr>
+            <tr>
+                <td><b>Worker's Name:</b> </td>
+                <td><b>Issuing Warehouse:</b> {{warehouse}}</td>
+            </tr>
+            
+            <tr colspan="2">
+                <td><b>Drawing No:</b> {{drawingNo}}</td>
+            </tr>
+            <tr colspan="2">
+                <td><b>Product Details:</b> {{productNo}} - {{productName}}</td>
+            </tr>
+
+            <tr>
+                <td colspan="2">
+                    <b>Project Details:</b><br />
+                    {{projectNo}} - {{projectName}}
+                </td>
+            </tr>
+        </table>
+
+        <table>
+            <tr>
+                <th>Sr. No</th>
+                <th>Line Num</th>
+                <th>Part No</th>
+                <th>Description</th>
+                <th>Quantity</th>
+                <th>UOM</th>
+                <th>Weight (KG)</th>
+            </tr>
+            {{@items}}
+            <tr>  
+                <td colspan="3" class="right"><b>Total</b></td>
+                <td class="center"><b>{{totalQty}}</b></td>
+                <td></td>
+                <td class="right"><b>{{totalWeight}}</b></td>
+            </tr>
+        </table>
+
+        <p>
+            <b>User Remark:</b> {{journalRemarks}}
+        </p>
+
+        <table>
+            <tr>
+                <td class="center"><b>Prepared by</b></td>
+                <td class="center"><b>Approved by</b></td>
+                <td class="center"><b>Material Receipt By</b></td>
+            </tr>
+            <tr>
+                <td class="center">{{userName}}</td>
+                <td></td>
+                <td></td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

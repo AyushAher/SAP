@@ -1,0 +1,29 @@
+image: mcr.microsoft.com/dotnet/sdk:9.0
+options:
+  size: 2x
+definitions:
+  services:
+    docker:
+      memory: 3072 # Memory in MB -  allocate 3GB (3072MB) of memory to docker service
+  steps:
+    - step: &test-step
+        runs-on:
+          - self.hosted
+        name: Test cases
+        caches:
+          - dotnetcore
+        script:
+          # - REPORTS_PATH=./test-reports/build_${BITBUCKET_BUILD_NUMBER}
+          # - mkdir $REPORTS_PATH/xml -p
+          # - dotnet tool install --global dotnet-reportgenerator-globaltool --version 5.4.3
+          # - export PATH="$PATH:/root/.dotnet/tools"
+          - dotnet restore
+          - dotnet build --no-restore --configuration Release
+          - dotnet pack --no-restore --configuration Release
+        #   - dotnet test --no-build --configuration Release /p:CollectCoverage=true --collect:"XPlat Code Coverage"
+        #   - reportgenerator  -reports:"**/coverage.cobertura.xml" -targetdir:"$REPORTS_PATH" -reporttypes:Html
+        # artifacts:
+        #   - ./test-reports/**
+pipelines:
+  default:
+    - step: *test-step

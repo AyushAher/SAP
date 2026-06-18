@@ -1,0 +1,615 @@
+﻿@attribute [Authorize]
+@using Org.BouncyCastle.Security
+@using Shared
+@using Shared.Entities
+@using SapForm.Services.Login
+@using Shared.Responses.Sap
+
+@page "/stage-wise-down-payment/{id?}"
+@inject BusinessPartnerService BusinessPartnerService
+@inject SapPurchaseOrderService PurchaseOrderService
+@inject StageWisePaymentService StageWisePaymentService
+@inject SapVendorPaymentService sapVendorPaymentService
+@inject InventoryItemsTransferService ItemsTransferRequest
+@inject Context Context
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+@inject ApprovalService approvalService
+@inject UserSession userSession
+@inject PdfService PdfService
+@inject IDialogService DialogService
+
+@(_showLoader ? "Loading..." : "")
+
+
+@if (_selectedPurchaseOrder is not null)
+{
+    <MudPaper Class="my-4 pa-3 print-head" Elevation="0">
+        <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-4">
+            <MudText Typo="Typo.h4">Payment Request (@(_selectedPurchaseOrder.DocNum))</MudText>
+        </div>
+
+        <MudGrid>
+            <MudItem xs="12" sm="6">        
+                <MudText> Vendor Name: @(_selectedPurchaseOrder.CardName)</MudText>
+                <br />
+                <MudText> Project Details: @(_selectedPurchaseOrder.Project) - @(ProjectDetailsResponses.FirstOrDefault(x => x.ProjectCode == _selectedPurchaseOrder.Project)?.ProjectName)</MudText>
+                <br />
+                <MudText> Basic Amount: @(double.Round(_totalBasic, 2).ToString("N2")) </MudText>
+                <MudText> Tax Amount: @(double.Round(_selectedPurchaseOrder.VatSum ?? 0, 2).ToString("N2"))</MudText>
+                <MudText> Gross Total: @(double.Round(_selectedPurchaseOrder.DocTotal ?? 0, 2).ToString("N2"))</MudText>
+                <br />
+                <MudText> Balance Payment: @double.Round(PoRemainingBalance, 2).ToString("N2") </MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" Class="d-flex justify-end">
+                <MudPaper Class="pa-4 info-section" Elevation="0" Style="width: 100%;">
+                    <MudText Typo="Typo.h6" Class="mb-4" Color="Color.Primary">Payment Summary</MudText>
+
+                    @if (_paymentsSummary.Any())
+                    {
+                        <MudTable Items="@_paymentsSummary" Dense="true" Hover="true" Striped="true" Elevation="0">
+                            <HeaderContent>
+                                <MudTh>Type</MudTh>
+                                <MudTh Align="Align.Right">PO Value</MudTh>
+                                <MudTh Align="Align.Right">Requested</MudTh>
+                                <MudTh Align="Align.Right">Paid</MudTh>
+                                <MudTh Align="Align.Right">Balance</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd><b>@context.Label</b></MudTd>
+                                <MudTd Align="Align.Right">@context.POValue.ToString("N2")</MudTd>
+                                <MudTd Align="Align.Right">@((context.Requested -  context.Paid).ToString("N2"))</MudTd>
+                                <MudTd Align="Align.Right">@context.Paid.ToString("N2")</MudTd>
+                                <MudTd Align="Align.Right">@context.Balance.ToString("N2")</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true">
+                            No payments summary available.
+                        </MudAlert>
+                    }
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+<div class="my-3">
+    <MudDataGrid T="StageWisePayment" Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+                 FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" Items="@TableRecords">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Payment Requests</MudText>
+        </ToolBarContent>
+        <Columns>
+            <PropertyColumn Title="ID" Property="x => x.Id" />
+            <PropertyColumn Title="Request ID" Property="x => x.ApprovalRequestId" />
+            <PropertyColumn Title="Outgoing Payment" Property="x => x.ApDownPaymentInvoiceEntryNumber" />
+            <PropertyColumn Title="Status" Property="x => GetPaymentStatus(x)" />
+            <PropertyColumn Title="AP Invoice Doc Entry" Property="x => x.ApInvoiceDocEntry" />
+            <PropertyColumn Title="Bank" Property="x => Constants.BankAccounts.Banks.FirstOrDefault(y => y.Key == x.Bank).Value ?? x.Bank" />
+            <PropertyColumn Title="Payment Terms" Property="x => _paymentTermsUdfs.FirstOrDefault(y => y.Id == x.PaymentTermsType)!.DropDownValue()" />
+            <PropertyColumn Title="Gross Amount" Property="@(x => ((x.GrossAmount ?? 0)+(x.GstAmount ??0)).ToString("N2"))" />
+            <PropertyColumn Title="Basic Amount" Property="@(x => (x.GrossAmount ?? 0).ToString("N2"))" />
+            <PropertyColumn Title="TDS" Property="@(x => (x.Tds ?? 0).ToString("N2"))" />
+            <PropertyColumn Title="GST" Property="@(x => (x.GstAmount ?? 0).ToString("N2"))" />
+            <PropertyColumn Title="Net Amount" Property="@(x => double.Round((x.GrossAmount ?? 0) - (x.Tds ?? 0), 2).ToString("N2"))" />
+            <TemplateColumn Title="Action">
+                <CellTemplate>
+                    <MudButton Color="Color.Primary" Size="Size.Small" OnClick="() => DownloadLayout(context.Item)">
+                        Download
+                    </MudButton>
+
+                    <MudButton Color="Color.Error" Size="Size.Small" OnClick="() => DeleteStageWisePayment(context.Item)">
+                        Delete
+                    </MudButton>
+                    <MudButton Color="Color.Error" Size="Size.Small" OnClick="() => CancelOutgoingPayment(context.Item)">
+                        Cancel
+                    </MudButton>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+    </MudDataGrid>
+
+</div>
+
+<div class="pa-4 d-flex print-hide" style="width: 100%; justify-items: center; align-items: baseline; gap: 10px;  flex-wrap: wrap;">
+    <MudSelect T="int?" @bind-Value="Entity.PaymentTermsType" SelectedValuesChanged="OnPaymentTermSelectedChanged" Variant="Variant.Filled" Label="Payment Type" Placeholder="Payment Type">
+        @foreach (var paymentTerm in _paymentTermsUdfs)
+        {
+            if (!string.IsNullOrEmpty(paymentTerm.Desc) || paymentTerm.Basic.HasValue || paymentTerm.Gst.HasValue)
+            {
+                <MudSelectItem Value="@paymentTerm.Id">@(paymentTerm.DropDownValue())</MudSelectItem>
+            }
+        }
+    </MudSelect>
+    <MudSelect T="string" @bind-Value="Entity.ApInvoiceDocEntry" Variant="Variant.Filled" Label="AP Invoice" Placeholder="AP Invoice">
+        @if (_selectedPurchaseOrder?.DocumentStatus == "bost_Close" || (_selectedPaymentTermsUdfs?.Type is "Invoice" or "Retention"))
+        {
+            @foreach (var paymentTerm in SapPurchaseInvoicesResponse)
+            {
+                <MudSelectItem Value="@paymentTerm.DocEntry.ToString()">@(paymentTerm.DocNum + ":" + paymentTerm.NumAtCard)</MudSelectItem>
+            }
+        }
+    </MudSelect>
+    <MudTextField T="double?" ReadOnly="true" Disabled="true" Label="AP Invoice Balance" Variant="Variant.Filled" Value="@GetApInvoiceBalanceDue()" />
+    <MudTextField T="double" ReadOnly="true" Disabled="true" Label="Payable" Variant="Variant.Filled" Value="@GetAlreadyPaidAmountForPaymentTerms()" />
+    <MudSelect T="string" @bind-Value="_wtCode" Variant="Variant.Filled" Label="WT Code" Placeholder="WT Code">
+        @foreach (var paymentTerm in BusinessPartnerList.FirstOrDefault(x => x.CardCode == _selectedPurchaseOrder?.CardCode)?.WithholdingTaxDataCollectionResponse ?? [])
+        {
+            <MudSelectItem Value="@paymentTerm.WtCode">@(withholdingTaxDataCollectionResponses.FirstOrDefault(x => x.WtCode == paymentTerm.WtCode)?.WtName)</MudSelectItem>
+        }
+    </MudSelect>
+    <MudSelect T="string" @bind-Value="_bank" Required="true" Variant="Variant.Filled" Label="Bank A/C" Placeholder="Bank A/C">
+        @foreach (var bank in GetAvailableBanks())
+        {
+            <MudSelectItem Value="@bank.Key">@bank.Value</MudSelectItem>
+        }
+    </MudSelect>
+
+    <MudTextField T="double" Label="DownPayment Amount" Required="true" Variant="Variant.Filled" @bind-Value="_downPaymentAmount" />
+    <MudButton ButtonType="ButtonType.Button" Color="Color.Secondary" Variant="Variant.Filled" OnClick="submit">Create</MudButton>
+</div>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    StageWisePayment Entity { get; set; } = new();
+
+    int intId;
+    bool _showLoader;
+    double _totalBasic;
+    double _payableAmount = 0;
+    double _tds = 0;
+    string? _wtCode = "";
+    string? _bank = "";
+    string? _desc = "";
+    double _downPaymentAmount = 0;
+
+    List<SapBusinessPartner> BusinessPartnerList { get; set; } = [];
+    List<SapBranchesResponse> BranchesResponses { get; set; } = [];
+    SapPurchaseInvoicesResponse? SelectedApInvoice => SapPurchaseInvoicesResponse?.FirstOrDefault(x => x.DocEntry.ToString() == Entity?.ApInvoiceDocEntry);
+    GetAllSapPurchaseOrdersResponse? _purchaseOrderList = new();
+    SapPurchaseOrdersResponse? _selectedPurchaseOrder = new();
+    List<StageWisePayment> Records { get; set; } = [];
+    List<StageWisePayment> TableRecords { get; set; } = [];
+    List<PaymentSummary> _paymentsSummary = [];
+    List<ItemsResponse> ItemsList { get; set; } = [];
+    List<SapProjectDetailsResponse> ProjectDetailsResponses { get; set; } = [];
+    List<SapPurchaseInvoicesResponse> SapPurchaseInvoicesResponse { get; set; } = [];
+    List<PaymentTermsUdf> _paymentTermsUdfs = [];
+    List<WithholdingTaxDataCollectionResponse> withholdingTaxDataCollectionResponses = [];
+    PaymentTermsUdf? _selectedPaymentTermsUdfs;
+
+    double PoRemainingBalance => (_selectedPurchaseOrder?.DocTotal ?? 0) - (Records.Sum(x => x.Tds ?? 0) + Records.Sum(x => x.GrossAmount ?? 0));
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(Id))
+        {
+            Snackbar.Add("No Purchase Order selected", Severity.Error);
+            return;
+        }
+
+        _showLoader = true;
+
+        BusinessPartnerList = (await BusinessPartnerService.GetAllBusinessPartners())?.Value ?? [];
+        BranchesResponses = (await PurchaseOrderService.GetAllBplResponse())?.Value ?? [];
+        ProjectDetailsResponses = (await PurchaseOrderService.GetAllProjectDetailsResponse())?.Value ?? [];
+        _selectedPurchaseOrder = await PurchaseOrderService.GetPurchaseOrders(Id);
+        ItemsList = await ItemsTransferRequest.GetAllItems() ?? [];
+        SapPurchaseInvoicesResponse = (await sapVendorPaymentService.GetApInvoices(_selectedPurchaseOrder?.CardCode ?? ""))?.Value ?? [];
+        withholdingTaxDataCollectionResponses = (await BusinessPartnerService.GetAllWithholdingTaxDataCollectionResponse())?.Value ?? [];
+        var apInvoices = SapPurchaseInvoicesResponse?.Where(x => x.BaseEntry == _selectedPurchaseOrder?.DocEntry && x.DocumentStatus == "bost_Open").ToList() ?? [];
+        if (apInvoices.Count == 0)
+        {
+            var grpos = (await sapVendorPaymentService.GetGrpo(_selectedPurchaseOrder?.CardCode ?? ""))?
+            .Value?.Where(x => x.BaseType == 22 && x.BaseEntry is not null
+                && x.BaseEntry == _selectedPurchaseOrder?.DocEntry).ToList();
+
+            foreach (var grpo in grpos ?? [])
+            {
+                apInvoices.AddRange(SapPurchaseInvoicesResponse?.Where(x => x.BaseType == 20
+                && x.BaseEntry is not null && x.BaseEntry == grpo.DocEntry).ToList() ?? []);
+            }
+        }
+
+        SapPurchaseInvoicesResponse = apInvoices;
+
+        if (_selectedPurchaseOrder is not null)
+        {
+            _totalBasic = (_selectedPurchaseOrder.DocTotal ?? 0) - (_selectedPurchaseOrder.VatSum ?? 0);
+            _paymentTermsUdfs = _selectedPurchaseOrder.CreateUdfList();
+            EnsureBankSelectionValid();
+        }
+
+        int.TryParse(Id, out intId);
+        Entity.DocNumber = intId;
+
+        GetRecordsById();
+        _showLoader = false;
+        await base.OnInitializedAsync();
+    }
+
+    void GetRecordsById()
+    {
+        TableRecords = Context.StageWisePayments.Where(x => x.DocNumber == intId).ToList();
+        Records = TableRecords.Where(x => x.Status != StageWisePaymentStatus.Cancelled).ToList();
+        RefreshPaymentSummary();
+    }
+
+    void RefreshPaymentSummary() => _paymentsSummary = BuildPaymentSummary();
+
+    IEnumerable<KeyValuePair<string, string>> GetAvailableBanks() =>
+        Constants.BankAccounts.GetBanksForBplId(_selectedPurchaseOrder?.BPLId);
+
+    void EnsureBankSelectionValid()
+    {
+        if (string.IsNullOrEmpty(_bank))
+            return;
+
+        if (!GetAvailableBanks().Any(b => b.Key == _bank))
+            _bank = null;
+    }
+
+    async Task OpenPaymentSummary()
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(StageWisePaymentSummaryDialog.Payments)] = Records,
+            [nameof(StageWisePaymentSummaryDialog.PaymentTerms)] = _paymentTermsUdfs,
+        };
+
+        await DialogService.ShowAsync<StageWisePaymentSummaryDialog>(
+            "Payment Summary",
+            parameters,
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large });
+    }
+
+    private void OnPaymentTermSelectedChanged()
+    {
+        var paymentTerm = _paymentTermsUdfs.FirstOrDefault(x => x.Id == Entity.PaymentTermsType);
+
+        if (paymentTerm is null)
+        {
+            Snackbar.Add("Payment term not selected");
+            return;
+        }
+
+        _selectedPaymentTermsUdfs = paymentTerm;
+        _desc = paymentTerm.Desc;
+        var alreadyPaidAmtForPaymentTermUdf = Records.Where(x => string.IsNullOrEmpty(x.ApprovalRequestId) && x.PaymentTermsType == paymentTerm.Id).Sum(x => x.GrossAmount ?? 0)
+                                              + Records.Where(x => string.IsNullOrEmpty(x.ApprovalRequestId) && x.PaymentTermsType == paymentTerm.Id).Sum(x => x.GstAmount ?? 0);
+
+        if (paymentTerm.Type is "Invoice" or "Retention")
+        {
+            _payableAmount = GetApInvoiceBalanceDue();
+        }
+        else
+        {
+            _payableAmount = double.Round(
+                (_totalBasic * (paymentTerm.Basic ?? 0) / 100) +
+                ((_selectedPurchaseOrder?.VatSum ?? 0) * (paymentTerm.Gst ?? 0) / 100) -
+                alreadyPaidAmtForPaymentTermUdf,
+                2
+            );
+        }
+
+        if (!(paymentTerm.Type is "Invoice" or "Retention"))
+        {
+            Entity.ApInvoiceDocEntry = null;
+        }
+    }
+
+    private async Task submit()
+    {
+        if (_selectedPaymentTermsUdfs?.Type is "Invoice" or "Retention")
+        {
+            if (string.IsNullOrEmpty(Entity.ApInvoiceDocEntry))
+            {
+                Snackbar.Add("AP Invoice is mandatory for selected payment term!", Severity.Error);
+                return;
+            }
+
+            var balanceDue = GetApInvoiceBalanceDue();
+            if (_downPaymentAmount > (balanceDue))
+            {
+                Snackbar.Add($"Payable must not exceed AP Invoice Balance Due of {balanceDue}!", Severity.Error);
+                return;
+            }
+        }
+        if (string.IsNullOrEmpty(_bank))
+        {
+            Snackbar.Add($"Please select bank!", Severity.Error);
+            return;
+        }
+
+
+        Entity.Bank = _bank;
+
+        var (success, message) = await StageWisePaymentService.CreateStageWisePayment(Entity, _selectedPurchaseOrder, _selectedPaymentTermsUdfs, _downPaymentAmount, _totalBasic, GetAlreadyPaidAmountForPaymentTerms(), _wtCode, _desc, Records);
+        if (!string.IsNullOrEmpty(message))
+            Snackbar.Add(message, success ? Severity.Success : Severity.Error);
+        GetRecordsById();
+        Entity = new();
+        Entity.DocNumber = intId;
+        _payableAmount = 0;
+        _bank = null;
+        _tds = 0;
+        _wtCode = "";
+        _bank = "";
+        _desc = "";
+        _downPaymentAmount = 0;
+        _selectedPaymentTermsUdfs = null;
+    }
+
+    private async Task DownloadLayout(StageWisePayment record)
+    {
+        await DownloadPdf(record);
+    }
+
+    async Task DownloadPdf(StageWisePayment record)
+    {
+        var html = await GenerateHtml(record);
+        var pdfBytes = PdfService.GeneratePdfFromHtml(html);
+        var base64 = Convert.ToBase64String(pdfBytes);
+
+        await JSRuntime.InvokeVoidAsync("auth.downloadFile", $"Payment Requisition({record.ApDownPaymentInvoiceEntryNumber ?? record.Id.ToString()}).pdf", base64);
+    }
+
+    async Task<string> GenerateHtml(StageWisePayment record)
+    {
+        // var order = SapInventoryGenExitRequestOrderLines?.ProductionOrder;
+        var lines = _selectedPurchaseOrder?.DocumentLines ?? [];
+        var rows = string.Empty;
+        double totalQty = 0;
+        double totalLineGrandTotal = 0;
+
+        var recordApInvoice = SapPurchaseInvoicesResponse.FirstOrDefault(x => x.DocEntry.ToString() == record.ApInvoiceDocEntry);
+        var html = await System.IO.File.ReadAllTextAsync(Path.Join(Directory.GetCurrentDirectory(), "wwwroot", "outgoing-payment-template.html"));
+        
+
+        var finalHtml = html
+             .Replace("{{gstTotal}}", _selectedPurchaseOrder?.VatSum?.ToString("N2") ?? "")
+             .Replace("{{basicTotal}}", _totalBasic.ToString("N2") ?? "")
+             .Replace("{{grossAmount}}", ((record.GrossAmount ?? 0) + (record.GstAmount ?? 0)).ToString("N2"))
+             .Replace("{{grossTotal}}", _selectedPurchaseOrder?.DocTotal?.ToString("N2") ?? "")
+             .Replace("{{outgoingPaymentValue}}", ((record.GrossAmount ?? 0) + (record.GstAmount ?? 0) - (record.Tds ?? 0)).ToString("N2"))
+             .Replace("{{outgoingPaymentValueInWords}}", AmountInWords.ConvertToWords(((record.GrossAmount ?? 0) + (record.GstAmount ?? 0) - (record.Tds ?? 0))))
+             .Replace("{{paymentTerm}}", record.StageDesc)
+             .Replace("{{vendor}}", ((_selectedPurchaseOrder?.CardCode ?? "") + " - " + (_selectedPurchaseOrder?.CardName ?? "")))
+             .Replace("{{documentNo}}", _selectedPurchaseOrder?.DocNum.ToString())
+             .Replace("{{documentDate}}", _selectedPurchaseOrder?.DocDate?.ToString("dd/MM/yyyy"))
+             .Replace("{{projectName}}", ProjectDetailsResponses.FirstOrDefault(x => x.ProjectCode == _selectedPurchaseOrder?.Project)?.ProjectName ?? "")
+             .Replace("{{projectNo}}", _selectedPurchaseOrder?.Project ?? "")
+             .Replace("{{reqId}}", record.ApprovalRequestId ?? "")
+             .Replace("{{reqDate}}", record.ApprovalRequestId is not null ? (record.CreatedOn.ToString("dd/MM/yyyy") ?? "") : "")
+             .Replace("{{totalQty}}", totalQty.ToString("N2"))
+             .Replace("{{totalLineGrandTotal}}", totalLineGrandTotal.ToString("N2"))
+             .Replace("{{journalRemarks}}", "Auto generated from system")
+             .Replace("{{bank}}", Constants.BankAccounts.Banks.FirstOrDefault(x => x.Key == record.Bank).Value ?? record.Bank)
+             .Replace("{{paymentType}}", (_paymentTermsUdfs.FirstOrDefault(x => x.Id == record?.PaymentTermsType)?.Type is "Invoice" or "Retention" ? "Outgoing Payment Request" : "Downpayment Request"))
+             .Replace("{{apInvoiceDocEntry}}", (recordApInvoice?.NumAtCard ?? ""))
+             .Replace("{{apBalanceDue}}", ((recordApInvoice?.DocTotal ?? 0) - (recordApInvoice?.PaidToDate ?? 0)).ToString("N2"))
+             .Replace("{{bplName}}", (BranchesResponses.FirstOrDefault(x => x.BplId == _selectedPurchaseOrder?.BPLId)?.BplName))
+             .Replace("{{bplAddr}}", (BranchesResponses.FirstOrDefault(x => x.BplId == _selectedPurchaseOrder?.BPLId)?.Address))
+             .Replace("{{bplGst}}", (BranchesResponses.FirstOrDefault(x => x.BplId == _selectedPurchaseOrder?.BPLId)?.FederalTaxID))
+             .Replace("{{bplPan}}", (BranchesResponses.FirstOrDefault(x => x.BplId == _selectedPurchaseOrder?.BPLId)?.PanNo))
+             .Replace("{{userName}}", await userSession.GetUserNameAsync());
+
+        if(recordApInvoice?.WithholdingTaxDataCollection is not null && recordApInvoice.WithholdingTaxDataCollection.Count> 0) 
+        {
+            var wtCode = recordApInvoice.WithholdingTaxDataCollection.FirstOrDefault()?.WtCode ?? "";
+            var wtName = recordApInvoice.WithholdingTaxDataCollection.FirstOrDefault()?.WtName ?? "";
+            var wtRate = recordApInvoice.WithholdingTaxDataCollection.FirstOrDefault()?.Rate ?? 0;
+            finalHtml = finalHtml
+             .Replace("{{wtCode}}", wtCode ?? "-")
+             .Replace("{{wtName}}", wtName ?? "-")
+             .Replace("{{wtAmount}}", (recordApInvoice.WTAmount ?? 0).ToString("N2"))
+             .Replace("{{wtRate}}", (wtRate.ToString("N2") ?? "-") + "%");
+        }
+        else
+        {
+            finalHtml = finalHtml.Replace("{{wtName}}", withholdingTaxDataCollectionResponses.FirstOrDefault(x => x.WtCode == record.WtCode)?.WtName ?? "-")
+             .Replace("{{wtRate}}", (withholdingTaxDataCollectionResponses.FirstOrDefault(x => x.WtCode == record.WtCode)?.Rate?.ToString("N2") ?? "-") + "%")
+             .Replace("{{wtAmount}}", (record.Tds ?? 0).ToString("N2"))
+             .Replace("{{wtCode}}", record.WtCode ?? "-");
+        }
+        return finalHtml;
+    }
+
+    private async Task DeleteStageWisePayment(StageWisePayment record)
+    {
+        var shouldDelete = await DialogService.ShowMessageBox("Confirm Delete",
+             "Are you sure you want to delete this request?",
+             yesText: "Delete", cancelText: "Cancel",
+              options: new DialogOptions()
+              {
+                  FullWidth = true,
+                  MaxWidth = MaxWidth.ExtraSmall
+              });
+        
+        if (!shouldDelete.HasValue || !shouldDelete.Value)
+        {
+            return;
+        }
+
+        var (success, message) = await StageWisePaymentService.DeleteStageWisePayment(record);
+        if (!string.IsNullOrEmpty(message))
+            Snackbar.Add(message, success ? Severity.Success : Severity.Error);
+        GetRecordsById();
+    }
+    
+    double GetApInvoiceBalanceDue()
+    {
+        if (_selectedPurchaseOrder?.DocumentStatus != "bost_Close" && _selectedPaymentTermsUdfs?.Type is not "Invoice" and not "Retention")
+        {
+            return 0;
+        }
+        var sapBalance = (SelectedApInvoice?.DocTotal ?? 0) - (SelectedApInvoice?.PaidToDate ?? 0) + (SelectedApInvoice?.WTAmount ?? 0);
+        var usedAmount = Records
+            .Where(x => x.ApInvoiceDocEntry == Entity.ApInvoiceDocEntry
+                && string.IsNullOrEmpty(x.ApDownPaymentInvoiceEntryNumber))
+            .Sum(x => (x.GrossAmount ?? 0) + (x.GstAmount ?? 0));
+
+        return double.Round(sapBalance - usedAmount, 2);
+    }
+
+    double GetPayableAmount(int? paymentTermId = null)
+    {
+        var paymentTerm = _paymentTermsUdfs.FirstOrDefault(x => x.Id == (paymentTermId ?? Entity.PaymentTermsType));
+        var payable = 0.0;
+
+        if (paymentTerm is null)
+        {
+            return 0;
+        }
+        if (paymentTermId is not null)
+        {
+            _selectedPaymentTermsUdfs = _paymentTermsUdfs.FirstOrDefault(x => x.Id == Entity.PaymentTermsType);
+            _desc = _paymentTermsUdfs.FirstOrDefault(x => x.Id == Entity.PaymentTermsType)?.Desc;
+        }
+
+        var alreadyPaidAmtForPaymentTermUdf = Records.Where(x => x.PaymentTermsType == paymentTerm.Id).Sum(x => x.GrossAmount ?? 0)
+                                              + Records.Where(x => x.PaymentTermsType == paymentTerm.Id).Sum(x => x.GstAmount ?? 0);
+
+        payable = double.Round(
+            ((_totalBasic * (paymentTerm.Basic ?? 0)) / 100) +
+            (((_selectedPurchaseOrder?.VatSum ?? 0) * (paymentTerm.Gst ?? 0)) / 100) -
+            alreadyPaidAmtForPaymentTermUdf,
+            2
+        );
+
+        return payable;
+    }
+
+    private double GetAlreadyPaidAmountForPaymentTerms()
+    {
+        var negativePayableAmount = 0.0;
+        List<int> ids = [];
+        var selectedPaymentTermPayable = GetPayableAmount();
+        
+        foreach (var paymentTerm in _paymentTermsUdfs)
+        {
+            if (_selectedPaymentTermsUdfs?.Id == paymentTerm.Id)
+            {
+                continue;
+            }
+
+            var payableAmt = GetPayableAmount(paymentTerm.Id);
+            if (payableAmt < 0 && paymentTerm.Id is not null)
+            {
+                negativePayableAmount += payableAmt;
+                ids.Add(paymentTerm.Id.Value);
+            }
+        }
+        if (ids.Contains(Entity?.PaymentTermsType ?? 0))
+        {
+            return GetPayableAmount();
+        }
+        else if (ids.Count > 0 && (ids.Max() + 1) == Entity?.PaymentTermsType)
+        {
+            return selectedPaymentTermPayable + negativePayableAmount;
+        }
+ 
+        return selectedPaymentTermPayable;
+    }
+    private async Task CancelOutgoingPayment(StageWisePayment record)
+    {
+        var shouldCancel = await DialogService.ShowMessageBox("Confirm Cancel",
+             "Are you sure you want to cancel this payment request?",
+             yesText: "Cancel Payment", cancelText: "Keep Payment",
+              options: new DialogOptions()
+              {
+                  FullWidth = true,
+                  MaxWidth = MaxWidth.ExtraSmall
+              });
+        
+        if (!shouldCancel.HasValue || !shouldCancel.Value)
+        {
+            return;
+        }
+
+        var (_, operations) = await StageWisePaymentService.CancelOutgoingPayment(record);
+        foreach (var (opSuccess, message) in operations)
+        {
+            if (!string.IsNullOrEmpty(message))
+                Snackbar.Add(message, opSuccess ? Severity.Success : Severity.Error);
+        }
+
+        GetRecordsById();
+    }
+
+    string GetPaymentStatus(StageWisePayment record)
+    {
+        switch (record.Status)
+        {
+            case StageWisePaymentStatus.PendingApproval:
+                return "Approval Pending";
+            case StageWisePaymentStatus.Approved:
+                return "Approved";
+            case StageWisePaymentStatus.Added:
+                return "Created";
+            case StageWisePaymentStatus.Cancelled:
+                return "Cancelled";
+            default:
+                return record.Status.ToString();
+        }
+    }
+
+    List<PaymentSummary> BuildPaymentSummary()
+    {
+        if (_selectedPurchaseOrder is null)
+            return [];
+
+        var poPayments = Records;
+
+        static bool IsPaid(StageWisePayment p) =>
+            !string.IsNullOrEmpty(p.ApDownPaymentInvoiceEntryNumber)
+            && (p.Status == StageWisePaymentStatus.Approved || p.Status == StageWisePaymentStatus.Added);
+
+        var poBasic = (_selectedPurchaseOrder?.DocTotal ?? 0) - (_selectedPurchaseOrder?.VatSum ?? 0);
+        var poTax = _selectedPurchaseOrder?.VatSum ?? 0;
+        var poTotal = _selectedPurchaseOrder?.DocTotal ?? 0;
+
+        var basicRequested = poPayments.Sum(p => p.GrossAmount ?? 0);
+        var taxRequested = poPayments.Sum(p => p.GstAmount ?? 0);
+        var basicPaid = poPayments.Where(IsPaid).Sum(p => p.GrossAmount ?? 0);
+        var taxPaid = poPayments.Where(IsPaid).Sum(p => p.GstAmount ?? 0);
+
+        return
+        [
+            new PaymentSummary
+            {
+                Label = "Basic",
+                POValue = poBasic,
+                Requested = basicRequested,
+                Paid = basicPaid,
+            },
+            new PaymentSummary
+            {
+                Label = "Tax",
+                POValue = poTax,
+                Requested = taxRequested,
+                Paid = taxPaid,
+            },
+            new PaymentSummary
+            {
+                Label = "Total",
+                POValue = poTotal,
+                Requested = basicRequested + taxRequested,
+                Paid = basicPaid + taxPaid,
+            },
+        ];
+    }
+
+    class PaymentSummary
+    {
+        public string Label { get; set; } = "";
+        public double POValue { get; set; }
+        public double Requested { get; set; }
+        public double Paid { get; set; }
+        public double Balance => POValue - Paid;
+    }
+
+}

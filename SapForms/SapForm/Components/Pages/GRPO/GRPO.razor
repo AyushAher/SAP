@@ -1,0 +1,230 @@
+﻿@page "/grpo"
+
+@inject SapPurchaseOrderService SapService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<style>
+    :root {
+        --sap-green: #28a745;
+        --sap-blue: #00549E;
+        --sap-light-bg: #f7f9fc;
+        --sap-border: #dee2e6;
+    }
+
+    .sap-container {
+        font-size: 0.85rem !important;
+        background-color: var(--sap-light-bg);
+        min-height: 100vh;
+        padding-bottom: 50px;
+    }
+
+    .action-bar {
+        background: white;
+        border-bottom: 2px solid var(--sap-green);
+        padding: 12px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .sap-header-text {
+        color: var(--sap-blue);
+        font-weight: 800;
+        letter-spacing: -0.5px;
+    }
+
+    .sap-card {
+        background: white;
+        border-radius: 8px !important;
+        border: 1px solid var(--sap-border);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+    }
+
+    .total-box {
+        background: #f1f8f1;
+        border-left: 4px solid var(--sap-green);
+        border-radius: 4px;
+    }
+
+    .doc-total-text {
+        color: var(--sap-green);
+        font-weight: 900;
+    }
+</style>
+
+<div class="sap-container">
+    <div class="action-bar mb-6">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge">
+            <div class="d-flex align-center justify-space-between">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.caption" Style="color: #777; font-weight: 600;">PURCHASING / INVENTORY</MudText>
+                    <div class="d-flex align-center">
+                        <MudText Typo="Typo.h5" Class="sap-header-text">Goods Receipt PO</MudText>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Class="ml-3">
+                            @(IsCopyMode ? $"COPY FROM PO: {BaseDocNum}" : "NEW DRAFT")
+                        </MudChip>
+                    </div>
+                </MudStack>
+                <MudStack Row="true" Spacing="3">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => Navigation.NavigateTo("/purchase-order-list"))">BACK TO PO</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Medium" OnClick="SubmitGRPO" StartIcon="@Icons.Material.Filled.CheckCircle" Style="font-weight: 700; padding: 10px 24px;">POST GRPO TO SAP</MudButton>
+                </MudStack>
+            </div>
+        </MudContainer>
+    </div>
+
+    <MudContainer MaxWidth="MaxWidth.ExtraLarge">
+        <MudGrid Spacing="3">
+            @* Header Section *@
+            <MudItem xs="12">
+                <MudPaper Class="pa-6 sap-card">
+                    <MudGrid Spacing="4">
+                        <MudItem xs="12" md="7">
+                            <MudText Typo="Typo.subtitle2" Class="mb-3" Style="color: var(--sap-blue); font-weight: 700;">VENDOR DETAILS</MudText>
+                            <MudGrid Spacing="2">
+                                <MudItem xs="12">
+                                    <MudTextField T="string" Label="Vendor Code" @bind-Value="grpo.CardCode" ReadOnly="true" Variant="Variant.Filled" Margin="Margin.Dense" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudTextField T="string" Label="Vendor Name" @bind-Value="grpo.CardName" ReadOnly="true" Variant="Variant.Filled" Margin="Margin.Dense" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudTextField T="string" Label="Vendor Reference No." @bind-Value="grpo.NumAtCard" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                </MudItem>
+                            </MudGrid>
+                        </MudItem>
+                        <MudItem xs="12" md="5">
+                            <MudText Typo="Typo.subtitle2" Class="mb-3" Style="color: var(--sap-blue); font-weight: 700;">DOCUMENT DATES</MudText>
+                            <MudStack Spacing="1">
+                                <MudDatePicker Label="Posting Date" @bind-Date="grpo.DocDate" Variant="Variant.Outlined" Margin="Margin.Dense" Color="Color.Success" />
+                                <MudDatePicker Label="Due Date" @bind-Date="grpo.DocDueDate" Variant="Variant.Outlined" Margin="Margin.Dense" Color="Color.Success" />
+                                <MudDatePicker Label="Document Date" @bind-Date="grpo.TaxDate" Variant="Variant.Outlined" Margin="Margin.Dense" Color="Color.Success" />
+                            </MudStack>
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+            </MudItem>
+
+            @* Line Items Section *@
+            <MudItem xs="12">
+                <MudTabs Elevation="0" Outlined="true" Color="Color.Success" Rounded="true" Class="sap-card">
+                    <MudTabPanel Text="ITEM CONTENTS" Icon="@Icons.Material.Filled.Inventory">
+                        <MudTable Items="@grpo.DocumentLines" Dense="true" Hover="true" FixedHeader="true" Height="350px">
+                            <HeaderContent>
+                                <MudTh>#</MudTh>
+                                <MudTh>ITEM CODE</MudTh>
+                                <MudTh>QTY TO RECEIVE</MudTh>
+                                <MudTh>UNIT PRICE</MudTh>
+                                <MudTh>DISC %</MudTh>
+                                <MudTh>TAX CODE</MudTh>
+                                <MudTh Style="text-align:right">LINE TOTAL (NET)</MudTh>
+                                <MudTh>BASE PO REF</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@(grpo.DocumentLines.IndexOf(context) + 1)</MudTd>
+                                <MudTd>@context.ItemCode</MudTd>
+                                <MudTd>
+                                    <MudNumericField T="double" @bind-Value="context.Quantity" Margin="Margin.Dense" Variant="Variant.Outlined" Style="width:100px" />
+                                </MudTd>
+                                <MudTd>₹ @context.UnitPrice.ToString("N2")</MudTd>
+                                <MudTd>@context.DiscountPercent%</MudTd>
+                                <MudTd>@context.TaxCode</MudTd>
+                                <MudTd Style="text-align:right; font-weight:700">
+                                    @* FIX FOR CS1662: Ensure calculation is string-converted inside the block *@
+                                    ₹ @(((context.Quantity * context.UnitPrice) * (1 - (context.DiscountPercent / 100.0))).ToString("N2"))
+                                </MudTd>
+                                <MudTd>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text">PO: @BaseDocNum / Line: @context.BaseLine</MudChip>
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </MudTabPanel>
+                </MudTabs>
+            </MudItem>
+
+            @* Footer Totals *@
+            <MudItem xs="12" md="7">
+                <MudPaper Class="pa-4 sap-card" Style="height: 100%;">
+                    <MudTextField T="string" Label="Remarks" @bind-Value="grpo.Comments" Variant="Variant.Outlined" Lines="5" />
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" md="5">
+                <MudPaper Class="pa-6 sap-card total-box">
+                    <MudStack Spacing="2">
+                        <div class="d-flex justify-space-between"><MudText Typo="Typo.body2">Sub-Total (After Discount)</MudText><MudText Typo="Typo.body1">₹ @GetTaxableAmount().ToString("N2")</MudText></div>
+                        <div class="d-flex justify-space-between"><MudText Typo="Typo.body2">Tax (GST 18%)</MudText><MudText Typo="Typo.body1">₹ @GetTaxAmount().ToString("N2")</MudText></div>
+                        <MudDivider Class="my-3" />
+                        <div class="d-flex justify-space-between align-center">
+                            <MudText Typo="Typo.h5" Class="doc-total-text">GRPO TOTAL</MudText>
+                            <MudText Typo="Typo.h5" Class="doc-total-text">₹ @GetDocumentTotal().ToString("N2")</MudText>
+                        </div>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    </MudContainer>
+</div>
+
+@code {
+    [Parameter][SupplyParameterFromQuery(Name = "fromPo")] public int fromPo { get; set; }
+
+    private SapPurchaseOrdersResponse grpo = new();
+    private string BaseDocNum = "";
+    private bool IsCopyMode => fromPo > 0;
+
+    private double GetTaxableAmount() => grpo.DocumentLines?.Sum(x => (x.Quantity * x.UnitPrice) * (1 - (x.DiscountPercent / 100.0))) ?? 0;
+    private double GetTaxAmount() => GetTaxableAmount() * 0.18;
+    private double GetDocumentTotal() => GetTaxableAmount() + GetTaxAmount();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsCopyMode)
+        {
+            // Notation: Item master creation fetch
+            var sourcePO = await SapService.GetPurchaseOrders(fromPo.ToString());
+
+            if (sourcePO != null)
+            {
+                BaseDocNum = sourcePO.DocNum.ToString();
+                grpo.CardCode = sourcePO.CardCode;
+                grpo.CardName = sourcePO.CardName;
+                grpo.NumAtCard = sourcePO.NumAtCard;
+                grpo.DocDate = DateTime.Now;
+                grpo.DocDueDate = DateTime.Now;
+                grpo.TaxDate = DateTime.Now;
+                grpo.Comments = $"Based on Purchase Order {sourcePO.DocNum}.";
+                grpo.DocumentLines = [];
+
+                foreach (var line in sourcePO.DocumentLines ?? [])
+                {
+                    grpo.DocumentLines.Add(new SapInventoryTransferItemsRequests
+                    {
+                        ItemCode = line.ItemCode,
+                        Quantity = line.Quantity,
+                        UnitPrice = line.UnitPrice,
+                        WarehouseCode = line.WarehouseCode,
+                        TaxCode = line.TaxCode,
+                        DiscountPercent = line.DiscountPercent,
+                        BaseType = 22,
+                        BaseEntry = sourcePO.DocEntry ?? 0,
+                        BaseLine = line.LineNum
+                    });
+                }
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task SubmitGRPO()
+    {
+        var response = await SapService.CreateGrpo(grpo);
+        if (string.IsNullOrEmpty(response?.Error?.Message?.Value))
+        {
+            Snackbar.Add("Goods Receipt PO Created successfully!", Severity.Success);
+            Navigation.NavigateTo("/purchase-order");
+        }
+        else
+        {
+            Snackbar.Add("Error creating GRPO. Check Service Layer logs.", Severity.Error);
+        }
+    }
+}

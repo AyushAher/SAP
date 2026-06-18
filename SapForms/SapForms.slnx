@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
+  <Project Path="SapForm/SapForm.csproj" />
+  <Project Path="Shared/Shared.csproj" Id="8d70f7dc-aef2-4999-8f2b-9a1e0db57696" />
+</Solution>

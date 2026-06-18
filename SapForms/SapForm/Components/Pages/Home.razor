@@ -1,0 +1,16 @@
+﻿@attribute [Authorize]
+@page "/"
+@using Hangfire
+
+<MudText Typo="Typo.h3"> Welcome! </MudText>
+
+@code {
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        RecurringJob.AddOrUpdate<CacheRefreshJob>(
+                    "refresh-sap-cache",
+                    j => j.RefreshAsync(),
+                    Cron.Hourly);
+    }
+}

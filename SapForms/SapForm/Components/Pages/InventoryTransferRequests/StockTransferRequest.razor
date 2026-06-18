@@ -1,0 +1,270 @@
+﻿@attribute [Authorize]
+@using Shared.Responses.Sap
+@page "/stock-transfer-request/{id?}"
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject InventoryItemsTransferService itemsTransferRequest
+@inject BusinessPartnerService businessPartnerService
+
+<div class="my-4">
+    <h2>Inventory Transfer Request Details</h2>
+
+    <MudPaper Elevation="0" Style="">
+
+        <div style="display:flex;justify-content: space-between;align-items: flex-start;gap:5%;">
+            <div style="width: 100%">
+                <MudAutocomplete @bind-Value="_transferList.CardCode" SearchFunc="SearchBusinessPartner" Disabled="@(Id is not null)"
+                                 Label="Business Partner Code" Margin="_margin" Clearable="true" Modal="true" />
+
+                <MudSelect T="string" @bind-Value="_transferList.DutyStatus"
+                           Margin="Margin.None"
+                           Label="Duty Status">
+                    <MudSelectItem T="string" Value="@Shared.Constants.SapBoolean.SapTrue"
+                                   Margin="Margin.None">
+                        With Payment Of Duty
+                    </MudSelectItem>
+
+                    <MudSelectItem T="string" Value="@Shared.Constants.SapBoolean.SapFalse"
+                                   Margin="Margin.None">
+                        Without Payment Of Duty
+                    </MudSelectItem>
+                </MudSelect>
+                <MudAutocomplete @bind-Value="_transferList.FromWarehouse" SearchFunc="SearchWarehouse" Label="From Warehouse"
+                                 Margin="_margin" Clearable="true" Modal="true" />
+                <MudAutocomplete @bind-Value="_transferList.ToWarehouse" SearchFunc="SearchWarehouse" Label="To Warehouse"
+                                 Margin="_margin" Clearable="true" Modal="true" />
+            </div>
+            <div style="width: 100%">
+                <MudDatePicker Label="Due Date" @bind-Date="_transferList.DueDate" For="() => _transferList.DueDate" />
+                <MudDatePicker Label="Doc Date" @bind-Date="_transferList.DocDate" For="() => _transferList.DocDate" />
+                <MudTextField T="int?" Label="SalesPersonCode" @bind-Value="_transferList.SalesPersonCode" For="() => _transferList.SalesPersonCode" />
+                <MudTextField T="string" Label="Journal Memo" @bind-Value="_transferList.JournalMemo" For="() => _transferList.JournalMemo" />
+            </div>
+        </div>
+        <MudTextField T="string" Label="Comments" @bind-Value="_transferList.Comments" For="() => _transferList.Comments" />
+
+    </MudPaper>
+</div>
+
+
+
+<div class="my-3">
+    <MudForm @ref="form" @bind-IsValid="@success" @bind-Errors="@errors">
+        <h2 class="mt-4">Add Items to the Transfer Request</h2>
+        <MudPaper Elevation="0" Class="pa-4 d-flex" Style="width: 100%; justify-items: center; align-items: baseline; gap: 10px;">
+            <MudAutocomplete @bind-Value="_modal.ItemCode" SearchFunc="SearchItemCodes" Label="Item Code" Margin="_margin" Clearable="true" Modal="true" />
+
+            <MudTextField Disabled Value="_itemsList.FirstOrDefault(x => x.ItemCode == _modal.ItemCode)?.ItemName" Label="Item Description"
+                          Margin="_margin" />
+
+            <MudAutocomplete @bind-Value="_modal.FromWarehouseCode" SearchFunc="SearchWarehouse" Label="From Warehouse" Margin="_margin"
+                             Clearable="true" Modal="true" />
+
+            <MudAutocomplete @bind-Value="_modal.WarehouseCode" SearchFunc="SearchWarehouse" Label="To Warehouse" Margin="_margin"
+                             Clearable="true" Modal="true" />
+
+            <MudTextField T="double" Label="Quantity" @bind-Value="_modal.Quantity" For="() => _modal.Quantity"
+                          InputType="InputType.Number" Required="true" RequiredError="Quantity is required!" />
+
+            <MudTextField T="double" Label="Price Per Unit" @bind-Value="_modal.UnitPrice" For="() => _modal.UnitPrice" InputType="InputType.Number"
+                          Required="true" RequiredError="UnitPrice is required!" />
+            <div class="d-flex align-center justify-space-between">
+                <MudButton OnClick="AddItem" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!success)" Class="ml-auto">Add Item</MudButton>
+            </div>
+        </MudPaper>
+
+        <div class="mt-4">
+            <MudDataGrid T="SapInventoryTransferItemsRequests" MultiSelection="true" Items="@_transferList.StockTransferLines"
+                         Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+                         FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" SelectedItemsChanged="@SelectedItemsChanged">
+                <ToolBarContent>
+                    <MudText Typo="Typo.h6">Transfer Items</MudText>
+                    <MudSpacer />
+                    <MudButton OnClick="RemoveItems" Variant="Variant.Filled" Color="Color.Error" Class="ml-auto">Remove Selected Items</MudButton>
+                </ToolBarContent>
+                <Columns>
+                    <SelectColumn T="SapInventoryTransferItemsRequests" />
+                    <PropertyColumn Title="Item Code" Property="x => x.ItemCode" Sortable="true" />
+                    <PropertyColumn Title="Item Description" Property="@(x => (x.ItemDescription ?? _itemsList.FirstOrDefault(item => x.ItemCode == item.ItemCode)!.ItemName))" Sortable="true" />
+                    <PropertyColumn Title="From Warehouse" Property="x => x.FromWarehouseCode" Sortable="true" />
+                    <PropertyColumn Title="To Warehouse" Property="x => x.WarehouseCode" Sortable="true" />
+                    <PropertyColumn Property="x => x.Quantity" />
+                    <PropertyColumn Title="Unit Price" Property="x => x.UnitPrice" />
+                </Columns>
+            </MudDataGrid>
+        </div>
+
+        <MudButton OnClick="CreateTransferItemsRequest" Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_transferList.StockTransferLines?.Count <= 0)" Class="ml-auto mt-3">
+            @if (showLoader)
+            {
+                <MudProgressCircular Color="Color.Default" Indeterminate="true" />
+            }
+
+            @buttonText Request
+        </MudButton>
+
+    </MudForm>
+</div>
+
+
+@if (intId > 0)
+{
+
+    @if (intId > 1)
+    {
+        <MudButton OnClick="@(PreviousRecord)" Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto mt-3 me-3">
+            Previous
+        </MudButton>
+    }
+
+    <MudButton OnClick="@(NextRecord)" Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto mt-3 mx-3">
+        Next
+    </MudButton>
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    int? intId => string.IsNullOrEmpty(Id) ? 0 : int.Parse(Id);
+    string buttonText => string.IsNullOrEmpty(Id) ? "Create " : "Update ";
+
+    SapInventoryTransferItemsRequests _modal { get; set; } = new();
+    SapInventoryTransferRequestsRequest _transferList { get; set; } = new();
+    List<SapInventoryTransferItemsRequests> _selectedItems { get; set; } = [];
+
+    List<ItemsResponse> _itemsList { get; set; } = [];
+    List<WarehouseResponse> _warehouseList { get; set; } = [];
+    List<SapBusinessPartner> _businessPartnerList { get; set; } = [];
+
+    bool success;
+    private readonly Margin _margin = Margin.None;
+
+    string[] errors = { };
+    MudForm? form;
+    bool showLoader = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        showLoader = true;
+        _itemsList = await itemsTransferRequest.GetAllItems() ?? [];
+        _warehouseList = await itemsTransferRequest.GetAllWarehouses() ?? [];
+        _businessPartnerList = (await businessPartnerService.GetAllBusinessPartners())?.Value ?? [];
+
+        if (!string.IsNullOrEmpty(Id))
+        {
+            _transferList = (await itemsTransferRequest.GetInventoryTransferRequests(Id))?.GetRequestClass() ?? throw new ApiErrorException("Record not found");
+        }
+
+        showLoader = false;
+
+        await base.OnInitializedAsync();
+    }
+
+    async void PreviousRecord()
+    {
+        if (intId is null) return;
+        Nav.NavigateTo($"/stock-transfer-request/{intId - 1}");
+        Id = (intId - 1).ToString();
+        _transferList = (await itemsTransferRequest.GetInventoryTransferRequests(Id ?? throw new ApiErrorException("Record not found")))?.GetRequestClass() ?? throw new ApiErrorException("Record not found");
+
+
+    }
+    async Task NextRecord()
+    {
+        if (intId is null) return;
+        Nav.NavigateTo($"/stock-transfer-request/{intId + 1}");
+        Id = (intId + 1).ToString();
+        _transferList = (await itemsTransferRequest.GetInventoryTransferRequests(Id ?? throw new ApiErrorException("Record not found")))?.GetRequestClass() ?? throw new ApiErrorException("Record not found");
+    }
+
+    async Task CreateTransferItemsRequest()
+    {
+        showLoader = true;
+        var docEntry = Id;
+
+        if (string.IsNullOrEmpty(docEntry))
+        {
+            var response = await itemsTransferRequest.CreateRequest(_transferList);
+            if (response?.PendingApproval == true)
+            {
+                Snackbar.Add("This request is now in pending for approval!");
+            }
+            else
+            {
+                docEntry = response?.DocEntry.ToString();
+                if (string.IsNullOrEmpty(docEntry))
+                {
+                    Snackbar.Add(response?.Error?.Message?.Value ?? "Something went wrong");
+                }
+            }
+        }
+        else
+        {
+            var updatedResponse = await itemsTransferRequest.UpdateRequest(_transferList, $"({docEntry})");
+            Snackbar.Add(updatedResponse?.Error?.Message?.Value ?? "Request updated successfully!!");
+        }
+
+        showLoader = false;
+        _modal = new();
+        _selectedItems = [];
+
+        Nav.NavigateTo("/inventory-transfer-requests-list");
+    }
+
+    void RemoveItems()
+    {
+        foreach (var item in _selectedItems)
+        {
+            _transferList.StockTransferLines?.Remove(item);
+        }
+    }
+
+    async Task AddItem()
+    {
+        _transferList.StockTransferLines ??= [];
+
+        _transferList.StockTransferLines.Add(_modal);
+        _modal = new();
+
+        form?.ResetAsync();
+    }
+
+    void SelectedItemsChanged(HashSet<SapInventoryTransferItemsRequests> items)
+    {
+        _selectedItems.AddRange(items);
+    }
+
+    private async Task<IEnumerable<string?>> SearchItemCodes(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return _itemsList.Select(x => x.ItemCode);
+        }
+
+        return _itemsList.Select(x => x.ItemCode).Where(x => x is not null && x.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private async Task<IEnumerable<string?>> SearchWarehouse(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return _warehouseList.Select(x => x.WarehouseCode);
+        }
+
+        return _warehouseList.Select(x => x.WarehouseCode).Where(x => x is not null && x.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private async Task<IEnumerable<string?>> SearchBusinessPartner(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return _businessPartnerList.Select(x => x.CardCode);
+        }
+
+        return _businessPartnerList.Select(x => x.CardCode).Where(x => x is not null && x.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+}

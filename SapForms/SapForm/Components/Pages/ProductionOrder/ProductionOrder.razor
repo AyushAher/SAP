@@ -1,0 +1,706 @@
+﻿@page "/production-order-form/{id?}"
+
+@using SapForm.Services.Helpers
+@using SapForm.Services.Login
+
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject SapSalesOrdersService SapSalesOrdersService
+@inject InventoryItemsTransferService ItemsTransferRequest
+@inject BusinessPartnerService BusinessPartnerService
+@inject SapPurchaseOrderService PurchaseOrderService
+@inject SapTaxCodesService TaxCodesService
+@inject SapProductionOrdersService SapProductionOrderService
+@inject SapPurchaseOrderService SapPurchaseOrderService
+@inject PdfService PdfService
+@inject IJSRuntime JSRuntime
+@inject UserSession userSession
+
+
+<style>
+    :root {
+        --sap-orange: #e47f00;
+        --sap-blue: #00549E;
+        --sap-bg: #f4f7f9;
+        --sap-border: #bcc0c5;
+    }
+
+    .sap-panel {
+        background: white;
+        border: 1px solid var(--sap-border);
+        border-radius: 4px;
+    }
+
+    .sap-header-label {
+        font-weight: 700;
+        color: #555;
+        font-size: 0.85rem;
+    }
+
+    .production-grid-header {
+        background-color: #f0f0f0 !important;
+        border-bottom: 2px solid var(--sap-border) !important;
+    }
+
+    .status-chip-planned {
+        background-color: #bbdefb;
+        color: #1976d2;
+        font-weight: bold;
+    }
+
+    .status-chip-released {
+        background-color: #c8e6c9;
+        color: #388e3c;
+        font-weight: bold;
+    }
+
+    .sap-table-header {
+        font-weight: bold !important;
+        background-color: #ffffff !important;
+        color: #333333 !important;
+        border-bottom: 1px solid #e0e0e0 !important;
+    }
+
+
+    .mud-table-fixed {
+        width: 100%;
+    }
+
+    .col-itemno {
+        width: 15%;
+    }
+
+    .col-itemname {
+        width: 40%;
+    }
+
+    .col-qty {
+        width: 15%;
+    }
+
+    .col-unit {
+        width: 15%;
+    }
+
+    .col-action {
+        width: 15%;
+    }
+
+    /* Prevent input overflow */
+    .mud-data-grid .mud-input-root {
+        width: 100%;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+    <div class="d-flex justify-space-between align-center mb-2">
+        <MudText Typo="Typo.h6" Style="color:var(--sap-blue); font-weight:800;">
+            @(productionOrdersResponse.AbsoluteEntry > 0 ? $"Update Production Order #{productionOrdersResponse.DocumentNumber}" : "New Production Order")
+        </MudText>
+        <MudStack Row="true">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SubmitProductionOrder"
+                       Disabled="@_loading">
+                @if (_loading)
+                {
+                    <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                }
+                else
+                {
+                    @(productionOrdersResponse.AbsoluteEntry > 0 ? "Update" : "Add")
+                }
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Info" StartIcon="@Icons.Material.Filled.Download"
+                       OnClick="DownloadPdf">
+                Download
+            </MudButton>
+        </MudStack>
+    </div>
+
+    <MudPaper Class="pa-4 sap-panel">
+        <MudGrid>
+            <MudItem xs="12" md="6">
+                <MudGrid Spacing="1">
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Customer Name</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudAutocomplete @bind-Value="productionOrdersResponse.CustomerCode"
+                                         SearchFunc="SearchCustomers"
+                                         ToStringFunc="@((x) => Customers?.FirstOrDefault(i => i.CardCode == x)?.CardName)"
+                                         Label="Customer Name" Clearable="true" Modal="true" />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Sales Order</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudAutocomplete T="int?" @bind-Value="productionOrdersResponse.SalesOrderDocNum" Required
+                                         RequiredError="Sales Order is required!"
+                                         ToStringFunc="@(((x) => salesOrderResponses?.FirstOrDefault(s => s.DocumentNumber == x)?.NumAtCard ?? ""))"
+                                         SearchFunc="SearchSalesOrders" Label="Sales Order" Clearable="true" Modal="true" />
+                    </MudItem>
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Project Code</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudTextField Value="@(GetProjectCode())" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      ReadOnly="true" Placeholder="Project Code..." />
+                    </MudItem>
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Project Name</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+
+                        <MudTextField
+                        Value="@(ProjectDetailsResponses.FirstOrDefault(proj => proj.ProjectCode == GetProjectCode())?.ProjectName ?? "")"
+                        Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="true"
+                        Placeholder="Project Name..." />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Product No.</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudAutocomplete Disabled="@(productionOrdersResponse.AbsoluteEntry > 0)"
+                                         @bind-Value="productionOrdersResponse.ItemNumber" SearchFunc="SearchItemCodes"
+                                         ToStringFunc="@((x) => ItemsList.FirstOrDefault(i => i.ItemCode == x)?.ItemName)"
+                                         Label="Item Codes" Clearable="true" Modal="true" />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Product Name</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudAutocomplete Disabled="true" Value="productionOrdersResponse.ItemNumber" Label="Item Codes"
+                                         Clearable="true" Modal="true" />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Status</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudSelect @bind-Value="productionOrdersResponse.Status" Variant="Variant.Outlined"
+                                   Margin="Margin.Dense">
+                            <MudSelectItem Value="@("boposPlanned")">Planned</MudSelectItem>
+                            <MudSelectItem Value="@("boposReleased")">Released</MudSelectItem>
+                            <MudSelectItem Value="@("boposClosed")">Closed</MudSelectItem>
+                            <MudSelectItem Value="@("boposCancelled")">Cancelled</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Type</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudSelect T="string" @bind-Value="productionOrdersResponse.Type" Variant="Variant.Outlined"
+                                   Margin="Margin.Dense" Disabled="@(productionOrdersResponse.AbsoluteEntry > 0)">
+                            <MudSelectItem Value="@("bopotStandard")">Standard</MudSelectItem>
+                            <MudSelectItem Value="@("bopotSpecial")">Special</MudSelectItem>
+                            <MudSelectItem Value="@("bopotDisassembly")">Disassembly</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    @*TODO: Add stock unit *@
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Planned Qty</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudNumericField @bind-Value="productionOrdersResponse.PlannedQuantity"
+                                         Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                </MudGrid>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudGrid Spacing="1">
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">No.</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudTextField @bind-Value="productionOrdersResponse.DocumentNumber" Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" ReadOnly="true" />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Order Date</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudDatePicker @bind-Date="productionOrdersResponse.CreationDate" Variant="Variant.Outlined"
+                                       Margin="Margin.Dense" Disabled="@(productionOrdersResponse.AbsoluteEntry > 0)"
+                                       Editable="false" />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Start Date</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudDatePicker @bind-Date="productionOrdersResponse.StartDate" Variant="Variant.Outlined"
+                                       Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Due Date</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudDatePicker @bind-Date="productionOrdersResponse.DueDate" Variant="Variant.Outlined"
+                                       Margin="Margin.Dense" />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Receipt Warehouse</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudAutocomplete @bind-Value="productionOrdersResponse.Warehouse" Required
+                                         RequiredError="Warehouse is required!" SearchFunc="SearchWarehouse" Label="Warehouse"
+                                         Clearable="true" Modal="true" />
+                    </MudItem>
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Issuing Warehouse</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudAutocomplete @bind-Value="productionOrdersResponse.IssWarehouse" Required
+                                         RequiredError="Warehouse is required!" SearchFunc="SearchWarehouse" Label="Warehouse"
+                                         Clearable="true" Modal="true" />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Drawing No.</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudTextField @bind-Value="productionOrdersResponse.DrawingNo" Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" Placeholder="Enter Drawing No..." />
+                    </MudItem>
+
+                    <MudItem xs="4" Class="d-flex align-center">
+                        <MudText Class="sap-header-label">Prod. Location</MudText>
+                    </MudItem>
+                    <MudItem xs="8">
+                        <MudSelect T="string" @bind-Value="productionOrdersResponse.ProductionCategory"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Select Category">
+                            <MudSelectItem Value="@("INT")">Factory</MudSelectItem>
+                            <MudSelectItem Value="@("EXT")">Customer Site</MudSelectItem>
+                            <MudSelectItem Value="@("JOB")">Sub-Contractor Location</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                </MudGrid>
+            </MudItem>
+        </MudGrid>
+
+        <MudTabs Elevation="0" Rounded="true" Color="Color.Primary" Class="mt-4 border">
+            <MudTabPanel Text="Components">
+                <MudDataGrid T="SapProductionOrderLines" Items="@productionOrdersResponse.ProductionOrderLines"
+                             Dense="true" Hover="true" Bordered="true" Striped="true" Class="mud-table-fixed" Height="500px">
+
+                    <Columns>
+
+                        <PropertyColumn Property="x => x.ItemNo" Title="Item No." Class="col-itemno">
+                            <CellTemplate Context="context">
+                                <MudAutocomplete Disabled="true" @bind-Value="context.Item.ItemNo" />
+                            </CellTemplate>
+                        </PropertyColumn>
+
+                        <TemplateColumn Title="Item Name" Class="col-itemname">
+                            <CellTemplate Context="context">
+                                <MudAutocomplete @bind-Value="context.Item.ItemNo" SearchFunc="SearchItemCodes"
+                                                 ToStringFunc="@((x) => ItemsList.FirstOrDefault(i => i.ItemCode == x)?.ItemName)" />
+                            </CellTemplate>
+                        </TemplateColumn>
+
+                        <TemplateColumn Title="Planned Qty" Class="col-qty">
+                            <CellTemplate Context="context">
+                                <MudNumericField @bind-Value="context.Item.PlannedQuantity" />
+                            </CellTemplate>
+                        </TemplateColumn>
+
+                        <TemplateColumn Title="Stock Unit" Class="col-unit">
+                            <CellTemplate Context="context">
+                                @ItemsList.FirstOrDefault(x => x.ItemCode == context.Item.ItemNo)?.InventoryUom
+                            </CellTemplate>
+                        </TemplateColumn>
+
+                        <TemplateColumn Title="" Class="col-action">
+                            <CellTemplate Context="context">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                               OnClick="@(() => RemoveProductionOrderLine(context.Item))" />
+                            </CellTemplate>
+                        </TemplateColumn>
+
+                    </Columns>
+                </MudDataGrid>
+                <MudButton StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="AddLine" Class="my-4"
+                           Color="Color.Primary" Variant="Variant.Outlined">Add Component Row</MudButton>
+            </MudTabPanel>
+        </MudTabs>
+    </MudPaper>
+</MudContainer>
+
+@code {
+
+    [Parameter] public string? Id { get; set; }
+    private SapProductionOrdersResponse productionOrdersResponse = new();
+    private List<SapSalesOrderResponse>? salesOrderResponses = [];
+    List<SapProjectDetailsResponse> ProjectDetailsResponses { get; set; } = [];
+
+    private bool _loading = false;
+
+    List<SapBusinessPartner>? Customers { get; set; } = [];
+    List<ItemsResponse> ItemsList { get; set; } = [];
+    List<WarehouseResponse> WarehouseList { get; set; } = [];
+    List<SapBusinessPartner> BusinessPartnerList { get; set; } = [];
+    List<SapTaxCodesResponse> TaxCodes { get; set; } = [];
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        salesOrderResponses = (await SapSalesOrdersService.GetAllSalesOrders())?.Value ?? [];
+        ItemsList = await ItemsTransferRequest.GetAllItems() ?? [];
+        WarehouseList = await ItemsTransferRequest.GetAllWarehouses() ?? [];
+        BusinessPartnerList = (await BusinessPartnerService.GetAllBusinessPartners())?.Value ?? [];
+        Customers = (await BusinessPartnerService.GetAllCustomers())?.Value ?? [];
+        TaxCodes = (await TaxCodesService.GetAllTaxCodes())?.Value ?? [];
+        ProjectDetailsResponses = (await PurchaseOrderService.GetAllProjectDetailsResponse())?.Value ?? [];
+        if (!string.IsNullOrEmpty(Id) && int.TryParse(Id, out _))
+        {
+            productionOrdersResponse = await SapProductionOrderService.GetProductionOrders(Id, checkCache: false) ?? new();
+            productionOrdersResponse.IssWarehouse = productionOrdersResponse.ProductionOrderLines?.LastOrDefault()?.Warehouse;
+        }
+    }
+
+    void RemoveProductionOrderLine(SapProductionOrderLines line)
+    {
+        productionOrdersResponse.ProductionOrderLines?.Remove(line);
+        StateHasChanged();
+    }
+
+    private void AddLine()
+    {
+        productionOrdersResponse.ProductionOrderLines ??= new List<SapProductionOrderLines>();
+        productionOrdersResponse.ProductionOrderLines?.Add(new SapProductionOrderLines
+        {
+            Warehouse =
+productionOrdersResponse.IssWarehouse,
+            PlannedQuantity = 1,
+            ItemNo = "",
+            LineNumber =
+(productionOrdersResponse.ProductionOrderLines.Max(x => x.LineNumber) ?? 0) + 1
+        });
+        StateHasChanged();
+    }
+
+    private async Task SubmitProductionOrder()
+    {
+        if (string.IsNullOrEmpty(productionOrdersResponse.ItemNumber))
+        {
+            Snackbar.Add("Product No. is required.", Severity.Error);
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            await CreateProductionOrder();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error: " + ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<IEnumerable<int?>> SearchSalesOrders(string value, CancellationToken cancellationToken)
+    {
+        var salesOrders = salesOrderResponses?.Where(x => x.CardCode == productionOrdersResponse.CustomerCode)?.Select(x =>
+x.DocumentNumber?.ToString()).ToList() ?? [];
+        if (string.IsNullOrEmpty(value))
+            return salesOrders.Select((x) => (int?)int.Parse(x)).ToList();
+        return salesOrders?.Where(x => x is not null && x.Contains(value,
+StringComparison.InvariantCultureIgnoreCase)).Select((x) => (int?)int.Parse(x)).ToList() ?? [];
+    }
+
+    private async Task<IEnumerable<string?>> SearchItemCodes(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return ItemsList.Select(x => x.ItemCode);
+        }
+
+        return ItemsList.Where(x => x is not null && x.ItemName is not null && x.ItemName.Contains(value,
+StringComparison.InvariantCultureIgnoreCase)).Select(x => x.ItemCode);
+    }
+
+    private async Task<IEnumerable<string?>> SearchCustomers(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return Customers?.Select(x => x.CardCode) ?? [];
+        }
+
+        return Customers?.Where(x => x is not null && x.CardName is not null && x.CardName.Contains(value,
+StringComparison.InvariantCultureIgnoreCase)).Select(x => x.CardCode) ?? [];
+    }
+
+    private async Task<IEnumerable<string?>> SearchWarehouse(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return WarehouseList.Select(x => x.WarehouseCode);
+        }
+
+        return WarehouseList.Select(x => x.WarehouseCode).Where(x => x is not null && x.Contains(value,
+StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private async Task<IEnumerable<string?>> SearchBusinessPartner(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return BusinessPartnerList.Select(x => x.CardCode);
+        }
+
+        return BusinessPartnerList.Select(x => x.CardCode).Where(x => x is not null && x.Contains(value,
+StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private async Task<IEnumerable<string?>> SearchTaxCodes(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return TaxCodes.Select(x => x.Code);
+        }
+
+        return TaxCodes.Select(x => x.Code).Where(x => x is not null && x.Contains(value,
+StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private string GetProjectCode()
+    {
+        return salesOrderResponses?.FirstOrDefault(x => x.DocumentNumber == productionOrdersResponse.SalesOrderDocNum)?.Project
+?? "";
+    }
+
+    async Task DownloadPdf()
+    {
+        var html = await GenerateProductionOrderHtml();
+        var pdfBytes = PdfService.GeneratePdfFromHtml(html);
+        var base64 = Convert.ToBase64String(pdfBytes);
+        await JSRuntime.InvokeVoidAsync("auth.downloadFile", $"Issue For Production({productionOrdersResponse.AbsoluteEntry}).pdf", base64);
+    }
+    async Task<string> GenerateProductionOrderHtml()
+    {
+        var rows = "";
+
+        double totalWeight = 0;
+        double totalQty = 0;
+
+        int sr = 1;
+
+        foreach (var line in productionOrdersResponse.ProductionOrderLines ?? [])
+        {
+            var item = ItemsList.FirstOrDefault(
+                x => x.ItemCode == line.ItemNo
+            );
+
+            var weight = item?.InventoryWeight ?? 0;
+
+            totalWeight += weight * line.PlannedQuantity;
+
+            totalQty += line.PlannedQuantity;
+
+            rows += $@"
+            <tr>
+                <td>{sr++}</td>
+                <td>{line.ItemNo}</td>
+                <td>{item?.ItemName}</td>
+                <td class='center'>{line.PlannedQuantity:F2}</td>
+                <td class='center'>{item?.InventoryUom}</td>
+                <td class='right'>
+                    {(weight * line.PlannedQuantity):F2}
+                </td>
+            </tr>";
+        }
+
+        var html = await File.ReadAllTextAsync(
+            Path.Combine(
+                Directory.GetCurrentDirectory(),
+                "wwwroot",
+                "production-order-template.html"
+            )
+        );
+
+        var product = ItemsList.FirstOrDefault(
+            x => x.ItemCode == productionOrdersResponse.ItemNumber
+        );
+
+        string status = (productionOrdersResponse.Status) switch
+        {
+            "boposPlanned" => "Planned",
+            "boposReleased" => "Released",
+            "boposClosed" => "Closed",
+            "boposCancelled" => "Cancelled",
+            _ => productionOrdersResponse.Status
+        };
+
+        html = html
+            .Replace("{{productionNo}}",
+                productionOrdersResponse.DocumentNumber?.ToString() ?? "")
+
+            .Replace("{{orderDate}}",
+                productionOrdersResponse.CreationDate?
+                    .ToString("dd/MM/yyyy") ?? "")
+
+            .Replace("{{projectCode}}",
+                productionOrdersResponse.Project ?? "")
+
+            .Replace("{{projectName}}",
+                ProjectDetailsResponses.FirstOrDefault(x => x.ProjectCode == productionOrdersResponse.Project)?.ProjectName ?? "")
+
+            .Replace("{{drawingNo}}",
+                productionOrdersResponse.DrawingNo ?? "")
+
+            .Replace("{{productNo}}",
+                productionOrdersResponse.ItemNumber ?? "")
+
+            .Replace("{{productName}}",
+                product?.ItemName ?? "")
+
+            .Replace("{{plannedQty}}",
+                productionOrdersResponse.PlannedQuantity
+                    .ToString("F2"))
+
+            .Replace("{{uom}}",
+                product?.InventoryUom ?? "")
+
+            .Replace("{{productionLocation}}",
+                productionOrdersResponse.ProductionCategory ?? "")
+
+            .Replace("{{status}}",
+                status)
+
+            .Replace("{{receiptWarehouse}}",
+                productionOrdersResponse.Warehouse ?? "")
+
+            .Replace("{{issueWarehouse}}",
+                productionOrdersResponse.IssWarehouse ?? "")
+
+            .Replace("{{@items}}", rows)
+
+            .Replace("{{totalQty}}",
+                totalQty.ToString("F2"))
+
+            .Replace("{{totalWeight}}",
+                totalWeight.ToString("F2"))
+
+            .Replace("{{remarks}}", "")
+
+            .Replace("{{userName}}",
+                await userSession.GetUserNameAsync());
+
+        return html;
+    }
+
+    private async Task CreateProductionOrder()
+    {
+        if (string.IsNullOrEmpty(productionOrdersResponse.ItemNumber))
+        {
+            Snackbar.Add("Product No. is required.", Severity.Error);
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            if (productionOrdersResponse.ProductionCategory == "JOB")
+            {
+                productionOrdersResponse.IssWarehouse = "Store1";
+                foreach (var line in productionOrdersResponse.ProductionOrderLines ?? [])
+                {
+                    line.Warehouse = "Store1";
+                }
+                productionOrdersResponse.Warehouse = "Subcon";
+            }
+            else if (productionOrdersResponse.ProductionCategory == "EXT")
+            {
+                productionOrdersResponse.IssWarehouse = "PBPL(S)";
+
+                foreach (var line in productionOrdersResponse.ProductionOrderLines ?? [])
+                {
+                    line.Warehouse = "PBPL(S)";
+                }
+                productionOrdersResponse.Warehouse = "PBPL(S)";
+            }
+            else if (productionOrdersResponse.ProductionCategory == "INT")
+            {
+                foreach (var line in productionOrdersResponse.ProductionOrderLines ?? [])
+                {
+                    line.Warehouse = "Store1";
+                }
+                productionOrdersResponse.Warehouse = "WIP";
+            }
+
+            foreach (var line in productionOrdersResponse.ProductionOrderLines ?? [])
+            {
+                line.DocumentAbsoluteEntry = productionOrdersResponse.AbsoluteEntry;
+                line.ItemName = ItemsList.FirstOrDefault(x => x.ItemCode == line.ItemNo)?.ItemName;
+            }
+
+            var salesOrder = salesOrderResponses?.FirstOrDefault(x => x.DocumentNumber ==
+productionOrdersResponse.SalesOrderDocNum);
+            productionOrdersResponse.CustomerCode = salesOrder?.CardCode;
+            productionOrdersResponse.SalesOrderDocEntry = salesOrder?.DocEntry;
+            productionOrdersResponse.CustomerName = salesOrder?.CardName ?? "";
+
+            if (productionOrdersResponse.AbsoluteEntry is 0 or null)
+            {
+                productionOrdersResponse.PostingDate = DateTime.Now;
+            }
+
+            if (productionOrdersResponse.AbsoluteEntry is null or <= 0)
+            {
+                productionOrdersResponse.Project = GetProjectCode();
+                productionOrdersResponse.ProjectName = ProjectDetailsResponses.FirstOrDefault(x => x.ProjectCode ==
+GetProjectCode())?.ProjectName;
+            }
+
+            var success = productionOrdersResponse.AbsoluteEntry > 0
+              ? await SapProductionOrderService.UpdateProductionOrderAsync(productionOrdersResponse)
+              : await SapProductionOrderService.CreateProductionOrderAsync(productionOrdersResponse);
+
+            if (success is not null && !success.PendingApproval && success.AbsoluteEntry > 0)
+            {
+                Snackbar.Add(productionOrdersResponse.AbsoluteEntry > 0 ? "Order Updated in SAP!" : "Order Added to SAP!",
+Severity.Success);
+                productionOrdersResponse.AbsoluteEntry = success?.AbsoluteEntry;
+                productionOrdersResponse.DocumentNumber = success?.DocumentNumber;
+            }
+
+            else if (success is not null && success.PendingApproval)
+            {
+                Snackbar.Add(productionOrdersResponse.AbsoluteEntry > 0 ? "Order Updated in SAP!" : "Order Added to SAP!",
+Severity.Success);
+            }
+
+            else if (success is not null && success.Error is not null)
+            {
+                Snackbar.Add(success.Error.Message?.Value ?? "Some error occurred.", Severity.Error);
+            }
+            if (productionOrdersResponse.AbsoluteEntry > 0) return;
+            Navigation.NavigateTo($"/production-order");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error: " + ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

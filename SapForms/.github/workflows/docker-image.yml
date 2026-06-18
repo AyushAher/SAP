@@ -1,0 +1,44 @@
+name: Docker Image Manual CI/CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Select environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+
+jobs:
+  build:
+    runs-on: docker
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set variables based on environment
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "dev" ]; then
+            echo "COMPOSE_FILE=/home/ayush/services/sapforms/docker-compose.dev.yml" >> $GITHUB_ENV
+            echo "TAG=dev" >> $GITHUB_ENV
+          else
+            echo "COMPOSE_FILE=/home/ayush/services/sapforms/docker-compose.yml" >> $GITHUB_ENV
+            echo "TAG=latest" >> $GITHUB_ENV
+          fi
+
+      - name: Build Docker image
+        run: |
+          sudo docker build . \
+            --file ./SapForm/Dockerfile \
+            --tag ayushaher118/sapforms:${TAG}
+
+      - name: Push Docker image
+        run: |
+          sudo docker push ayushaher118/sapforms:${TAG}
+
+      - name: Deploy Stack
+        run: |
+          sudo docker stack deploy sapforms \
+            --compose-file ${COMPOSE_FILE}

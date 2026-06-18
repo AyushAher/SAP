@@ -1,0 +1,64 @@
+﻿@using SapForm.Components.Layout
+@using SapForm.Services.Login
+@layout AuthLayout
+@inject SignInManager<ApplicationUser> SignInManager
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@inject LoginService LoginService
+@inject NavigationManager Nav
+@attribute [AllowAnonymous]
+@inject IJSRuntime JS
+
+@page "/Account/Login"
+
+<MudForm Model="_loginFormRequest" @ref="_loginForm">
+
+    <MudContainer MaxWidth="MaxWidth.Small" Class="d-flex align-center justify-center" Style="height: 100vh;">
+        <MudPaper Elevation="5" Class="pa-10" Style="width: 100%; border-top: 8px solid #005495; border-radius: 12px;">
+
+            <div class="text-center mb-8">
+                <MudIcon Icon="@Icons.Material.Filled.LockPerson" Color="Color.Primary" Style="font-size: 3rem;" />
+                <MudText Typo="Typo.h4" Style="color: #005495; font-weight: bold;" Class="mt-2">Privilege Biksons Boilers Pvt. Ltd.</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Enter your credentials</MudText>
+            </div>
+
+            <MudTextField @bind-Value="_loginFormRequest.UserName" Label="User ID"
+                          Variant="Variant.Outlined" FullWidth="true" Class="mb-4"
+                          Required="true" Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.AccountCircle" />
+
+            <MudTextField @bind-Value="_loginFormRequest.Password" Label="Password"
+                          InputType="InputType.Password" Variant="Variant.Outlined"
+                          FullWidth="true" Class="mb-6" Required="true"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Password" />
+
+            <MudButton Variant="Variant.Filled"
+                       Style="background-color: #005495; color: white; height: 55px; font-weight: bold;"
+                       FullWidth="true" OnClick="Login">
+                <text>SIGN IN</text>
+            </MudButton>
+        </MudPaper>
+    </MudContainer>
+</MudForm>
+
+@code {
+    MudForm _loginForm;
+    LoginRequest _loginFormRequest = new();
+    async Task Login()
+    {
+        await _loginForm.Validate();
+        if (!_loginForm.IsValid) return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("auth.login",
+                _loginFormRequest.UserName,
+                _loginFormRequest.Password);
+        }
+        catch
+        {
+            Snackbar.Add("Invalid credentials", Severity.Error);
+        }
+    }
+}

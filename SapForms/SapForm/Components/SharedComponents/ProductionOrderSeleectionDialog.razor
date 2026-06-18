@@ -1,0 +1,96 @@
+﻿@attribute [Authorize]
+@inject IDialogService DialogService
+@using Shared.Responses.Sap
+@inject SapProductionOrdersService productionOrdersService
+@inject SapPurchaseOrderService PurchaseOrderService
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Select Production Order</MudText>
+    </TitleContent>
+    <DialogContent>
+
+        @if (ProductionOrdersResponseList?.Value != null)
+        {
+            <MudDataGrid T="SapProductionOrdersResponse" Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+                         FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" MultiSelection="false"
+                         Items="@ProductionOrdersResponseList.Value.Where(x=>x.Status == Constants.SapProductionOrderStatus.Released)"
+                         SelectedItemsChanged="@SelectProductionOrder">
+                <Columns>
+                    <SelectColumn T="SapProductionOrdersResponse" />
+                    <PropertyColumn Title="Production Order No." Property="x => x.DocumentNumber" />
+                    <TemplateColumn Title="Status" Sortable="true" SortBy="x => x.Status">
+                        <CellTemplate>
+                            @Constants.SapProductionOrderStatus.GetDisplay(context.Item.Status)
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Title="Project Code" Property="x => x.Project" />
+                    <PropertyColumn Title="Project Name" Property="x => x.ProjectName" />
+                    <PropertyColumn Title="Product No." Property="x => x.ItemNumber" />
+                    <PropertyColumn Title="Product Name" Property="x => x.ProductDescription" />
+                    <PropertyColumn Title="Drawing No." Property="x => x.DrawingNo" />
+                </Columns>
+
+                <PagerContent>
+                    <MudDataGridPager T="SapProductionOrdersResponse" />
+                </PagerContent>
+            </MudDataGrid>
+        }
+
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Error" OnClick="SubmitProductionOrder">Select Production Order</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public GetAllSapProductionOrdersResponse? ProductionOrdersResponseList { get; set; }
+    SapProductionOrdersResponse? _selectedProductionOrdersResponse;
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; }
+    List<SapProjectDetailsResponse> ProjectDetailsResponses { get; set; } = [];
+    
+    protected override async Task OnInitializedAsync()
+    {
+        ProjectDetailsResponses = (await PurchaseOrderService.GetAllProjectDetailsResponse())?.Value ?? [];
+        foreach (var item in ProductionOrdersResponseList?.Value ?? [])
+        {
+            if (string.IsNullOrEmpty(item.ProjectName))
+            {
+                item.ProjectName = ProjectDetailsResponses.FirstOrDefault(x => x.ProjectCode == item.Project)?.ProjectName ?? "";
+            }
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void SelectProductionOrder(HashSet<SapProductionOrdersResponse> items)
+    {
+        _selectedProductionOrdersResponse = items.FirstOrDefault();
+    }
+
+    async Task SubmitProductionOrder()
+    {
+        _selectedProductionOrdersResponse = await productionOrdersService.GetProductionOrders(_selectedProductionOrdersResponse?.AbsoluteEntry.ToString() ?? "");
+            
+        var productionLinesList =  await productionOrdersService.GetProductionOrderLines(_selectedProductionOrdersResponse?.AbsoluteEntry.ToString() ?? "");
+        if (_selectedProductionOrdersResponse is not null)
+        {
+            @* _selectedProductionOrdersResponse.ProductionOrderLines = productionLinesList?.Value ?? []; *@
+            var parameters = new DialogParameters<ProductionOrderLinesDialog>
+            {
+                { x => x.SelectedProductionOrdersResponse, _selectedProductionOrdersResponse }
+            };
+            var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Large };
+            var response = await DialogService.ShowAsync<ProductionOrderLinesDialog>("Select Production Order", parameters,
+options);
+            var resResult = await response.Result;
+            var orderLines = resResult?.Data as List<SapProductionOrderLines>;
+            MudDialog.Close(DialogResult.Ok(new SapInventoryGenExitRequestOrderLines
+            {
+                ProductionOrder = _selectedProductionOrdersResponse,
+                ProductionOrderLinesEntryNumber = orderLines ?? []
+            }));
+        }
+    }
+}

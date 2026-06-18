@@ -1,0 +1,20 @@
+﻿@if (IntId > 0)
+{
+    @if (IntId > 1)
+    {
+        <MudButton OnClick="@(PreviousRecord)" Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto mt-3 me-3">
+            Previous
+        </MudButton>
+    }
+
+    <MudButton OnClick="@(NextRecord)" Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto mt-3 mx-3">
+        Next
+    </MudButton>
+}
+@code {
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public EventCallback NextRecord { get; set; }
+    [Parameter] public EventCallback PreviousRecord { get; set; }
+
+    int? IntId => string.IsNullOrEmpty(Id) ? 0 : int.Parse(Id);
+}

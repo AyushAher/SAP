@@ -1,0 +1,113 @@
+﻿.mud-paper {
+    padding: 10px;
+    border: 2px solid lightgray;
+    border-radius: 15px;
+}
+
+.global-loader-wrapper {
+    position: fixed;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+
+@media print {
+    /* Hide common layout elements */
+    .navbar,
+    .sidebar,
+    .mud-appbar,
+    .print-hide, .column-options {
+        display: none !important;
+    }
+
+    /* Make main content take full width */
+    .main-content,
+    .content,
+    .container {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body, .mud-paper, .print-head {
+        margin: 0;
+        padding: 0;
+    }
+    /* Avoid page breaks inside important elements */
+    .no-break {
+        page-break-inside: avoid;
+    }
+
+    /* Optional: force page breaks where needed */
+    .page-break {
+        page-break-before: always;
+    }
+}
+
+@media print {
+
+    /* Make MudTable container use full width */
+    .mud-table {
+        width: 100% !important;
+    }
+
+    /* Remove horizontal scroll wrapper */
+    .mud-table-container {
+        overflow: visible !important;
+        width: 100% !important;
+    }
+
+    /* Ensure table stretches fully */
+    .mud-table-root {
+        width: 100% !important;
+        table-layout: auto !important;
+    }
+
+        /* Let cells wrap instead of cutting off */
+        .mud-table-root th,
+        .mud-table-root td {
+            white-space: normal !important;
+            word-break: break-word;
+        }
+
+        /* Optional: reduce padding for better fit */
+        .mud-table-root th,
+        .mud-table-root td {
+            padding: 4px 8px !important;
+        }
+
+    /* Remove top spacing from layout containers */
+    .mud-main-content,
+    .mud-container,
+    .main-content,
+    .content {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+
+    /* Remove any spacer/divider used below header */
+    .mud-toolbar-spacer,
+    .header-spacer,
+    .top-spacing {
+        display: none !important;
+    }
+}
+
+@media print {
+    .mud-paper,
+    .mud-grid,
+    .mud-item {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+}
+
+@page {
+    size: landscape;
+    margin: 0;
+}
+

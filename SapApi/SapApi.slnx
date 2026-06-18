@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SapApi.Api/SapApi.Api.csproj" />
+    <Project Path="src/SapApi.Domain/SapApi.Domain.csproj" />
+    <Project Path="src/SapApi.Infrastructure/SapApi.Infrastructure.csproj" />
+    <Project Path="src/SapApi.Shared/SapApi.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SapApi.Tests/SapApi.Tests.csproj" />
+  </Folder>
+</Solution>

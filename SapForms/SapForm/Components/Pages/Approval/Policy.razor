@@ -1,0 +1,139 @@
+﻿@page "/policies"
+@attribute [Authorize(Roles = Constants.Roles.SuperAdmin + "," + Constants.Roles.Admin)]
+
+@inject ApprovalPolicyService PolicyService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<MudPaper Class="pa-4">
+
+    <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+        <MudText Typo="Typo.h5">Approval Policies</MudText>
+
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary" Class="my-3"
+                   OnClick="OpenCreateDialog">
+            Add Policy
+        </MudButton>
+    </MudStack>
+
+    <MudTable Items="_policies" Hover="true" Dense="true">
+
+        <HeaderContent>
+            <MudTh>Id</MudTh>
+            <MudTh>Document Type</MudTh>
+            <MudTh>Requester</MudTh>
+            <MudTh>Approvers</MudTh>
+            <MudTh>Levels</MudTh>
+            <MudTh>Rules</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+
+        <RowTemplate>
+            <MudTd>@context.Id</MudTd>
+
+            <MudTd>@context.DocumentType</MudTd>
+
+            <MudTd>@context.RequesterUser?.FullName</MudTd>
+
+            <MudTd>@context.Approvers.Count</MudTd>
+
+            <MudTd>
+                @context.Approvers.Select(x => x.Priority).Distinct().Count()
+            </MudTd>
+
+            <MudTd>@context.Rules.Count</MudTd>
+
+            <MudTd>
+                <MudChip T="string" Color="@(context.IsActive ? Color.Success : Color.Error)">
+                    @(context.IsActive ? "Active" : "Inactive")
+                </MudChip>
+            </MudTd>
+
+            <MudTd>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                               OnClick="() => OpenEditDialog(context)" />
+
+                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                               Color="Color.Error"
+                               OnClick="() => ConfirmDelete(context.Id)" />
+            </MudTd>
+        </RowTemplate>
+
+        <PagerContent>
+            <MudTablePager />
+        </PagerContent>
+
+    </MudTable>
+
+</MudPaper>
+
+
+@code {
+
+    private List<ApprovalPolicy> _policies = new();
+    private DialogOptions dialogOptions = new() { MaxWidth = MaxWidth.ExtraLarge };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPolicies();
+    }
+
+    private async Task LoadPolicies()
+    {
+        _policies = await PolicyService.GetAllAsync();
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var dialog = await DialogService.ShowAsync<PolicyDialog>(
+            "Create Policy",
+            dialogOptions);
+
+        var result = await dialog.Result;
+
+        if (result?.Canceled is false)
+        {
+            await LoadPolicies();
+            Snackbar.Add("Policy Created", Severity.Success);
+        }
+    }
+
+    private async Task OpenEditDialog(ApprovalPolicy policy)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Policy"] = policy
+        };
+
+        var dialog = await DialogService.ShowAsync<PolicyDialog>(
+            "Edit Policy",
+            parameters,
+            dialogOptions);
+
+        var result = await dialog.Result;
+
+        if (result?.Canceled is false)
+        {
+            await LoadPolicies();
+            Snackbar.Add("Policy Updated", Severity.Success);
+        }
+    }
+
+    private async Task ConfirmDelete(int id)
+    {
+        bool? confirm = await DialogService.ShowMessageBox(
+            "Delete Policy",
+            "Are you sure you want to delete this policy?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirm == true)
+        {
+            await PolicyService.DeletePolicyAsync(id);
+            await LoadPolicies();
+            Snackbar.Add("Policy Deleted", Severity.Warning);
+        }
+    }
+}

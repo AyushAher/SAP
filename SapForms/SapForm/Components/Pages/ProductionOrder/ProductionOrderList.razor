@@ -1,0 +1,366 @@
+﻿@page "/production-order"
+@using MudBlazor
+@using SapForm.Services.Helpers
+@using SapForm.Services.Login
+@inject SapPurchaseOrderService PurchaseOrderService
+
+@inject SapProductionOrdersService ProductionOrdersService
+@inject InventoryItemsTransferService ItemsTransferRequest
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject SapProductionOrdersService SapProductionOrderService
+@inject PdfService PdfService
+@inject IJSRuntime JSRuntime
+@inject UserSession userSession
+
+<style>
+    :root {
+        --sap-orange: #e47f00;
+        --sap-blue: #00549E;
+        --sap-bg: #f4f7f9;
+        --sap-border: #bcc0c5;
+    }
+
+    .sap-panel {
+        background: white;
+        border: 1px solid var(--sap-border);
+        border-radius: 4px;
+    }
+
+    .sap-header-label {
+        font-weight: 700;
+        color: #555;
+        font-size: 0.85rem;
+    }
+
+    .production-grid-header {
+        background-color: #f0f0f0 !important;
+        border-bottom: 2px solid var(--sap-border) !important;
+    }
+
+    .status-chip-planned {
+        background-color: #bbdefb;
+        color: #1976d2;
+        font-weight: bold;
+    }
+
+    .status-chip-released {
+        background-color: #c8e6c9;
+        color: #388e3c;
+        font-weight: bold;
+    }
+
+    .sap-table-header {
+        font-weight: bold !important;
+        background-color: #ffffff !important;
+        color: #333333 !important;
+        border-bottom: 1px solid #e0e0e0 !important;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+    <MudPaper Elevation="0" Class="pa-4 sap-panel">
+        <div class="d-flex justify-space-between align-center mb-4">
+            <MudText Typo="Typo.h5" Style="color:var(--sap-blue); font-weight:800;">
+                PRODUCTION ORDERS (@(List?.Count ?? 0))
+            </MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudButton Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" Color="Color.Primary"
+                           OnClick="ToggleToCreate">CREATE PRODUCTION ORDER</MudButton>
+            </MudStack>
+        </div>
+
+        <MudDataGrid T="SapProductionOrdersResponse" Items="@List" Dense="true" Hover="true" Loading="_loading"
+                     Filterable="true" SortMode="SortMode.Multiple" RowsPerPage="20" FixedHeader="true" Height="600px"
+                     Elevation="0">
+
+            <Columns>
+
+                <PropertyColumn Property="x => x.DocumentNumber" Title="Production Order No." />
+                <TemplateColumn Title="Order Date">
+                    <CellTemplate>
+                        @context.Item.CreationDate?.ToString("dd/MM/yyyy")
+                    </CellTemplate>
+                </TemplateColumn>
+                
+                <PropertyColumn Property="x => x.Project" Title="Project Code" />
+                
+                <PropertyColumn Title="Project Name" Property="@(x => x.ProjectName)" Sortable="true"
+                                Filterable="true" />
+
+                <TemplateColumn Title="Status" Sortable="true" SortBy="x => x.Status">
+                    <CellTemplate>
+                        <MudChip Size="Size.Small"
+                                 Class="@(context.Item.Status == Constants.SapProductionOrderStatus.Planned ? "status-chip-planned" : "status-chip-released")">
+                            @Constants.SapProductionOrderStatus.GetDisplay(context.Item.Status)
+                        </MudChip>
+                    </CellTemplate>
+                </TemplateColumn>
+                <PropertyColumn Property="x => x.ItemNumber" Title="Product No." />
+                <PropertyColumn Property="x => x.ProductDescription" Title="Product Name" />
+                <PropertyColumn Property="x => x.PlannedQuantity" Title="Planned Qty" />
+                <PropertyColumn Property="x => x.Warehouse" Title="Warehouse" />
+                <TemplateColumn Title="Inventory Stock Unit" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body1">@ItemsList.FirstOrDefault(x => x.ItemCode ==
+                                                                                    context.Item.ItemNumber)?.InventoryUom</MudText>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.DrawingNo" Title="Drawing No." />
+                    <TemplateColumn Title="Action" Sortable="false" Filterable="false">
+                        <CellTemplate>
+                            <div class="d-flex justify-center align-center">
+
+                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small"
+                                         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+
+                                    <MudMenuItem OnClick="@(() => HandleProductionAction(context.Item, "Edit"))"
+                                                 Icon="@Icons.Material.Filled.Edit" IconColor="Color.Info ">
+                                        Edit
+                                    </MudMenuItem>
+
+                                    <MudMenuItem OnClick="@(() => DownloadPdf(context.Item.AbsoluteEntry.ToString()))"
+                                                Icon="@Icons.Material.Filled.Download" IconColor="Color.Info ">
+                                        Download PDF
+                                    </MudMenuItem>  
+                                    @* <MudMenuItem OnClick="@(() => HandleProductionAction(context.Item, "Issue"))"
+                                             Icon="@Icons.Material.Filled.Outbox"
+                                             IconColor="Color.Warning">
+                                    Issue
+                                </MudMenuItem> *@
+
+                                    @* <MudMenuItem OnClick="@(() => HandleProductionAction(context.Item, "IssueRequest"))"
+                                             Icon="@Icons.Material.Filled.AssignmentReturn"
+                                             IconColor="Color.Warning">
+                                    Issue For Production Request
+                                </MudMenuItem> *@
+
+                                    @* <MudDivider /> *@
+
+                                    @* <MudMenuItem OnClick="@(() => HandleProductionAction(context.Item, "Receipt"))"
+                                             Icon="@Icons.Material.Filled.Inbox"
+                                             IconColor="Color.Success">
+                                    Receipt
+                                </MudMenuItem>
+
+                                <MudMenuItem OnClick="@(() => HandleProductionAction(context.Item, "ReceiptRequest"))"
+                                             Icon="@Icons.Material.Filled.AssignmentReturned"
+                                             IconColor="Color.Success">
+                                    Receipt For Production Request
+                                </MudMenuItem> *@
+                                </MudMenu>
+                            </div>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="SapProductionOrdersResponse" />
+                </PagerContent>
+
+            </MudDataGrid>
+        </MudPaper>
+    </MudContainer>
+
+@code {
+    private bool _isListView = true;
+    private bool _loading = false;
+    private string _searchString = "";
+    List<SapProjectDetailsResponse> ProjectDetailsResponses { get; set; } = [];
+
+    private List<SapProductionOrdersResponse> List = new();
+    List<ItemsResponse> ItemsList { get; set; } = [];
+
+    private SapProductionOrdersResponse prodOrder = new()
+    {
+        ProductionOrderLines = new()
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProductionOrders();
+    }
+
+    private async Task LoadProductionOrders()
+    {
+        _loading = true;
+        ItemsList = await ItemsTransferRequest.GetAllItems() ?? [];
+        GetAllSapProductionOrdersResponse? results = await ProductionOrdersService.GetAllProductionOrders();
+        List = results?.Value ?? [];
+        ProjectDetailsResponses = (await PurchaseOrderService.GetAllProjectDetailsResponse())?.Value ?? [];
+        foreach (var item in List)
+        {
+            if (string.IsNullOrEmpty(item.ProjectName))
+            {
+                item.ProjectName = ProjectDetailsResponses.FirstOrDefault(x => x.ProjectCode == item.Project)?.ProjectName ?? "";
+            }
+        }
+        _loading = false;
+    }
+
+    private void HandleProductionAction(SapProductionOrdersResponse order, string actionType)
+    {
+        if (actionType == "Edit")
+        {
+
+            Navigation.NavigateTo($"/production-order-form/{order.AbsoluteEntry}");
+            return;
+        }
+
+        if (order.Status == Constants.SapProductionOrderStatus.Planned)
+        {
+            Snackbar.Add($"Order #{order.DocumentNumber} must be 'Released' before you can perform a production request.",
+Severity.Warning);
+            return;
+        }
+
+        if (actionType == "Issue" || actionType == "IssueRequest")
+        {
+            Navigation.NavigateTo($"/issue-for-production/{order.AbsoluteEntry}");
+        }
+        else if (actionType == "Receipt" || actionType == "ReceiptRequest")
+        {
+            Navigation.NavigateTo($"/receipt-from-production/{order.AbsoluteEntry}");
+        }
+
+    }
+    private void ToggleToCreate()
+    {
+        Navigation.NavigateTo("/production-order-form");
+    }
+    private void EditOrder(SapProductionOrdersResponse context)
+    {
+        Navigation.NavigateTo("/production-order-form");
+    }
+
+    private string GetProjectName(string projectCode)
+    {
+        return ProjectDetailsResponses.FirstOrDefault(proj => proj.ProjectCode == projectCode)?.ProjectName ?? "";
+    }
+
+    async Task DownloadPdf(string id)
+    {
+        var html = await GenerateProductionOrderHtml(id);
+        var pdfBytes = PdfService.GeneratePdfFromHtml(html);
+        var base64 = Convert.ToBase64String(pdfBytes);
+        await JSRuntime.InvokeVoidAsync("auth.downloadFile", $"Issue For Production({id}).pdf", base64);
+    }
+    async Task<string> GenerateProductionOrderHtml(string id)
+    {
+        var rows = "";
+
+        double totalWeight = 0;
+        double totalQty = 0;
+
+        int sr = 1;
+        var productionOrdersResponse = await SapProductionOrderService.GetProductionOrders(id);
+        if(productionOrdersResponse == null)
+        {
+            Snackbar.Add($"Failed to load production order details for ID: {id}", Severity.Error);
+            return "";
+        }
+        foreach (var line in productionOrdersResponse.ProductionOrderLines ?? [])
+        {
+            var item = ItemsList.FirstOrDefault(
+                x => x.ItemCode == line.ItemNo
+            );
+
+            var weight = item?.InventoryWeight ?? 0;
+
+            totalWeight += weight * line.PlannedQuantity;
+
+            totalQty += line.PlannedQuantity;
+
+            rows += $@"
+            <tr>
+                <td>{sr++}</td>
+                <td>{line.ItemNo}</td>
+                <td>{item?.ItemName}</td>
+                <td class='center'>{line.PlannedQuantity:F2}</td>
+                <td class='center'>{item?.InventoryUom}</td>
+                <td class='right'>
+                    {(weight * line.PlannedQuantity):F2}
+                </td>
+            </tr>";
+        }
+
+        var html = await File.ReadAllTextAsync(
+            Path.Combine(
+                Directory.GetCurrentDirectory(),
+                "wwwroot",
+                "production-order-template.html"
+            )
+        );
+
+        var product = ItemsList.FirstOrDefault(
+            x => x.ItemCode == productionOrdersResponse.ItemNumber
+        );
+
+        string status = (productionOrdersResponse.Status) switch
+        {
+            "boposPlanned" => "Planned",
+            "boposReleased" => "Released",
+            "boposClosed" => "Closed",
+            "boposCancelled" => "Cancelled",
+            _ => productionOrdersResponse.Status
+        };
+
+        html = html
+            .Replace("{{productionNo}}",
+                productionOrdersResponse.DocumentNumber?.ToString() ?? "")
+
+            .Replace("{{orderDate}}",
+                productionOrdersResponse.CreationDate?
+                    .ToString("dd/MM/yyyy") ?? "")
+
+            .Replace("{{projectCode}}",
+                productionOrdersResponse.Project ?? "")
+
+            .Replace("{{projectName}}",
+                ProjectDetailsResponses.FirstOrDefault(x => x.ProjectCode == productionOrdersResponse.Project)?.ProjectName ?? "")
+
+            .Replace("{{drawingNo}}",
+                productionOrdersResponse.DrawingNo ?? "")
+
+            .Replace("{{productNo}}",
+                productionOrdersResponse.ItemNumber ?? "")
+
+            .Replace("{{productName}}",
+                product?.ItemName ?? "")
+
+            .Replace("{{plannedQty}}",
+                productionOrdersResponse.PlannedQuantity
+                    .ToString("F2"))
+
+            .Replace("{{uom}}",
+                product?.InventoryUom ?? "")
+
+            .Replace("{{productionLocation}}",
+                productionOrdersResponse.ProductionCategory ?? "")
+
+            .Replace("{{status}}",
+                status)
+
+            .Replace("{{receiptWarehouse}}",
+                productionOrdersResponse.Warehouse ?? "")
+
+            .Replace("{{issueWarehouse}}",
+                productionOrdersResponse.IssWarehouse ?? "")
+
+            .Replace("{{@items}}", rows)
+
+            .Replace("{{totalQty}}",
+                totalQty.ToString("F2"))
+
+            .Replace("{{totalWeight}}",
+                totalWeight.ToString("F2"))
+
+            .Replace("{{remarks}}", "")
+
+            .Replace("{{userName}}",
+                await userSession.GetUserNameAsync());
+
+        return html;
+    }
+
+}

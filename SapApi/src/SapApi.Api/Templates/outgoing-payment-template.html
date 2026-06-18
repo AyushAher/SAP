@@ -1,0 +1,161 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Internal Transfer Request</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .container {
+            border: 1px solid #000;
+            padding: 10px;
+        }
+
+        h1,
+        h2,
+        h3 {
+            text-align: center;
+            margin: 5px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid #000;
+        }
+
+        th,
+        td {
+            padding: 6px;
+            font-size: 14px;
+        }
+
+        .no-border {
+            border: none;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .center {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>{{bplName}}</h2>
+        <p class="center">
+            {{bplAddr}}
+        </p>
+
+        <table>
+            <tr>
+                <td><b>PAN NO:</b> {{bplPan}}</td>
+                <td><b>GST NO:</b> {{bplGst}}</td>
+                <td><b>EMAIL:</b> -</td>
+            </tr>
+        </table>
+
+        <h3>Payment Requisition</h3>
+
+        <table>
+            <tr>
+                <td><b>Request ID:</b> {{reqId}}</td>
+                <td><b>Request Date:</b> {{reqDate}}</td>
+                <td><b>Payment Type:</b> {{paymentType}}</td>
+            </tr>
+            <tr>
+                <td colspan="3"><b>PO Vendor:</b> {{vendor}} </td>
+            </tr>
+            <tr>
+                <td>
+                    <b>Gross Amount:</b> {{grossAmount}}
+                </td>
+                <td>
+                    <b>TDS Amount:</b> {{wtAmount}}
+                </td>
+                <td>
+                    <b>Net Payment:</b> {{outgoingPaymentValue}}
+                </td>
+            </tr>
+            <tr>
+                <td colspan="3">
+                    <b>Net Payment (In Words):</b> {{outgoingPaymentValueInWords}}
+                </td>
+            
+            </tr>
+            <tr>
+                <td><b>WT Code:</b> {{wtCode}}</td>
+                <td><b>WT Name:</b> {{wtName}}</td>
+                <td><b>WT Rate:</b> {{wtRate}}</td>
+            </tr>
+            <tr>
+                <td>
+                    <b>AP Invoice:</b> {{apInvoiceDocEntry}}
+                </td>
+                <td colspan="2">
+                    <b>AP Invoice Balance Due:</b> {{apBalanceDue}}
+                </td>
+            </tr>
+            <tr>
+                <td><b>UTR No.:</b> </td>
+                <td><b>UTR Date:</b> </td>
+                <td><b>Bank:</b> {{bank}} </td>
+            </tr>
+            <tr>
+                <td><b>PO No.:</b> {{documentNo}}</td>
+                <td colspan="2" ><b>PO Date:</b> {{documentDate}}</td>
+            </tr>
+            <tr>
+                <td><b>PO Basic Total:</b> {{basicTotal}}</td>
+                <td><b>PO GST Total:</b> {{gstTotal}}</td>
+                <td><b>PO Gross Total:</b> {{grossTotal}}</td>
+            </tr>
+            <tr>
+                <td colspan="3">
+                    <b>Project Details:</b><br />
+                    {{projectNo}} - {{projectName}}
+                </td>
+            </tr>
+        </table>
+
+        <p>
+            <b>Payment Term:</b> {{paymentTerm}}
+        </p>
+
+        <p>
+            <b>User Remark:</b> {{journalRemarks}}
+        </p>
+
+        <table>
+            <tr>
+                <td class="center"><b>Prepared by</b></td>
+                <td class="center"><b>Checked by</b></td>
+                <td class="center"><b>Accounts</b></td>
+                <td class="center"><b>Authorized by</b></td>
+            </tr>
+            <tr>
+                <td class="center">
+                <br>
+                <br>
+                    {{userName}}
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

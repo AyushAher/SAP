@@ -1,0 +1,15 @@
+@using Microsoft.AspNetCore.Components.Authorization
+<MudNavMenu>
+    <MudNavLink Href="" Match="NavLinkMatch.All">Home</MudNavLink>
+    <MudNavLink Href="/inventory-transfer-requests-list" Match="NavLinkMatch.Prefix">Stock Transfer Request</MudNavLink>
+    <MudNavLink Href="/purchase-order-list" Match="NavLinkMatch.Prefix">Purchase Order</MudNavLink>
+    <MudNavLink Href="/issue-for-production-list" Match="NavLinkMatch.Prefix">Issue For Production Request</MudNavLink>
+    <MudNavLink Href="/receipt-from-production-list" Match="NavLinkMatch.Prefix">Receipt From Production</MudNavLink>
+    <MudNavLink Href="/approvals" Match="NavLinkMatch.Prefix">Approvals</MudNavLink>
+    <MudNavLink Href="/my-approval-requests" Match="NavLinkMatch.Prefix">My Approval Requests</MudNavLink>
+    <AuthorizeView Roles="@(Shared.Constants.Roles.SuperAdmin + "," + Shared.Constants.Roles.Admin)">
+        <MudNavLink Href="/policies" Match="NavLinkMatch.Prefix">Approval Policies</MudNavLink>
+        <MudNavLink Href="/user-roles" Match="NavLinkMatch.Prefix">User Role Management</MudNavLink>
+    </AuthorizeView>
+    <MudNavLink Href="/production-order" Match="NavLinkMatch.Prefix">Production Order</MudNavLink>
+</MudNavMenu>

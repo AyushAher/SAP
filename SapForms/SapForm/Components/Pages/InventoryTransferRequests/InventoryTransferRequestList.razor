@@ -1,0 +1,79 @@
+﻿@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Shared.Responses.Sap
+@page "/inventory-transfer-requests-list"
+
+@inject NavigationManager Nav
+@inject InventoryItemsTransferService itemsTransferRequest
+
+<MudButton Class="m-4" Variant="Variant.Text" OnClick="@(() => { Nav.NavigateTo("stock-transfer-request"); })">
+    Add New Request
+</MudButton>
+
+<MudDataGrid T="SapInventoryTransferRequestResponse" Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+             FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" Items="@response?.Value">
+    <ToolBarContent>
+        <MudText Typo="Typo.h6">Transfer Items</MudText>
+    </ToolBarContent>
+    <Columns>
+        <PropertyColumn Title="Document Id" Property="@(x => x.DocEntry)" />
+        <PropertyColumn Title="Doc Date" Property="x => x.DocDateFormatted" />
+        <PropertyColumn Title="Due Date" Property="x => x.DueDateFormatted" />
+        <PropertyColumn Title="From Warehouse" Property="x => x.FromWarehouse" />
+        <PropertyColumn Title="To Warehouse" Property="x => x.ToWarehouse" />
+        <PropertyColumn Title="Business Partner Code" Property="x => x.CardCode" />
+        <PropertyColumn Title="Business Partner Name" Property="x => x.CardName" />
+        <PropertyColumn Title="Sale Person" Property="x => x.ContactPerson" />
+        <TemplateColumn Title="Actions" CellClass="d-flex justify-end">
+            <CellTemplate>
+                <MudMenu Class="" Label="" Icon="@Icons.Material.Filled.MoreVert"
+                         Variant="Variant.Outlined" Color="Color.Primary">
+                    <div class="d-flex align-center">
+                        <MudButtonGroup Style="width:100%" Color="Color.Primary" Variant="Variant.Text" Vertical="true">
+                            <MudButton Disabled="@(context.Item.DocEntry is null)" OnClick="@(() => EditRequest(context.Item.DocEntry?.ToString()))"
+                                       Variant="Variant.Filled" Color="Color.Primary">Edit</MudButton>
+
+                            <MudButton Disabled="@(context.Item.DocEntry is null)" OnClick="@(() => CloseRequest(context.Item.DocEntry?.ToString()))"
+                                       Variant="Variant.Filled" Color="Color.Error">Close</MudButton>
+
+                            <MudButton Disabled="@(context.Item.DocEntry is null)" OnClick="@(() => CancelRequest(context.Item.DocEntry?.ToString()))"
+                                       Variant="Variant.Filled" Color="Color.Error">Cancel</MudButton>
+                        </MudButtonGroup>
+                    </div>
+                </MudMenu>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+
+    <PagerContent>
+        <MudDataGridPager T="SapInventoryTransferRequestResponse" />
+    </PagerContent>
+</MudDataGrid>
+
+
+@code {
+    SapInventoryTransferRequestListResponse? response = new SapInventoryTransferRequestListResponse();
+    SapInventoryTransferRequestResponse? _selectedResponse;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        response = await itemsTransferRequest.GetAllInventoryTransferRequests();
+        await base.OnInitializedAsync();
+    }
+
+    void EditRequest(string? docEntry)
+    {
+        Nav.NavigateTo($"stock-transfer-request/{docEntry ?? throw new ApiErrorException("Invalid Record selected")}");
+    }
+
+    async Task CancelRequest(string? docEntry)
+    {
+        await itemsTransferRequest.CancelTransferRequest(docEntry ?? throw new ApiErrorException("Invalid Record selected"));
+    }
+
+    async Task CloseRequest(string? docEntry)
+    {
+        await itemsTransferRequest.CloseTransferRequest(docEntry ?? throw new ApiErrorException("Invalid Record selected"));
+    }
+}

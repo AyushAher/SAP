@@ -1,0 +1,8 @@
+services:
+  sapform:
+    image: ${DOCKER_REGISTRY-}sapform
+    build:
+      context: .
+      dockerfile: SapForm/Dockerfile
+  auth-service:
+    image: harbor.aerovia.local/helper-services/auth-service/api:latest

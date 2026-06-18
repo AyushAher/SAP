@@ -1,0 +1,36 @@
+﻿@page "/business-partner"
+@attribute [Authorize]
+@using Shared
+@inject ISnackbar Snackbar
+@inject BusinessPartnerService BusinessPartnerService
+<MudPaper>
+    <h3>SAP Business Partner Sync</h3>
+    <hr />
+
+    <MudTextField T="string" @bind-Value="_request.CardCode" Label="Business Partner Code (CardCode)" Required="true" RequiredError="Code is required!" />
+    <MudTextField T="string" @bind-Value="_request.CardName" Label="Business Partner Name (CardName)" Required="true" RequiredError="Name is required!" />
+    <MudSelect T="string" Label="Partner Type" @bind-Value="_request.CardType">
+        <MudSelectItem T="string" Value="@Constants.SapBusinessPartnerType.Customer">Customer</MudSelectItem>
+        <MudSelectItem T="string" Value="@Constants.SapBusinessPartnerType.Vendor">Vendor/Supplier</MudSelectItem>
+    </MudSelect>
+
+    <MudButton Disabled="_isProcessing" OnClick="SubmitForm" ButtonType="ButtonType.Submit">Submit</MudButton>
+
+</MudPaper>
+@code {
+    SapBusinessPartnerRequest _request = new();
+    bool _isProcessing;
+
+    async Task SubmitForm()
+    {
+        _isProcessing = true;
+        if (string.IsNullOrEmpty(_request.CardCode) || string.IsNullOrEmpty(_request.CardName))
+        {
+            Snackbar.Add("Please fill in all required fields.", Severity.Error);
+            return;
+        }
+
+        var data = await BusinessPartnerService.SaveBusinessPartners(_request);
+        _isProcessing = false;
+    }
+}

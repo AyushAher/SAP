@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Production Order</title>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        font-size: 13px;
+      }
+
+      .container {
+        border: 1px solid #000;
+        padding: 10px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        text-align: center;
+        margin: 5px 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+
+      table,
+      th,
+      td {
+        border: 1px solid #000;
+      }
+
+      th,
+      td {
+        padding: 6px;
+        font-size: 13px;
+        vertical-align: top;
+      }
+
+      .no-border {
+        border: none !important;
+      }
+
+      .right {
+        text-align: right;
+      }
+
+      .center {
+        text-align: center;
+      }
+
+      .bold {
+        font-weight: bold;
+      }
+
+      .meta-table td {
+        width: 50%;
+      }
+
+      .footer-space {
+        height: 60px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <h2>PRIVILEGE BIKSONS BOILERS PVT. LTD.</h2>
+
+      <p class="center">
+        Office No.406 Konark Epitome Near Konark Campus Vimanagar, Pune-411014,
+        IN
+      </p>
+
+      <table>
+        <tr>
+          <td><b>PAN NO:</b> AAGCP3764P</td>
+          <td><b>GST NO:</b> 27AAGCP3764P1ZP</td>
+          <td><b>EMAIL:</b> -</td>
+        </tr>
+      </table>
+
+      <h3>Production Order</h3>
+
+      <table class="meta-table">
+        <tr>
+          <td>
+            <b>Production Order No:</b>
+            {{productionNo}}
+          </td>
+
+          <td>
+            <b>Order Date:</b>
+            {{orderDate}}
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <b>Status:</b>
+            {{status}}
+          </td>
+
+          <td>
+            <b>Production Location:</b>
+            {{productionLocation}}
+          </td>
+        </tr>
+
+        <tr>
+          <td colspan="2">
+            <b>Project Details:</b><br />
+            {{projectCode}} - {{projectName}}
+          </td>
+        </tr>
+
+        <tr>
+          <td colspan="2">
+            <b>Drawing No:</b>
+            {{drawingNo}}
+          </td>
+        </tr>
+
+        <tr>
+          <td colspan="2">
+            <b>FG Product Details:</b><br />
+            {{productNo}} - {{productName}}
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <b>FG Quantity:</b>
+            {{plannedQty}}
+          </td>
+
+          <td>
+            <b>Stock UOM:</b>
+            {{uom}}
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <b>Receipt Warehouse:</b>
+            {{receiptWarehouse}}
+          </td>
+
+          <td>
+            <b>Issue Warehouse:</b>
+            {{issueWarehouse}}
+          </td>
+        </tr>
+      </table>
+
+      <table>
+        <tr>
+          <th>Sr. No</th>
+          <th>Part No</th>
+          <th>Description</th>
+          <th>Quantity</th>
+          <th>UOM</th>
+          <th>Weight (KG)</th>
+        </tr>
+
+        {{@items}}
+
+        <tr>
+          <td colspan="3" class="right">
+            <b>Total</b>
+          </td>
+
+          <td class="center">
+            <b>{{totalQty}}</b>
+          </td>
+
+          <td></td>
+
+          <td class="right">
+            <b>{{totalWeight}}</b>
+          </td>
+        </tr>
+      </table>
+
+      <br />
+
+      <p>
+        <b>Remarks:</b>
+        {{remarks}}
+      </p>
+
+      <table>
+        <tr>
+          <td class="center">
+            <b>Prepared By</b>
+          </td>
+          <td class="center">
+            <b>Approved By</b>
+          </td>
+        </tr>
+
+        <tr class="footer-space">
+          <td class="center">{{userName}}</td>
+          <td></td>
+        </tr>
+      </table>
+    </div>
+  </body>
+</html>

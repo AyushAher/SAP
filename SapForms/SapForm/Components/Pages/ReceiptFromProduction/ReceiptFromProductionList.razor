@@ -1,0 +1,68 @@
+﻿@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Shared.Responses.Sap
+
+@page "/receipt-from-production-list"
+@inject NavigationManager Nav
+@inject SapInventoryGenExitsService SapInventoryGenExitsService
+@inject Context dbContext
+
+
+<MudButton Variant="Variant.Filled" Color="Color.Primary" Class="my-4" OnClick="@(() => { Nav.NavigateTo("/receipt-from-production"); })">
+    Add New
+</MudButton>
+
+<MudDataGrid T="ReceiptFromProductionRequests" Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+             FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" Items="@_response">
+    <ToolBarContent>
+        <MudText Typo="Typo.h6">Receipt From Production Request</MudText>
+    </ToolBarContent>
+    <Columns>
+        <PropertyColumn Title="Receipt Request No." Property="x => x.Id" />
+        <PropertyColumn Title="Project No." Property="x => x.Project" />
+        <PropertyColumn Title="Status" Property="x => x.Status" />
+        <PropertyColumn Title="Project Name" Property="x => x.ProjectName" />
+        <PropertyColumn Title="Item No" Property="x => x.ItemNo" />
+        <PropertyColumn Title="Item Name" Property="x => x.ItemName" />
+        <TemplateColumn>
+            <CellTemplate>
+                <div class="d-flex justify-center align-center">
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                             Size="Size.Small"
+                             AnchorOrigin="Origin.BottomRight"
+                             TransformOrigin="Origin.TopRight">
+
+                        <MudMenuItem OnClick="@(() => Edit(context.Item))"
+                                     Icon="@Icons.Material.Filled.Edit"
+                                     IconColor="Color.Info ">
+                            Edit
+                        </MudMenuItem>
+                    </MudMenu>
+                </div>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+
+    <PagerContent>
+        <MudDataGridPager T="ReceiptFromProductionRequests" />
+    </PagerContent>
+</MudDataGrid>
+
+
+@code {
+    // GetAllSapIssueForProductionResponse? _response = new();
+    List<ReceiptFromProductionRequests>? _response = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        // _response = await SapInventoryGenExitsService.GetAll();
+        _response = dbContext.ReceiptFromProductionRequests.ToList();
+        await base.OnInitializedAsync();
+    }
+
+    private void Edit(ReceiptFromProductionRequests item)
+    {
+        Nav.NavigateTo("/receipt-from-production/" + item.Id);
+    }
+
+}

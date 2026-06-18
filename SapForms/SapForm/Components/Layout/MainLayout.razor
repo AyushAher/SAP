@@ -1,0 +1,187 @@
+﻿@using SapForm.Services.Helpers
+@using SapForm.Services.Login
+
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@inject CacheRefreshJob CacheRefreshJob
+@inject LoaderService Loader
+@inject UserSession userSession
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Nav
+@inherits LayoutComponentBase
+
+<MudThemeProvider Theme="@_theme" IsDarkMode="false" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+<MudLayout>
+    <link href="/Style.css" rel="stylesheet" />
+
+    <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+        <MudText Typo="Typo.h5" Class="ml-3">SAP Forms</MudText>
+        <MudSpacer />
+        <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+
+            <ActivatorContent>
+                <MudAvatar Size="Size.Medium" Class="cursor-pointer">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountCircle" />
+                </MudAvatar>
+            </ActivatorContent>
+
+            <ChildContent>
+                <MudMenuItem>
+                    <MudText Typo="Typo.subtitle1">@userSession.GetUserNameAsync().Result</MudText>
+                </MudMenuItem>
+
+                <MudDivider />
+
+                <MudMenuItem OnClick="SyncSap" Icon="@Icons.Material.Filled.Sync">
+                    Sync SAP
+                </MudMenuItem>
+
+                <MudMenuItem OnClick="Logout" Icon="@Icons.Material.Filled.Logout" Color="Color.Error">
+                    Logout
+                </MudMenuItem>
+            </ChildContent>
+
+        </MudMenu>
+
+    </MudAppBar>
+    <MudDrawer id="nav-drawer" @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <NavMenu />
+    </MudDrawer>
+    <MudMainContent Class="pt-16 pa-4">
+        @Body
+        @if (_loading)
+        {
+            <Loader />
+        }
+    </MudMainContent>
+</MudLayout>
+
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private bool _drawerOpen = true;
+    private bool _isDarkMode = false;
+    private bool _loading = false;
+    private MudTheme? _theme = null;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Loader.OnChange += StateHasChanged;
+
+        _theme = new()
+        {
+            PaletteLight = _lightPalette,
+            PaletteDark = _darkPalette,
+            LayoutProperties = new LayoutProperties()
+        };
+    }
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private void DarkModeToggle()
+    {
+        _isDarkMode = !_isDarkMode;
+    }
+
+    public void Dispose()
+    {
+        Loader.OnChange -= StateHasChanged;
+    }
+
+    public async Task SyncSap()
+    {
+        _loading = true;
+        StateHasChanged();
+        var jobId = Hangfire.BackgroundJob.Enqueue<CacheRefreshJob>("default", j => j.RefreshAsync());
+        var state = GetJobState(jobId);
+
+        while (state?.ToLower() != "succeeded" && state?.ToLower() != "failed")
+        {
+            state = GetJobState(jobId);
+            if (state?.ToLower() == "succeeded")
+            {
+                Snackbar.Add("All Data Synced with SAP!", Severity.Success);
+                _loading = false;
+
+                StateHasChanged();
+            }
+            else if (state?.ToLower() == "failed")
+            {
+                Snackbar.Add("Sync Failed", Severity.Error);
+                _loading = false;
+                StateHasChanged();
+            }
+        }
+    }
+    public string? GetJobState(string jobId)
+    {
+        var connection = Hangfire.JobStorage.Current.GetConnection();
+        var jobData = connection.GetJobData(jobId);
+
+        return jobData?.State;
+    }
+    async Task Logout()
+    {
+        await JS.InvokeVoidAsync("auth.logout");
+    }
+    private readonly PaletteLight _lightPalette = new()
+    {
+        Black = "#110e2d",
+        AppbarText = "#424242",
+        AppbarBackground = "rgba(255,255,255,0.8)",
+        DrawerBackground = "#ffffff",
+        GrayLight = "#e8e8e8",
+        GrayLighter = "#f9f9f9",
+    };
+
+    private readonly PaletteDark _darkPalette = new()
+    {
+        Primary = "#7e6fff",
+        Surface = "#1e1e2d",
+        Background = "#1a1a27",
+        BackgroundGray = "#151521",
+        AppbarText = "#92929f",
+        AppbarBackground = "rgba(26,26,39,0.8)",
+        DrawerBackground = "#1a1a27",
+        ActionDefault = "#74718e",
+        ActionDisabled = "#9999994d",
+        ActionDisabledBackground = "#605f6d4d",
+        TextPrimary = "#b2b0bf",
+        TextSecondary = "#92929f",
+        TextDisabled = "#ffffff33",
+        DrawerIcon = "#92929f",
+        DrawerText = "#92929f",
+        GrayLight = "#2a2833",
+        GrayLighter = "#1e1e2d",
+        Info = "#4a86ff",
+        Success = "#3dcb6c",
+        Warning = "#ffb545",
+        Error = "#ff3f5f",
+        LinesDefault = "#33323e",
+        TableLines = "#33323e",
+        Divider = "#292838",
+        OverlayLight = "#1e1e2d80",
+    };
+
+    public string DarkLightModeButtonIcon => _isDarkMode switch
+    {
+        true => Icons.Material.Rounded.AutoMode,
+        false => Icons.Material.Outlined.DarkMode,
+    };
+
+}
+
+

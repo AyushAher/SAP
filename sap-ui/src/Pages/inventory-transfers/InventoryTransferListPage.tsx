@@ -1,0 +1,53 @@
+import { useCallback, useMemo } from 'react'
+import { Link } from 'react-router-dom'
+import { PageHeader } from '@/Components/shared/PageHeader'
+import { Button, DataTable, type DataTableColumn } from '@/Components/ui'
+import { ROUTES } from '@/config/constants'
+import { formatCodeWithName } from '@/helpers/masterLookup'
+import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
+import { cancelInventoryTransfer, closeInventoryTransfer, listInventoryTransfers, type InventoryTransfer } from '@/Requests/inventoryTransfers'
+
+const extractors = {
+  cardCodes: (row: InventoryTransfer) => row.CardCode,
+}
+
+export function InventoryTransferListPage() {
+  const fetchTransfers = useCallback(
+    (request: Parameters<typeof listInventoryTransfers>[0]) => listInventoryTransfers(request),
+    [],
+  )
+  const { fetchData, lookupMaps } = useEnrichedListFetch(fetchTransfers, extractors)
+
+  const columns = useMemo<DataTableColumn<InventoryTransfer>[]>(() => [
+    { key: 'DocEntry', header: 'Doc Entry', sortable: true, filterable: true, accessor: (r) => r.DocEntry },
+    { key: 'DocDate', header: 'Date', sortable: true, accessor: (r) => r.DocDate },
+    { key: 'FromWarehouse', header: 'From', sortable: true, filterable: true, accessor: (r) => r.FromWarehouse },
+    { key: 'ToWarehouse', header: 'To', sortable: true, filterable: true, accessor: (r) => r.ToWarehouse },
+    {
+      key: 'CardCode',
+      header: 'Business Partner',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) => formatCodeWithName(r.CardCode, r.CardName ?? lookupMaps.businessPartners[r.CardCode ?? '']),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row) => row.DocEntry && (
+        <div className="flex gap-2">
+          <Link to={`${ROUTES.INVENTORY_TRANSFER_FORM}/${row.DocEntry}`}><Button size="sm" variant="outline">Edit</Button></Link>
+          <Button size="sm" variant="outline" onClick={() => closeInventoryTransfer(String(row.DocEntry)).then(() => window.location.reload())}>Close</Button>
+          <Button size="sm" variant="outline" onClick={() => cancelInventoryTransfer(String(row.DocEntry)).then(() => window.location.reload())}>Cancel</Button>
+        </div>
+      ),
+    },
+  ], [lookupMaps])
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Stock Transfer Requests" actionLabel="Add New" actionTo={ROUTES.INVENTORY_TRANSFER_FORM} />
+      <DataTable columns={columns} fetchData={fetchData} getRowKey={(r) => r.DocEntry ?? Math.random()} initialSorts={[{ field: 'DocEntry', direction: 'desc' }]} />
+    </div>
+  )
+}

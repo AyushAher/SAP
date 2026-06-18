@@ -1,0 +1,92 @@
+﻿@using SapForm.Components.Layout
+@using SapForm.Services.Login
+@layout AuthLayout
+@inject UserManager<ApplicationUser> UserManager
+
+@inject ISnackbar SnackbarService
+@inject NavigationManager Nav
+@page "/Account/Register"
+
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="d-flex align-center justify-center" Style="height: 100vh;">
+    <MudPaper Elevation="5" Class="pa-10" Style="width: 100%; border-top: 8px solid #005495; border-radius: 12px;">
+        <div class="text-center mb-8">
+            <MudIcon Icon="@Icons.Material.Filled.LockPerson" Color="Color.Primary" Style="font-size: 3rem;" />
+            <MudText Typo="Typo.h4" Style="color: #005495; font-weight: bold;" Class="mt-2">Priviledge Biksons Boilers PVT LTD</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">Enter your credentials</MudText>
+        </div>
+
+        <MudTextField @bind-Value="registerUserRequest.Email" Label="Email"
+                      Variant="Variant.Outlined" FullWidth="true" Class="mb-4"
+                      Required="true" Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.AccountCircle" />
+
+        <MudTextField @bind-Value="registerUserRequest.UserName" Label="User Name"
+                      Variant="Variant.Outlined" FullWidth="true" Class="mb-4"
+                      Required="true" Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.AccountCircle" />
+
+        <MudTextField @bind-Value="registerUserRequest.Password" Label="Password"
+                      InputType="InputType.Password" Variant="Variant.Outlined"
+                      FullWidth="true" Class="mb-6" Required="true"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Password" />
+
+        <MudTextField @bind-Value="registerUserRequest.ConfirmPassword" Label="Confirm Password"
+                      InputType="InputType.Password" Variant="Variant.Outlined"
+                      FullWidth="true" Class="mb-6" Required="true"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Password" />
+
+        <MudButton Variant="Variant.Filled"
+                   Style="background-color: #005495; color: white; height: 55px; font-weight: bold;"
+                   FullWidth="true" OnClick="RegisterUser">
+            <text>SIGN UP</text>
+        </MudButton>
+    </MudPaper>
+</MudContainer>
+
+@code {
+
+    RegisterUserRequest registerUserRequest = new();
+
+    async Task RegisterUser()
+    {
+        var existingUser = await UserManager.FindByEmailAsync(registerUserRequest.Email);
+        if (existingUser != null)
+        {
+            SnackbarService.Add("User already exists", Severity.Error);
+            return;
+        }
+
+        if (registerUserRequest.Password != registerUserRequest.ConfirmPassword)
+        {
+            SnackbarService.Add("Password and confirm password does not match");
+            return;
+        }
+
+        var user = new ApplicationUser
+        {
+            UserName = registerUserRequest.Email,
+            Email = registerUserRequest.Email,
+            FullName = registerUserRequest.UserName
+        };
+
+        var response = await UserManager.CreateAsync(user, registerUserRequest.Password);
+
+        
+        if (response?.Succeeded == true)
+        {
+            SnackbarService.Add("User registered successfully!");
+            Nav.NavigateTo("/Account/Login");
+        }
+        else
+        {
+            foreach (var error in response?.Errors ?? [])
+                SnackbarService.Add(error.Description, Severity.Error);
+
+            return;
+        }
+
+    }
+}

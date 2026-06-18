@@ -1,0 +1,317 @@
+﻿@attribute [Authorize]
+@using Shared.Responses.Sap
+@using SapForm.Services.Helpers
+@using SapForm.Services.Login
+@using StackExchange.Redis
+
+@inject InventoryItemsTransferService ItemsTransferRequest
+@inject SapProductionOrdersService SapProductionOrder
+@inject SapPurchaseOrderService PurchaseOrderService
+@inject IDialogService DialogService
+@inject SapInventoryGenExitsService InventoryGenExitsService
+@inject ISnackbar Snackbar
+@inject Context dbContext
+@inject PdfService PdfService
+@inject IJSRuntime JSRuntime
+@inject UserSession userSession
+@inject NavigationManager Nav
+@page "/receipt-from-production/{id?}"
+
+<div style="display:flex; justify-content: space-between; align-items: center;" class="my-3">
+    <MudText Typo="Typo.h4" Class="mx-3">Receipt From Production Request @(Id is not null ? "" : "") </MudText>
+    <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Info"
+               StartIcon="@Icons.Material.Filled.Download" OnClick="DownloadPdf">Download</MudButton>
+</div>
+
+<MudPaper Class="my-3" Elevation="0">
+    <MudText Typo="Typo.h5" Class="mx-3">Production Order Details</MudText>
+    <MudDivider />
+    <MudGrid>
+        <MudItem xs="3">
+            <MudText Class="ma-3">Production Order:
+                @SapInventoryGenExitRequestOrderLines?.ProductionOrder.DocumentNumber</MudText>
+            </MudItem>
+
+            <MudItem xs="3">
+                <MudText Class="ma-3">Customer Code: @SapInventoryGenExitRequestOrderLines?.ProductionOrder.CustomerCode
+                </MudText>
+            </MudItem>
+
+            <MudItem xs="3">
+                <MudText Class="ma-3">Customer Name: @SapInventoryGenExitRequestOrderLines?.ProductionOrder.CustomerName
+                </MudText>
+            </MudItem>
+
+            <MudItem xs="3">
+                <MudText Class="ma-3">Project: @SapInventoryGenExitRequestOrderLines?.ProductionOrder.Project -
+                    @(_projectName)</MudText>
+                </MudItem>
+
+                <MudItem xs="3">
+                    <MudText Class="ma-3">Reciept Warehouse: @SapInventoryGenExitRequestOrderLines?.ProductionOrder.Warehouse
+                    </MudText>
+                </MudItem>
+
+                <MudItem xs="3">
+                    <MudText Class="ma-3">Item Number: @SapInventoryGenExitRequestOrderLines?.ProductionOrder.ItemNumber
+                    </MudText>
+                </MudItem>
+
+                <MudItem xs="3">
+                    <MudText Class="ma-3">Item Name: @SapInventoryGenExitRequestOrderLines?.ProductionOrder.ProductDescription
+                    </MudText>
+                </MudItem>
+
+                <MudItem xs="3">
+                    <MudText Class="ma-3">Drawing Number: @SapInventoryGenExitRequestOrderLines?.ProductionOrder.DrawingNo
+                    </MudText>
+                </MudItem>
+            </MudGrid>
+            <MudDivider />
+            <MudDataGrid T="SapProductionOrderLines" Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+                         FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" Class="my-3"
+                         Items="SapInventoryGenExitRequestOrderLines?.ProductionOrderLinesEntryNumber">
+                <Columns>
+                    <PropertyColumn Title="Line Number" Property="x => x.LineNumber" />
+                    <PropertyColumn Title="Item No." Property="x => x.ItemNo" />
+                    <PropertyColumn Title="Item Name" Property="x => x.ItemName" />
+                    <PropertyColumn Title="Planned Qty." Property="x => x.PlannedQuantity" />
+                    <TemplateColumn Title="Issue Qty.">
+                        <CellTemplate>
+                            <MudTextField @bind-Value="@context.Item.IssuedQuantity" Required
+                                          RequiredError="Issued Qty. is required!" T="double" />
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Stock UOM">
+                        <CellTemplate>
+                            @_itemsList.FirstOrDefault(x => x.ItemCode == context.Item.ItemNo)?.InventoryUom
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Title="Issuing Warehouse" Property="x => x.Warehouse" />
+                </Columns>
+
+                <PagerContent>
+                    <MudDataGridPager T="SapProductionOrderLines" />
+                </PagerContent>
+
+            </MudDataGrid>
+
+            <div style="display:flex; justify-content: space-between;" class="my-3 px-3">
+                <MudButton OnClick="OnSelectProductionOrderClick" Class="mt-3" ButtonType="ButtonType.Button"
+                           Color="Color.Secondary" Variant="Variant.Text">Select Production Order</MudButton>
+            </div>
+            <br />
+        </MudPaper>
+
+<MudButton OnClick="IssueForProductionAsync" Class="mt-3" ButtonType="ButtonType.Button" Color="Color.Primary"
+           Variant="Variant.Filled">@(Id is null ? "Create" : "Update") Request</MudButton>
+
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    List<ItemsResponse> _itemsList { get; set; } = [];
+    List<WarehouseResponse> _warehouseList { get; set; } = [];
+    SapInventoryGenExitRequestOrderRequest inventoryGenRequest;
+    public GetAllSapProductionOrdersResponse? ProductionOrdersResponseList { get; set; }
+    public SapInventoryGenExitRequestOrderLines? SapInventoryGenExitRequestOrderLines { get; set; }
+    List<SapProductionOrderLines> selectedLines = [];
+    ReceiptFromProductionRequests? ReceiptFromProductionRequest;
+    SapProductionOrderLines orderLines = new();
+    string _projectName = "";
+
+    async Task OnSelectProductionOrderClick()
+    {
+        var parameters = new DialogParameters<ProductionOrderSeleectionDialog>
+        {
+            { x => x.ProductionOrdersResponseList, ProductionOrdersResponseList }
+        };
+
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Large };
+        var response = await DialogService.ShowAsync<ProductionOrderSeleectionDialog>("Select Production Order", parameters,
+options);
+        var resResult = await response.Result;
+
+        SapInventoryGenExitRequestOrderLines = resResult?.Data as SapInventoryGenExitRequestOrderLines;
+        var projectDetails = await PurchaseOrderService.GetAllProjectDetailsResponse();
+        _projectName = projectDetails?.Value?.FirstOrDefault(x => x.ProjectCode ==
+SapInventoryGenExitRequestOrderLines?.ProductionOrder.Project)?.ProjectName ?? "";
+
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        ProductionOrdersResponseList = await SapProductionOrder.GetAllProductionOrders();
+
+        _itemsList = await ItemsTransferRequest.GetAllItems() ?? [];
+        _warehouseList = await ItemsTransferRequest.GetAllWarehouses() ?? [];
+
+        if (!string.IsNullOrEmpty(Id))
+        {
+            ReceiptFromProductionRequest = dbContext.ReceiptFromProductionRequests.FirstOrDefault(x => x.Id == int.Parse(Id));
+            if (ReceiptFromProductionRequest is not null)
+                SapInventoryGenExitRequestOrderLines =
+JsonSerializer.Deserialize<SapInventoryGenExitRequestOrderLines>(ReceiptFromProductionRequest.RequestBody);
+        }
+        var projectDetails = await PurchaseOrderService.GetAllProjectDetailsResponse();
+        _projectName = projectDetails?.Value?.FirstOrDefault(x => x.ProjectCode ==
+SapInventoryGenExitRequestOrderLines?.ProductionOrder.Project)?.ProjectName ?? "";
+
+
+        await base.OnInitializedAsync();
+    }
+
+    async Task IssueForProductionAsync()
+    {
+        SapInventoryGenExitRequestOrderLines?.ProductionOrderLinesEntryNumber.AddRange(selectedLines);
+
+        var lines = SapInventoryGenExitRequestOrderLines?.ProductionOrderLinesEntryNumber.Select(x => new
+SapInventoryGenExitRequestOrderLinesRequest
+        {
+            BaseEntry = x.DocumentAbsoluteEntry,
+            BaseLine = x.LineNumber,
+            CostingCode = "",
+            Quantity = x.IssuedQuantity,
+            Warehouse = x.Warehouse ?? ""
+        }).ToList();
+
+        inventoryGenRequest = new SapInventoryGenExitRequestOrderRequest
+        {
+            DueDate = DateTime.Now.AddDays(1),
+            DocDate = DateTime.Now,
+            DocumentLines = lines ?? [],
+        };
+
+        // var response = await InventoryGenExitsService.CreateAsync(inventoryGenRequest);
+        // if (response?.PendingApproval == true)
+        // {
+        // Snackbar.Add("This request is now in pending for approval!");
+        // }
+        // else if (response is not null || !string.IsNullOrEmpty(response?.Error?.Message?.Value))
+        // {
+        // Snackbar.Add(response.Error?.Code + ":" + response.Error?.Message?.Value);
+        // }
+        if (SapInventoryGenExitRequestOrderLines?.ProductionOrder is not null && (Id is null || int.Parse(Id) <= 0))
+        {
+           var newRecord = await dbContext.ReceiptFromProductionRequests.AddAsync(new ReceiptFromProductionRequests
+            {
+                CardCode = SapInventoryGenExitRequestOrderLines?.ProductionOrder.CustomerCode ?? "",
+                CardName = SapInventoryGenExitRequestOrderLines?.ProductionOrder.CustomerName ?? "",
+                Project = SapInventoryGenExitRequestOrderLines?.ProductionOrder.Project ?? "",
+                RequestBody = JsonSerializer.Serialize(SapInventoryGenExitRequestOrderLines),
+                ItemName = SapInventoryGenExitRequestOrderLines?.ProductionOrder.ProductDescription ?? "",
+                ItemNo = SapInventoryGenExitRequestOrderLines?.ProductionOrder.ItemNumber ?? "",
+                ProjectName = SapInventoryGenExitRequestOrderLines?.ProductionOrder.ProjectName ?? "",
+                Status = SapInventoryGenExitRequestOrderLines?.ProductionOrder.Status ?? "",
+            });
+            await dbContext.SaveChangesAsync();
+            var idTxt = "(" + newRecord.Entity.Id.ToString() + "";
+            Snackbar.Add($"Receipt From Production Request Created {idTxt}!", Severity.Success);
+        }
+        else if (SapInventoryGenExitRequestOrderLines?.ProductionOrder is not null && (Id is null || int.Parse(Id) > 0))
+        {
+            var req = dbContext.ReceiptFromProductionRequests.FirstOrDefault(x => x.Id == int.Parse(Id));
+            if (req is not null)
+            {
+                req.CardCode = SapInventoryGenExitRequestOrderLines?.ProductionOrder.CustomerCode ?? "";
+                req.CardName = SapInventoryGenExitRequestOrderLines?.ProductionOrder.CustomerName ?? "";
+                req.Project = SapInventoryGenExitRequestOrderLines?.ProductionOrder.Project ?? "";
+                req.ItemName = SapInventoryGenExitRequestOrderLines?.ProductionOrder.ProductDescription ?? "";
+                req.ItemNo = SapInventoryGenExitRequestOrderLines?.ProductionOrder.ItemNumber ?? "";
+                req.ProjectName = SapInventoryGenExitRequestOrderLines?.ProductionOrder.ProjectName ?? "";
+                req.Status = SapInventoryGenExitRequestOrderLines?.ProductionOrder.Status ?? "";
+                req.RequestBody = JsonSerializer.Serialize(SapInventoryGenExitRequestOrderLines);
+                dbContext.Entry(req).State = EntityState.Modified;
+            }
+            await dbContext.SaveChangesAsync();
+            var idTxt = "(" + Id + "";
+            Snackbar.Add($"Receipt From Production Request Modified {idTxt}!", Severity.Success);
+        }
+        Nav.NavigateTo("/receipt-from-production-list");
+    }
+
+    private async Task<IEnumerable<string?>> SearchWarehouse(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return _warehouseList.Select(x => x.WarehouseCode);
+        }
+
+        return _warehouseList.Select(x => x.WarehouseCode).Where(x => x is not null && x.Contains(value,
+StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private async Task<IEnumerable<string?>> SearchItemCodes(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return _itemsList.Select(x => x.ItemCode);
+        }
+
+        return _itemsList.Where(x => x is not null && x.ItemName is not null && x.ItemName.Contains(value, StringComparison.InvariantCultureIgnoreCase)).Select(x => x.ItemCode);
+    }
+
+
+    async Task DownloadPdf()
+    {
+        var html = await GenerateHtml();
+        var pdfBytes = PdfService.GeneratePdfFromHtml(html);
+        var base64 = Convert.ToBase64String(pdfBytes);
+        await JSRuntime.InvokeVoidAsync("auth.downloadFile", "ReceiptFromProduction.pdf", base64);
+    }
+
+    async Task<string> GenerateHtml()
+    {
+        var order = SapInventoryGenExitRequestOrderLines?.ProductionOrder;
+        var lines = SapInventoryGenExitRequestOrderLines?.ProductionOrderLinesEntryNumber;
+        var rows = string.Empty;
+        double totalQty = 0;
+        double totalWeight = 0;
+        var itemsHtml = string.Empty;
+
+        if (lines != null)
+        {
+            int i = 1;
+            foreach (var item in lines)
+            {
+                totalQty += item.IssuedQuantity;
+                var itemDetails = _itemsList.FirstOrDefault(x => x.ItemCode == item.ItemNo);
+                totalWeight += (itemDetails?.InventoryWeight ?? 0);
+                var freeText = item.FreeText is not null ? $" - {item.FreeText}" : "";
+                itemsHtml += ($@"
+                        <tr>
+                            <td>{item.VisualOrder + 1}</td>
+                            <td>{item.LineNumber}</td>
+                            <td>{item.ItemNo}</td>
+                            <td>{itemDetails?.ItemName} {freeText}</td>
+                            <td class='center'>{item.IssuedQuantity}</td>
+                            <td class='center'>{itemDetails?.InventoryUom}</td>
+                            <td class='right'>{itemDetails?.InventoryWeight:F2}</td>
+                        </tr>");
+            }
+        }
+
+        var html = await System.IO.File.ReadAllTextAsync(Path.Join(Directory.GetCurrentDirectory(), "wwwroot",
+"receipt-from-production-template.html"));
+
+        var finalHtml = html
+                 .Replace("{{documentNo}}", Id ?? "")
+                 .Replace("{{documentDate}}", DateTime.Now.ToString("dd/MM/yyyy"))
+                 .Replace("{{projectName}}", _projectName ?? "")
+                 .Replace("{{projectNo}}", order?.Project ?? "")
+                 .Replace("{{drawingNo}}", order?.DrawingNo ?? "")
+                 .Replace("{{productionNo}}", order?.DocumentNumber.ToString() ?? "")
+                 .Replace("{{productionDate}}", order?.CreationDate?.ToString("dd/MM/yyyy") ?? "")
+                 .Replace("{{workersName}}", "N/A")
+                 .Replace("{{productNo}}", order?.ItemNumber ?? "")
+                 .Replace("{{warehouse}}", lines?.LastOrDefault()?.Warehouse ?? "")
+                 .Replace("{{productName}}", order?.ProductDescription ?? "")
+                 .Replace("{{@items}}", itemsHtml)
+                 .Replace("{{totalQty}}", totalQty.ToString("F2"))
+                 .Replace("{{totalWeight}}", totalWeight.ToString("F2"))
+                 .Replace("{{journalRemarks}}", "Auto generated from system")
+                 .Replace("{{userName}}", await userSession.GetUserNameAsync());
+        return finalHtml;
+    }
+}

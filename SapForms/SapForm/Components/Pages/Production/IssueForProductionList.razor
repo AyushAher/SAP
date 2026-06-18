@@ -1,0 +1,152 @@
+﻿@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Shared.Responses.Sap
+@using SapForm.Services.Helpers
+@using SapForm.Services.Login
+
+@page "/issue-for-production-list"
+@inject NavigationManager Nav
+@inject SapInventoryGenExitsService SapInventoryGenExitsService
+@inject Context dbContext
+@inject InventoryItemsTransferService ItemsTransferRequest
+@inject SapPurchaseOrderService PurchaseOrderService
+
+@inject PdfService PdfService
+
+@inject IJSRuntime JSRuntime
+@inject UserSession userSession
+<MudButton Variant="Variant.Filled" Color="Color.Primary" Class="my-4"
+           OnClick="@(() => { Nav.NavigateTo("/issue-for-production"); })">
+    Add New
+</MudButton>
+
+<MudDataGrid T="IssueForProductionRequests" Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+             FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" Items="@_response">
+    <ToolBarContent>
+        <MudText Typo="Typo.h6">Issue For Production Request</MudText>
+    </ToolBarContent>
+    <Columns>
+        <PropertyColumn Title="Issue Request No." Property="x => x.Id" />
+        <PropertyColumn Title="Project No." Property="x => x.Project" />
+        <PropertyColumn Title="Status" Property="x => x.Status" />
+        <PropertyColumn Title="Project Name" Property="x => x.ProjectName" />
+        <PropertyColumn Title="Item No" Property="x => x.ItemNo" />
+        <PropertyColumn Title="Item Name" Property="x => x.ItemName" />
+        <TemplateColumn>
+            <CellTemplate>
+                <div class="d-flex justify-center align-center">
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" AnchorOrigin="Origin.BottomRight"
+                             TransformOrigin="Origin.TopRight">
+
+                        <MudMenuItem OnClick="@(() => Edit(context.Item))" Icon="@Icons.Material.Filled.Edit"
+                                     IconColor="Color.Info ">
+                            Edit
+                        </MudMenuItem>
+                        <MudMenuItem OnClick="@(() => DownloadPdf(context.Item.Id))"
+                                     Icon="@Icons.Material.Filled.Download" IconColor="Color.Info ">
+                            Download PDF
+                        </MudMenuItem>
+                    </MudMenu>
+                </div>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+
+    <PagerContent>
+        <MudDataGridPager T="IssueForProductionRequests" />
+    </PagerContent>
+</MudDataGrid>
+
+
+@code {
+    // GetAllSapIssueForProductionResponse? _response = new();
+    List<IssueForProductionRequests>? _response = [];
+    SapGetAllProjectDetailsResponse? projectDetails = new();
+    List<ItemsResponse> _itemsList { get; set; } = [];
+    List<WarehouseResponse> _warehouseList { get; set; } = [];
+    protected override async Task OnInitializedAsync()
+    {
+        // _response = await SapInventoryGenExitsService.GetAll();
+        _response = dbContext.IssueForProductionRequests.ToList();
+        _itemsList = await ItemsTransferRequest.GetAllItems() ?? [];
+        _warehouseList = await ItemsTransferRequest.GetAllWarehouses() ?? [];
+        projectDetails = await PurchaseOrderService.GetAllProjectDetailsResponse();
+
+        await base.OnInitializedAsync();
+    }
+
+    private void Edit(IssueForProductionRequests item)
+    {
+        Nav.NavigateTo("/issue-for-production/" + item.Id);
+    }
+
+    async Task DownloadPdf(int id)
+    {
+        var html = await GenerateHtml(id);
+        var pdfBytes = PdfService.GeneratePdfFromHtml(html);
+        var base64 = Convert.ToBase64String(pdfBytes);
+        await JSRuntime.InvokeVoidAsync("auth.downloadFile", $"Issue For Production({id}).pdf", base64);
+    }
+
+    async Task<string> GenerateHtml(int id)
+    {
+        var SapInventoryGenExitRequestOrderLines = new SapInventoryGenExitRequestOrderLines();
+        var IssueForProductionRequest = dbContext.IssueForProductionRequests.FirstOrDefault(x => x.Id == (id));
+        if (IssueForProductionRequest is not null)
+            SapInventoryGenExitRequestOrderLines =
+JsonSerializer.Deserialize<SapInventoryGenExitRequestOrderLines>(IssueForProductionRequest.RequestBody);
+
+        var order = SapInventoryGenExitRequestOrderLines?.ProductionOrder;
+        var lines = SapInventoryGenExitRequestOrderLines?.ProductionOrderLinesEntryNumber;
+        var _projectName = projectDetails?.Value?.FirstOrDefault(x => x.ProjectCode ==
+                SapInventoryGenExitRequestOrderLines?.ProductionOrder.Project)?.ProjectName ?? "";
+        var rows = string.Empty;
+        double totalQty = 0;
+        double totalWeight = 0;
+        var itemsHtml = string.Empty;
+
+        if (lines != null)
+        {
+            int i = 1;
+            foreach (var item in lines)
+            {
+                totalQty += item.IssuedQuantity;
+                var itemDetails = _itemsList.FirstOrDefault(x => x.ItemCode == item.ItemNo);
+                totalWeight += (itemDetails?.InventoryWeight ?? 0);
+                var freeText = item.FreeText is not null ? $" - {item.FreeText}" : "";
+                itemsHtml += ($@"
+                        <tr>
+                            <td>{item.VisualOrder + 1}</td>
+                            <td>{item.LineNumber}</td>
+                            <td>{item.ItemNo}</td>
+                            <td>{itemDetails?.ItemName} {freeText}</td>
+                            <td class='center'>{item.IssuedQuantity}</td>
+                            <td class='center'>{itemDetails?.InventoryUom}</td>
+                            <td class='right'>{itemDetails?.InventoryWeight:F2}</td>
+                        </tr>");
+            }
+        }
+
+        var html = await System.IO.File.ReadAllTextAsync(Path.Join(Directory.GetCurrentDirectory(), "wwwroot",
+"issue-for-production-template.html"));
+
+        var finalHtml = html
+                 .Replace("{{documentNo}}", id.ToString() ?? "")
+                 .Replace("{{documentDate}}", DateTime.Now.ToString("dd/MM/yyyy"))
+                 .Replace("{{projectName}}", _projectName ?? "")
+                 .Replace("{{projectNo}}", order?.Project ?? "")
+                 .Replace("{{drawingNo}}", order?.DrawingNo ?? "")
+                 .Replace("{{productionDate}}", order?.CreationDate?.ToString("dd/MM/yyyy") ?? "")
+                 .Replace("{{productionNo}}", order?.DocumentNumber.ToString() ?? "")
+                 .Replace("{{workersName}}", "N/A")
+                 .Replace("{{productNo}}", order?.ItemNumber ?? "")
+                 .Replace("{{warehouse}}", lines?.LastOrDefault()?.Warehouse ?? "")
+                 .Replace("{{productName}}", order?.ProductDescription ?? "")
+                 .Replace("{{@items}}", itemsHtml)
+                 .Replace("{{totalQty}}", totalQty.ToString("F2"))
+                 .Replace("{{totalWeight}}", totalWeight.ToString("F2"))
+                 .Replace("{{journalRemarks}}", "Auto generated from system")
+                 .Replace("{{userName}}", await userSession.GetUserNameAsync());
+        return finalHtml;
+    }
+}

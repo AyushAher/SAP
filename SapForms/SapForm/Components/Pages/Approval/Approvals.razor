@@ -1,0 +1,470 @@
+﻿@attribute [Authorize]
+@page "/approvals"
+@using Org.BouncyCastle.Ocsp
+
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ApprovalService ApprovalService
+@inject ISnackbar Snackbar
+@inject InventoryItemsTransferService InventoryItemsTransferService
+@inject SapInventoryGenExitsService SapInventoryGenExitsService
+@inject SapProductionOrdersService SapProductionOrdersService
+@inject SapPurchaseOrderService SapPurchaseOrderService
+@inject BusinessPartnerService BusinessPartnerService
+@inject SapPurchaseDownPaymentService SapPurchaseDownPaymentService
+@inject SapVendorPaymentService SapVendorPaymentService
+@inject IDialogService DialogService
+@inject Context Context
+@inject SapVendorPaymentService sapVendorPaymentService
+@inject StageWisePaymentService StageWisePaymentService
+
+<MudPaper Class="pa-4">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <MudText Typo="Typo.h5">My Pending Approvals</MudText>
+        <div>
+            <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(selectedApprovals.Count == 0)"
+                       OnClick="Reject">Bulk Reject</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="@(selectedApprovals.Count == 0)"
+                       OnClick="Approve">Bulk Approve</MudButton>
+        </div>
+    </div>
+
+    <MudDataGrid T="ApprovalRequest"
+                 Items="@_requests.OrderByDescending(x => x.Id).ThenByDescending(x => x.OverallStatus)" Dense="true" Hover="true"
+                 Filterable="true" SortMode="SortMode.Multiple" RowsPerPage="20" FixedHeader="true" Height="600px" Elevation="0"
+                 MultiSelection="true" SelectedItems="selectedApprovals.ToHashSet()"
+                 SelectedItemsChanged="OnColumnSelectionChanged">
+        <Columns>
+            <SelectColumn T="ApprovalRequest" />
+            <PropertyColumn Property="x => x.Id" Title="ID" />
+            <PropertyColumn Property="x => x.DocumentType" Title="Document Type" />
+            <TemplateColumn Title="BP Name">
+                <CellTemplate>
+                    @(GetCardName(context.Item.RequestBody))
+                </CellTemplate>
+            </TemplateColumn>
+        <PropertyColumn Title="Status" Property="x => x.OverallStatus" Sortable="true" Filterable="true">
+                <CellTemplate>
+                    <MudChip T="string"
+                             Color="@GetStatusColor(context.Item.UserApprovals.FirstOrDefault(x => x.UserId == GetCurrentUserId())?.ApprovalStatus ?? context.Item.OverallStatus)">
+                        @(context.Item.UserApprovals.FirstOrDefault(x => x.UserId ==
+                        GetCurrentUserId())?.ApprovalStatus.ToString() ?? context.Item.OverallStatus.ToString())
+                    </MudChip>
+                </CellTemplate>
+            
+            </PropertyColumn>
+            <PropertyColumn Property="x => x.SapResponseDocEntry" Title="SAP Doc Number" />
+            <PropertyColumn Property="x => x.SapResponseDocNum" Title="SAP Doc Entry" />
+            <PropertyColumn Property="x => x.FailureReason" Title="Failure Reason" />
+
+            <PropertyColumn Property="x => x.SupportingData" Title="Supporting Data" />
+            <PropertyColumn Property="x => x.RequesterUser.FullName" Title="Requester User Name" />
+
+            
+            <PropertyColumn Property="@(x => x.CreatedAt.ToString("dd/MM/yyyy HH:mm"))" Title="Created At" />
+            <TemplateColumn Title="Action">
+                <CellTemplate>
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                               OnClick="() => OpenViewDialog(context.Item)">
+                        View Request
+                    </MudButton>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="ApprovalRequest" />
+        </PagerContent>
+    </MudDataGrid>
+</MudPaper>
+
+@code {
+    private List<ApprovalRequest> _requests = new();
+    private ClaimsPrincipal? _user;
+    private string? _userId;
+    List<ApprovalRequest> selectedApprovals = [];
+    List<SapBusinessPartner> SapBusinessPartnerResponses = [];
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _user = authState.User;
+
+        if (_user?.Identity?.IsAuthenticated == true)
+        {
+            _userId = _user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            await Reload();
+        }
+        var bpList = await BusinessPartnerService.GetAllBusinessPartners();
+        SapBusinessPartnerResponses = bpList?.Value ?? [];
+    }
+
+    private async Task OpenViewDialog(ApprovalRequest request)
+    {
+        var parameters = new DialogParameters { ["Request"] = request };
+        var dialogResponse = await DialogService.ShowAsync<RequestViewDialog>("Request Details", parameters, new DialogOptions
+        {
+            FullWidth = true,
+            MaxWidth = MaxWidth.Large
+        });
+        var data = await dialogResponse.Result;
+        var approvalActionData = (ApprovalActionData?)data?.Data;
+        if (approvalActionData is null) return;
+        @* if (request.DocumentType == ApprovalDocumentType.Payments && request.IsLastApproval &&
+(string.IsNullOrEmpty(approvalActionData.UtrNo) || approvalActionData.UtrDate != null))
+        {
+            Snackbar.Add("UTR No and UTR Date are required to approve a payment request.", Severity.Error);
+            return;
+        } *@
+
+        switch (approvalActionData.Action)
+        {
+            case "Approve":
+                await Approve(request.Id, approvalActionData);
+                return;
+            case "Reject":
+                await Reject(request.Id, approvalActionData);
+                return;
+            default:
+                return;
+        }
+    }
+    private async Task Approve(int requestId, ApprovalActionData? data)
+    {
+        var result = await ApprovalService.ApproveAsync(
+            requestId,
+            GetCurrentUserId(),
+            data?.Comment ?? "Approved");
+
+        if (result?.OverallStatus == ApprovalStatus.Approved)
+        {
+            var sapResponse = await ExecuteBusinessLogic(result, data?.UtrNo, data?.UtrDate, data?.Comment);
+
+            if (!string.IsNullOrEmpty(sapResponse?.Error?.Message?.Value))
+            {
+                Snackbar.Add(sapResponse?.Error?.Message?.Value ?? "Some error occurred!!", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Approved!", Severity.Success);
+                if (sapResponse is not null)
+                {
+                    result.SapResponseDocEntry = sapResponse?.ApprovalDocEntry;
+                    result.SapResponseDocNum = sapResponse?.ApprovalDocNumber;
+                    if (result.DocumentType == ApprovalDocumentType.Payments)
+                    {
+                        var record = Context.StageWisePayments.Where(x => x.ApprovalRequestId != null && result.SupportingData ==
+x.DocNumber.ToString())
+                        .ToList().Select(x => GetStageWisePaymentRecord(result.Id, x)).FirstOrDefault(x => x != null);
+                        if (record != null)
+                        {
+                            record.UtrDate = data?.UtrDate;
+                            record.UtrNo = data?.UtrNo;
+                            Context.StageWisePayments.Entry(record).State = EntityState.Modified;
+                        }
+                    }
+
+                    if (result.DocumentType is ApprovalDocumentType.Payments or ApprovalDocumentType.StagewisePayments_DP)
+                        await StageWisePaymentService.MarkApprovedWhenAllRequestsCompleteAsync(result.Id);
+
+                    Context.ApprovalRequests.Entry(result).State = EntityState.Modified;
+                    await Context.SaveChangesAsync();
+                }
+            }
+        }
+        if (result?.OverallStatus == ApprovalStatus.Pending)
+        {
+            Snackbar.Add("Request sent for further user approvals!", Severity.Success);
+        }
+
+        await Reload();
+    }
+    private StageWisePayment? GetStageWisePaymentRecord(int id, StageWisePayment stageWisePayment)
+    {
+        var idStr = id.ToString();
+        var ids = stageWisePayment.ApprovalRequestId?.Split(',');
+        if (ids?.Any(y => y == idStr) == true)
+            return stageWisePayment;
+        return null;
+    }
+
+    private async Task Reject(int requestId, ApprovalActionData? data)
+    {
+        await ApprovalService.RejectAsync(
+            requestId,
+            GetCurrentUserId(),
+           data?.Comment ?? "Rejected");
+
+        Snackbar.Add("Rejected", Severity.Error);
+        await Reload();
+    }
+    private async Task<SapBaseResponse?> ExecuteBusinessLogic(ApprovalRequest request, string? utrNo = null, DateTime?
+utrDate = null, string? comment = null)
+    {
+        if (string.IsNullOrEmpty(request.RequestBody))
+        {
+            Snackbar.Add("No request body found for this approval request.", Severity.Error);
+            return null;
+        }
+
+        SapBaseResponse? sapBaseResponse = null;
+
+        if (request.DocumentType == ApprovalDocumentType.InventoryItemsTransfer)
+        {
+            var body = JsonSerializer.Deserialize<SapInventoryTransferRequestsRequest>(request.RequestBody);
+            if (body == null) return sapBaseResponse;
+
+            if (request.Action == ApprovalAction.Create)
+                sapBaseResponse = await InventoryItemsTransferService.CreateRequest(body, request.Id);
+            else if (request.Action == ApprovalAction.Update)
+                sapBaseResponse = await InventoryItemsTransferService.UpdateRequest(body, body.DocEntry?.ToString() ?? "", request.Id);
+        }
+
+        else if (request.DocumentType == ApprovalDocumentType.IssueForProduction)
+        {
+            var body = JsonSerializer.Deserialize<SapInventoryGenExitRequestOrderRequest>(request.RequestBody);
+            if (body == null) return sapBaseResponse;
+
+
+            if (request.Action == ApprovalAction.Create)
+                sapBaseResponse = await SapInventoryGenExitsService.CreateAsync(body, request.Id);
+        }
+
+        else if (request.DocumentType == ApprovalDocumentType.ProductionOrder)
+        {
+            var body = JsonSerializer.Deserialize<SapProductionOrdersResponse>(request.RequestBody);
+            if (body == null) return sapBaseResponse;
+
+            if (request.Action == ApprovalAction.Update)
+                sapBaseResponse = await SapProductionOrdersService.UpdateProductionOrderAsync(body, request.Id);
+
+            if (request.Action == ApprovalAction.Create)
+                sapBaseResponse = await SapProductionOrdersService.CreateProductionOrderAsync(body, request.Id);
+        }
+
+        else if (request.DocumentType == ApprovalDocumentType.PurchaseOrder)
+        {
+            var body = JsonSerializer.Deserialize<SapPurchaseOrdersResponse>(request.RequestBody);
+            if (body == null) return sapBaseResponse;
+
+            if (request.Action == ApprovalAction.Create)
+                sapBaseResponse = await SapPurchaseOrderService.CreatePurchaseOrder(body);
+
+            if (request.Action == ApprovalAction.Update)
+                sapBaseResponse = await SapPurchaseOrderService.UpdatePurchaseOrder(body);
+        }
+
+        else if (request.DocumentType == ApprovalDocumentType.StagewisePayments_DP)
+        {
+            var docEntry = "";
+            var docNumber = "";
+            var body = JsonSerializer.Deserialize<SapPurchaseDownPaymentRequest>(request.RequestBody);
+            if (body == null) return sapBaseResponse;
+            if (body is not null && utrDate is not null)
+            {
+                body.DocDueDate = utrDate ?? DateTime.Now;
+            }
+
+            if (request.Action == ApprovalAction.Create)
+            {
+                var dpResponse = await SapPurchaseDownPaymentService.SaveDownPayment(body, request.Id);
+                sapBaseResponse = dpResponse;
+
+                docEntry = dpResponse?.DocEntry?.ToString() ?? "";
+                docNumber = dpResponse?.DocNum?.ToString() ?? "";
+
+                if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value))
+                {
+                    var opResponse = new SapVendorPaymentsResponse { };
+
+                    if (!string.IsNullOrEmpty(request.SupportingData))
+                    {
+                        var po = await SapPurchaseOrderService.GetPurchaseOrders(request.SupportingData);
+                        if (po is not null && body.DocTotal.HasValue)
+                        {
+                            var record = Context.StageWisePayments.Where(x => x.ApprovalRequestId != null && request.SupportingData ==
+x.DocNumber.ToString()).ToList()
+                                .Select(x => GetStageWisePaymentRecord(request.Id, x)).FirstOrDefault(x => x != null);
+
+                            // opResponse = await AddOutgoingPayment(po, body.DocTotal.Value, record);
+                            // sapBaseResponse = opResponse;
+
+                            @* docEntry = string.Join(',', docEntry, dpResponse?.DocEntry?.ToString() ?? "");
+                            docNumber = string.Join(',', docNumber, dpResponse?.DocNum?.ToString() ?? ""); *@
+                        }
+                    }
+
+                    var records = Context.StageWisePayments.Where(x => x.ApprovalRequestId != null
+                        && x.Status == StageWisePaymentStatus.PendingApproval && x.DocNumber != null
+                        && x.DocNumber.ToString() == request.SupportingData).ToList();
+
+                    foreach (var item in records)
+                    {
+                        var requestIds = item.ApprovalRequestId?.Split(',').ToList();
+                        var stagewiseEntry = requestIds?.FirstOrDefault(x => x == request.Id.ToString());
+                        if (stagewiseEntry is null) continue;
+                        requestIds?.Remove(stagewiseEntry);
+
+                        if (string.IsNullOrEmpty(item.ApDownPaymentInvoiceEntryNumber))
+                            item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNum.ToString();
+                        else item.ApDownPaymentInvoiceEntryNumber += string.Join(",", dpResponse?.DocNum.ToString());
+
+                        if (string.IsNullOrEmpty(item.ApDownPaymentInvoiceEntryNumber))
+                            item.ApDownPaymentInvoiceEntryNumber = opResponse?.DocNumber.ToString();
+                        else item.ApDownPaymentInvoiceEntryNumber += string.Join(",", opResponse?.DocNumber.ToString());
+
+
+                        Context.StageWisePayments.Entry(item).State = EntityState.Modified;
+                        await Context.SaveChangesAsync();
+                    }
+                }
+            }
+
+            if (sapBaseResponse is not null)
+            {
+                sapBaseResponse.ApprovalDocEntry = docEntry;
+                sapBaseResponse.ApprovalDocNumber = docNumber;
+            }
+
+        }
+
+        else if (request.DocumentType == ApprovalDocumentType.Payments)
+        {
+            var docEntry = "";
+            var docNumber = "";
+            var body = JsonSerializer.Deserialize<SapVendorPaymentRequests>(request.RequestBody);
+            var record = Context.StageWisePayments.Where(x => x.ApprovalRequestId != null && request.SupportingData ==
+x.DocNumber.ToString()).ToList()
+            .Select(x => GetStageWisePaymentRecord(request.Id, x)).FirstOrDefault(x => x != null);
+            if (body is not null && record is not null)
+            {
+                body.TransferReference = utrNo ?? "";
+                body.CounterReference = utrNo ?? "";
+                body.TransferDate = utrDate ?? DateTime.Now;
+                body.DocDueDate = utrDate ?? DateTime.Now;
+                body.DocDate = utrDate ?? DateTime.Now;
+                body.PostingDate = utrDate ?? DateTime.Now;
+                body.Remarks = comment;
+                body.JournalRemarks = comment;
+                body.ApprovalRequestId = request.Id.ToString();
+            }
+
+            if (body == null) return sapBaseResponse;
+            if (request.Action == ApprovalAction.Create)
+            {
+                var dpResponse = await SapVendorPaymentService.CreateVendorPayments(body, request.Id);
+                sapBaseResponse = dpResponse;
+                docEntry = dpResponse?.DocEntry?.ToString() ?? "";
+                docNumber = dpResponse?.DocNumber?.ToString() ?? "";
+
+                if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value))
+                {
+                    var records = Context.StageWisePayments.Where(x => x.ApprovalRequestId != null
+                        && x.Status == StageWisePaymentStatus.PendingApproval).ToList();
+
+                    foreach (var item in records)
+                    {
+                        if (item.DocNumber?.ToString() != request.SupportingData) continue;
+
+                        var requestIds = item.ApprovalRequestId?.Split(',').ToList();
+                        var stagewiseEntry = requestIds?.FirstOrDefault(x => x == request.Id.ToString());
+
+                        if (stagewiseEntry is null) continue;
+
+                        requestIds?.Remove(stagewiseEntry);
+
+                        if (string.IsNullOrEmpty(item.ApDownPaymentInvoiceEntryNumber))
+                            item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNumber.ToString();
+                        else item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNumber.ToString();
+
+                        Context.StageWisePayments.Entry(item).State = EntityState.Modified;
+                        await Context.SaveChangesAsync();
+                    }
+                }
+            }
+
+            if (sapBaseResponse is not null)
+            {
+                sapBaseResponse.ApprovalDocEntry = docEntry;
+                sapBaseResponse.ApprovalDocNumber = docNumber;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value))
+        {
+            Snackbar.Add(sapBaseResponse?.Error?.Message?.Value ?? "Failed to process the request.", Severity.Error);
+            await ApprovalService.FailedAsync(request.Id, sapBaseResponse?.Error?.Message?.Value ?? "Failed to process the request.");
+        }
+
+        return sapBaseResponse;
+    }
+    private async Task Reload()
+    {
+        _requests = await ApprovalService.GetPendingForUserAsync(GetCurrentUserId());
+    }
+    private int GetCurrentUserId()
+    {
+        return int.Parse(_userId ?? "0");
+    }
+
+    private string GetCardName(string? requestBody)
+    {
+        if (string.IsNullOrEmpty(requestBody)) return "";
+        using var doc = JsonDocument.Parse(requestBody);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("CardCode", out var value))
+        {
+            var cardCode = value.GetString();
+            return SapBusinessPartnerResponses.FirstOrDefault(x => x.CardCode == cardCode)?.CardName ?? "-";
+        }
+
+        return "-";
+    }
+
+    private async Task OnColumnSelectionChanged(HashSet<ApprovalRequest> approvalRequests)
+    {
+        selectedApprovals = approvalRequests.Where(x => x.OverallStatus == ApprovalStatus.Pending
+             || x.OverallStatus == ApprovalStatus.Forwarded).ToList();
+    }
+    private async Task Approve()
+    {
+        foreach (var request in selectedApprovals)
+        {
+            await Approve(request.Id, new ApprovalActionData
+            {
+                Action = "Approve",
+                Comment = null,
+                UtrDate = null,
+                UtrNo = null
+            });
+        }
+        Snackbar.Add("Requests bulk approved!", Severity.Success);
+    }
+
+    private async Task Reject()
+    {
+        foreach (var request in selectedApprovals)
+        {
+            await Reject(request.Id, new ApprovalActionData
+            {
+                Action = "Reject",
+                Comment = null,
+                UtrDate = null,
+                UtrNo = null
+            });
+        }
+        Snackbar.Add("Requests bulk rejected!", Severity.Error);
+    }
+
+    private Color GetStatusColor(ApprovalStatus status)
+    {
+        return status switch
+        {
+            ApprovalStatus.Pending => Color.Warning,
+            ApprovalStatus.Approved => Color.Success,
+            ApprovalStatus.Rejected => Color.Error,
+            ApprovalStatus.Failed => Color.Secondary,
+            _ => Color.Default
+        };
+    }
+}

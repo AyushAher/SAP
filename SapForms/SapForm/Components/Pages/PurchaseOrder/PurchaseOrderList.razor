@@ -1,0 +1,94 @@
+﻿@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Shared.Responses.Sap
+
+@page "/purchase-order-list"
+@inject NavigationManager Nav
+@inject SapPurchaseOrderService PurchaseOrderService
+
+<MudButton Variant="Variant.Text" Class="m-4" OnClick="@(() => { Nav.NavigateTo("/purchase-order"); })">
+    Add New
+</MudButton>
+
+<MudDataGrid T="SapPurchaseOrdersResponse" Items="@_response?.Value?.OrderByDescending(o => o.DocDate)"
+             Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+             FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive">
+    <ToolBarContent>
+        <MudText Typo="Typo.h6">Purchase Orders</MudText>
+    </ToolBarContent>
+    <Columns>
+        <PropertyColumn Title="Document Id" Property="@(x => x.DocEntry)" />
+        <PropertyColumn Title="Document Num" Property="@(x => x.DocNum)" />
+        <PropertyColumn Title="BP Code" Property="x => x.CardCode" />
+        <PropertyColumn Title="BP Name" Property="x => x.CardName" />
+        <PropertyColumn Title="Project" Property="x => x.Project" />
+        <PropertyColumn Title="PO Value" Property="x => x.DocTotal" />
+        <TemplateColumn Title="Status" Sortable="true" SortBy="x => x.DocumentStatus">
+            <CellTemplate>
+                @if (context.Item.DocumentStatus == "bost_Close")
+                {
+                    <MudText>Close</MudText>
+                }
+                
+                else if (context.Item.DocumentStatus == "bost_Open")
+                {
+                    <MudText>Open</MudText>
+                    
+                }
+                
+                else if (context.Item.DocumentStatus == "bost_Cancel")
+                {
+                    <MudText>Cancel</MudText>
+                    
+                }
+                else
+                {
+                    <MudText>@context.Item.DocumentStatus </MudText>
+                }
+
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Actions" CellClass="d-flex justify-end">
+            <CellTemplate>
+                <MudMenu Class="" Label="" Icon="@Icons.Material.Filled.MoreVert"
+                         Variant="Variant.Outlined" Color="Color.Primary">
+                    <div class="d-flex align-center">
+                        <MudButtonGroup Style="width:100%" Color="Color.Primary" Variant="Variant.Text" Vertical="true">
+                            <MudButton Disabled="@(context.Item.DocEntry is null)" OnClick="@(() => EditRequest(context.Item.DocEntry?.ToString()))"
+                                       Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto">Edit</MudButton>
+                            <MudButton Disabled="@(context.Item.DocEntry is null)" OnClick="@(() => StageWisePayment(context.Item.DocEntry?.ToString()))"
+                                       Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto">Payment Stages</MudButton>
+
+                        </MudButtonGroup>
+                    </div>
+                </MudMenu>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <PagerContent>
+        <MudDataGridPager T="SapPurchaseOrdersResponse" />
+    </PagerContent>
+</MudDataGrid>
+
+
+@code {
+    GetAllSapPurchaseOrdersResponse? _response = new();
+    List<SapPurchaseOrdersResponse>? responseItems;
+    protected override async Task OnInitializedAsync()
+    {
+        _response = await PurchaseOrderService.GetAllPurchaseOrders();
+        responseItems = _response?.Value ?? [];
+        await base.OnInitializedAsync();
+    }
+
+    void EditRequest(string? docEntry)
+    {
+        Nav.NavigateTo($"/purchase-order/{docEntry ?? throw new ApiErrorException("Invalid Record selected")}");
+    }
+
+    void StageWisePayment(string? docEntry)
+    {
+        Nav.NavigateTo($"/stage-wise-down-payment/{docEntry ?? throw new ApiErrorException("Invalid Record selected")}");
+    }
+
+}

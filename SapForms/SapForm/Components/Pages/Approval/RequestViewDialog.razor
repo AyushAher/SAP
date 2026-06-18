@@ -1,0 +1,535 @@
+﻿@using System.Text.Json
+@using System.Text.RegularExpressions
+@using SapForm.Services.Login
+@inject ISnackbar Snackbar
+@inject ApprovalService ApprovalsService
+@inject Context Context
+@inject AuthenticationStateProvider AuthStateProvider
+
+@inject BusinessPartnerService BusinessPartnerService
+@inject SapPurchaseOrderService PurchaseOrderService
+@inject StageWisePaymentService StageWisePaymentService
+@inject SapVendorPaymentService sapVendorPaymentService
+@inject InventoryItemsTransferService ItemsTransferRequest
+@inject UserSession userSession
+@inject IDialogService DialogService
+
+
+
+<style>
+    .section-card {
+        background: white;
+        border-radius: 10px;
+    }
+
+    .field-label {
+        font-weight: 600;
+        color: #666;
+        font-size: 0.8rem;
+    }
+
+    .field-value {
+        font-size: 0.95rem;
+        color: #222;
+    }
+
+    .array-list {
+        padding-left: 20px;
+    }
+
+    .array-list li {
+        margin-bottom: 4px;
+    }
+</style>
+<style>
+    .payment-approval-card {
+        border-radius: 16px;
+        background: #fafafa;
+    }
+
+    .info-section {
+        background: white;
+        border-radius: 14px;
+        border: 1px solid #ececec;
+        height: 100%;
+    }
+
+    .section-title {
+        font-weight: 700;
+        color: #1f2937;
+    }
+
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 0;
+        border-bottom: 1px dashed #e5e7eb;
+    }
+
+    .info-row:last-child {
+        border-bottom: none;
+    }
+
+    .info-label {
+        color: #6b7280;
+        font-size: 0.9rem;
+        font-weight: 600;
+        min-width: 140px;
+    }
+
+    .info-value {
+        color: #111827;
+        font-weight: 500;
+        text-align: right;
+        word-break: break-word;
+    }
+
+    .amount {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #16a34a;
+    }
+
+    .summary-box {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 18px;
+        background: #fcfcfc;
+        height: 100%;
+    }
+
+    .summary-label {
+        font-size: 0.85rem;
+        color: #6b7280;
+        margin-bottom: 6px;
+    }
+
+    .summary-value {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #111827;
+    }
+
+    .approval-card {
+        border-left: 4px solid #16a34a;
+        background: #f9fafb;
+        padding: 16px;
+        border-radius: 10px;
+        margin-bottom: 16px;
+    }
+
+    .approval-header {
+        margin-bottom: 12px;
+    }
+
+    .approval-content {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+</style>
+<MudDialog>
+    <DialogContent>
+        <div>
+            <MudGrid>
+                <MudItem sm="3">
+                    <MudText Typo="Typo.body1"><b>Requester ID:</b> @Request.Id </MudText>
+                </MudItem>
+                <MudItem sm="3">
+                    <MudText Typo="Typo.body1"><b>Requester:</b> @Request.RequesterUser?.FullName </MudText>
+                </MudItem>
+                <MudItem sm="3">
+                    <MudText Typo="Typo.body1"><b>Request Date:</b> @Request.CreatedAt.ToString("dd/MM/yyyy") </MudText>
+                </MudItem>
+                <MudItem sm="3">
+                    <MudText Typo="Typo.body1"><b>Request Module:</b> @Request.Policy?.DocumentType </MudText>
+                </MudItem>
+                <MudItem sm="3">
+                    <MudText Typo="Typo.body1"><b>Request Action:</b> @Request.Action</MudText>
+                </MudItem>
+            </MudGrid>
+            <MudText Class="my-4" Typo="Typo.body1"><b>Request Body:</b> </MudText>
+
+            <div Class="request-container" Elevation="1">
+                @(_showLoader ? "Loading..." : "")
+
+                @if (Request.DocumentType != ApprovalDocumentType.Payments && jsonData.ValueKind !=
+                                                                                                                                                                                                                                JsonValueKind.Undefined)
+                {
+                    @RenderElement(jsonData)
+                }
+                else if (Request.DocumentType == ApprovalDocumentType.Payments && jsonData.ValueKind !=
+                JsonValueKind.Undefined)
+                {
+                    <div class="mb-3    ">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="OpenPaymentSummary">
+                            View Payment Summary
+                        </MudButton>
+                    </div>
+
+                    @if (_paymentRequestBody is not null)
+                    {
+                        <MudPaper Class="pa-4 payment-approval-card mb-4" Elevation="2">
+                            <MudGrid Spacing="3">
+                                <MudItem xs="12" md="6">
+                                    <MudPaper Class="pa-4 info-section" Elevation="0">
+                                        <MudText Typo="Typo.h6" Class="section-title mb-3">Vendor Details</MudText>
+                                        <div class="info-row">
+                                            <span class="info-label">Vendor Name</span>
+                                            <span class="info-value">@_paymentVendorDisplay</span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">PO Details</span>
+                                            <span class="info-value">@_paymentPoDetails</span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">Project</span>
+                                            <span class="info-value">@_paymentProjectName</span>
+                                        </div>
+                                    </MudPaper>
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudPaper Class="pa-4 info-section" Elevation="0">
+                                        <MudText Typo="Typo.h6" Class="section-title mb-3">Transfer Details</MudText>
+                                        <div class="info-row">
+                                            <span class="info-label">Transfer Amount</span>
+                                            <span class="info-value amount">₹ @double.Parse(_paymentRequestBody.TransferSum).ToString("N2")</span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">Bank</span>
+                                            <span class="info-value">@_paymentBankAccount</span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">Branch</span>
+                                            <span class="info-value">@_paymentBranch</span>
+                                        </div>
+                                    </MudPaper>
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudPaper Class="pa-4 info-section" Elevation="0">
+                                        <MudText Typo="Typo.h6" Class="section-title mb-4">Approval Timeline</MudText>
+                                        @if (_previousApprovals.Any())
+                                        {
+                                            @foreach (var approval in _previousApprovals)
+                                            {
+                                                <div class="approval-card">
+                                                    <div class="approval-content">
+                                                        <div class="info-row">
+                                                            <span class="info-label">Approved By</span>
+                                                            <span class="info-value">@approval.User?.FullName</span>
+                                                        </div>
+                                                        <div class="info-row">
+                                                            <span class="info-label">Approved Date & Time</span>
+                                                            <span class="info-value">@approval.ActionDate?.ToString("dd MMM yyyy, hh:mm tt")</span>
+                                                        </div>
+                                                        @if (!string.IsNullOrWhiteSpace(approval.Comment))
+                                                        {
+                                                            <div class="info-row">
+                                                                <span class="info-label">Comments</span>
+                                                                <span class="info-value">@approval.Comment</span>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <MudAlert Severity="Severity.Info" Dense="true">No approvals completed yet.</MudAlert>
+                                        }
+                                    </MudPaper>
+                                </MudItem>
+                            </MudGrid>
+                        </MudPaper>
+                    }
+                }
+                else
+                {
+                    <MudText Color="Color.Error">@(_showLoader == false ? "Invalid JSON" : "")</MudText>
+                
+                }
+            </div>
+            <MudDivider />
+            <MudTextField T="string" Class="mb-3" AutoGrow="true" Label="Comments" @bind-Value="comment" />
+            @if (Request.DocumentType == ApprovalDocumentType.Payments && Request.IsLastApproval)
+            {
+                <MudTextField T="string" Required="@(Request.DocumentType == ApprovalDocumentType.Payments && Request.IsLastApproval)" RequiredError="UTR No is required" Class="mb-3" Label="UTR No"
+                              @bind-Value="utrNo" />
+                <MudDatePicker Class="mb-3" Label="UTR Date" @bind-Date="utrDate" Required="@(Request.DocumentType == ApprovalDocumentType.Payments && Request.IsLastApproval)"
+                               RequiredError="UTR Date is required" />
+            }
+        </div>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
+        @if (!SelfRequests && (Request.OverallStatus == ApprovalStatus.Pending || Request.OverallStatus ==
+                                                                                                                                                                        ApprovalStatus.Forwarded))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="Reject">Reject</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="Approve">Approve</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+
+@code {
+    [Parameter] public ApprovalRequest Request { get; set; }
+    [Parameter] public bool SelfRequests { get; set; } = false;
+    string? comment;
+    string? utrNo;
+    bool _showLoader = false;
+    DateTime? utrDate;
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; }
+    private JsonElement jsonData;
+
+
+    List<SapBusinessPartner> BusinessPartnerList { get; set; } = [];
+    List<SapBranchesResponse> BranchesResponses { get; set; } = [];
+    SapPurchaseOrdersResponse? _selectedPurchaseOrder = new();
+    SapProjectDetailsResponse? ProjectDetailsResponse { get; set; }
+    List<WithholdingTaxDataCollectionResponse> withholdingTaxDataCollectionResponses = [];
+    SapVendorPaymentRequests? _paymentRequestBody;
+    string? _paymentVendorDisplay;
+    string? _paymentPoDetails;
+    string? _paymentProjectName;
+    string? _paymentBankAccount;
+    string? _paymentBranch;
+    List<UserApproval> _previousApprovals = [];
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        _showLoader = true;
+        if (Request.DocumentType == ApprovalDocumentType.Payments)
+        {
+            var isProjectCode = JsonElement.Parse(Request.RequestBody ?? "{}")
+                    .TryGetProperty("ProjectCode", out var projectCode);
+            BusinessPartnerList = (await BusinessPartnerService.GetAllBusinessPartners())?.Value ?? [];
+            BranchesResponses = (await PurchaseOrderService.GetAllBplResponse())?.Value ?? [];
+            
+            if (isProjectCode)
+            {
+                ProjectDetailsResponse = (await PurchaseOrderService.GetAllProjectDetailsResponse())?.Value?
+                .FirstOrDefault(x => x.ProjectCode == projectCode.GetString());
+            }
+            _selectedPurchaseOrder = await PurchaseOrderService.GetPurchaseOrders(Request.SupportingData ?? "0");
+            withholdingTaxDataCollectionResponses = (await
+    BusinessPartnerService.GetAllWithholdingTaxDataCollectionResponse())?.Value ?? [];
+            await LoadPaymentApprovalDetailsAsync();
+        }
+        
+        var stagewisepayment = await Context.StageWisePayments
+            .FirstOrDefaultAsync(x => x.ApprovalRequestId == Request.Id.ToString());
+        utrDate = stagewisepayment?.UtrDate;
+        utrNo = stagewisepayment?.UtrNo;
+        var userId = await userSession.GetUserIdAsync();
+        comment = Request.UserApprovals.FirstOrDefault(x => x.UserId == userId)?.Comment;
+        _showLoader = false;
+        await base.OnInitializedAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            jsonData = JsonSerializer.Deserialize<JsonElement>(Request.RequestBody);
+        }
+        catch
+        {
+            jsonData = default;
+        }
+    }
+
+    void Close() => MudDialog.Close();
+    void Reject()
+    {
+        if (string.IsNullOrEmpty(comment))
+        {
+            Snackbar.Add("Comment is required before rejecting the request!", Severity.Error);
+            return;
+        }
+        MudDialog.Close(DialogResult.Ok(new ApprovalActionData
+        {
+            Action = "Reject",
+            Comment = comment
+        }));
+    }
+    void Approve()
+    {
+        @* if ((string.IsNullOrEmpty(utrNo) || utrDate == null) && Request.DocumentType == ApprovalDocumentType.Payments && Request.IsLastApproval)
+        {
+            Snackbar.Add("UTR No and UTR Date are required for approving the payment request!", Severity.Error);
+            return;
+        } *@
+
+        MudDialog.Close(DialogResult.Ok(new ApprovalActionData
+        {
+            Action = "Approve",
+            Comment = comment,
+            UtrDate = utrDate,
+            UtrNo = utrNo
+        }));
+    }
+
+    async Task OpenPaymentSummary()
+    {
+        if (!int.TryParse(Request.SupportingData, out var poDocNumber))
+            return;
+
+        var records = await Context.StageWisePayments
+            .Where(x => x.DocNumber == poDocNumber && x.Status != StageWisePaymentStatus.Cancelled)
+            .ToListAsync();
+
+        var parameters = new DialogParameters
+        {
+            [nameof(StageWisePaymentSummaryDialog.Payments)] = records,
+            [nameof(StageWisePaymentSummaryDialog.PaymentTerms)] = _selectedPurchaseOrder?.CreateUdfList() ?? [],
+        };
+
+        await DialogService.ShowAsync<StageWisePaymentSummaryDialog>(
+            "Payment Summary",
+            parameters,
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large });
+    }
+
+    async Task LoadPaymentApprovalDetailsAsync()
+    {
+        if (string.IsNullOrEmpty(Request.RequestBody))
+            return;
+
+        _paymentRequestBody = JsonSerializer.Deserialize<SapVendorPaymentRequests>(Request.RequestBody);
+        if (_paymentRequestBody is null)
+            return;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userId = authState.User?.Identity?.IsAuthenticated == true
+            ? authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            : null;
+
+        var vendorName = BusinessPartnerList.FirstOrDefault(x => x.CardCode == _paymentRequestBody.CardCode)?.CardName
+            ?? _paymentRequestBody.CardCode;
+        _paymentVendorDisplay = $"{_paymentRequestBody.CardCode} - {vendorName}";
+        _paymentPoDetails = _selectedPurchaseOrder is not null
+            ? $"{_selectedPurchaseOrder.DocNum} - {_selectedPurchaseOrder.DocDate:dd/MM/yyyy}"
+            : _paymentRequestBody.PoNumber;
+        _paymentProjectName = ProjectDetailsResponse is not null
+            ? $"{ProjectDetailsResponse.ProjectCode} - {ProjectDetailsResponse.ProjectName}"
+            : _paymentRequestBody.ProjectCode;
+        _paymentBankAccount = Constants.BankAccounts.Banks
+            .FirstOrDefault(x => x.Key == _paymentRequestBody.TransferAccount).Value
+            ?? _paymentRequestBody.TransferAccount;
+        _paymentBranch = BranchesResponses.FirstOrDefault(x => x.BplId == _paymentRequestBody.BPLId)?.BplName
+            ?? _paymentRequestBody.BPLId.ToString();
+
+        var currentUserId = int.TryParse(userId, out var parsedUserId) ? parsedUserId : 0;
+        _previousApprovals = await Context.UserApprovals
+            .Where(x => x.ApprovalRequestId == Request.Id
+                && (x.ApprovalStatus == ApprovalStatus.Approved || x.ApprovalStatus == ApprovalStatus.Forwarded)
+                && x.UserId != currentUserId)
+            .Include(x => x.User)
+            .ToListAsync();
+    }
+    RenderFragment RenderElement(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Object => @<MudPaper Class="pa-3 mb-3 section-card" Elevation="0">
+            @foreach (var prop in element.EnumerateObject())
+            {
+                <MudGrid Class="mb-2">
+                    <MudItem xs="4">
+                        <div class="field-label">@FormatLabel(prop.Name)</div>
+                    </MudItem>
+
+                    <MudItem xs="8">
+                        @RenderElement(prop.Value)
+                    </MudItem>
+                </MudGrid>
+            }
+        </MudPaper>,
+
+        JsonValueKind.Array => @RenderArray(element),
+
+        _ => @<div class="field-value">@FormatValue(element)</div>
+        };
+    RenderFragment RenderArray(JsonElement array) => @<div class="mb-3">
+        @{
+            var items = array.EnumerateArray().ToList();
+        }
+
+        @if (!items.Any())
+        {
+            <div>No data</div>
+        }
+        else if (items.First().ValueKind == JsonValueKind.Object)
+        {
+            var columns = items.First().EnumerateObject().Select(x => x.Name).ToList();
+
+            <MudTable Items="items" Dense="true" Hover="true" Striped="true" Elevation="0">
+                <HeaderContent>
+                    @foreach (var col in columns)
+                    {
+                        <MudTh>@FormatLabel(col)</MudTh>
+                    }
+                </HeaderContent>
+
+                <RowTemplate>
+                    @foreach (var col in columns)
+                    {
+                        <MudTd>@context.GetProperty(col).ToString()</MudTd>
+                    }
+                </RowTemplate>
+            </MudTable>
+        }
+        else
+        {
+            <ul class="array-list">
+                @foreach (var item in items)
+                {
+                    <li>@FormatValue(item)</li>
+                }
+            </ul>
+        }
+    </div>;
+    string FormatLabel(string key)
+    {
+        return Regex.Replace(key, "([a-z])([A-Z])", "$1 $2");
+    }
+    string FormatValue(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => FormatString(value.ToString()),
+            JsonValueKind.Number => FormatNumber(value),
+            JsonValueKind.True => "Yes",
+            JsonValueKind.False => "No",
+            _ => value.ToString()
+        };
+    }
+    string FormatNumber(JsonElement value)
+    {
+        if (value.TryGetDecimal(out var num))
+            return $"{num}";
+
+        return value.ToString();
+    }
+    string FormatString(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return input;
+
+        // Try parse ISO / standard date formats
+        if (DateTime.TryParse(input, out var date))
+        {
+            // Optional: ignore very small numbers (like "12345")
+            if (date.Year > 1900 && date.Year < 2100)
+            {
+                return date.ToString("dd MMM yyyy, hh:mm tt");
+            }
+        }
+
+        return input;
+    }
+
+}
+

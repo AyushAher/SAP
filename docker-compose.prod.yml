@@ -1,0 +1,75 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - sap-redis-data-prod:/data
+    networks:
+      - sap-platform-prod
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  sap-api:
+    image: ${DOCKER_REGISTRY:-ayushaher118}/sap-api:${TAG:-prod}
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DbConnection: ${DB_CONNECTION}
+      ConnectionStrings__RedisConnection: ${REDIS_CONNECTION:-redis:6379,abortConnect=false}
+      ApplicationConfiguration__SapServiceLayerUrl: ${SAP_SERVICE_LAYER_URL}
+      SapCredentials__Username: ${SAP_USERNAME}
+      SapCredentials__CompanyDb: ${SAP_COMPANY_DB}
+      Security__HmacSecret: ${HMAC_SECRET}
+      Security__AesKeyBase64: ${AES_KEY_BASE64}
+      Jwt__SecretKey: ${JWT_SECRET_KEY}
+      Cors__Origins__0: ${CORS_ORIGIN}
+    depends_on:
+      - redis
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+    networks:
+      - sap-platform-prod
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  sap-ui:
+    image: ${DOCKER_REGISTRY:-ayushaher118}/sap-ui:${TAG:-prod}
+    ports:
+      - "8080:80"
+    depends_on:
+      - sap-api
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - sap-platform-prod
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  sap-platform-prod:
+    driver: overlay
+
+volumes:
+  sap-redis-data-prod:

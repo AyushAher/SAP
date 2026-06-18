@@ -1,0 +1,125 @@
+﻿@page "/my-approval-requests"
+@inject BusinessPartnerService BusinessPartnerService
+
+@inject ApprovalService ApprovalService
+@inject AuthenticationStateProvider AuthProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IDialogService DialogService
+
+<MudPaper Class="pa-4">
+    <MudText Typo="Typo.h5">My Approval Requests</MudText>
+
+    <MudTable Items="_requests" Hover="true">
+        <HeaderContent>
+            <MudTh>Id</MudTh>
+            <MudTh>Document Type</MudTh>
+            <MudTh>BP Name</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>SAP Doc No</MudTh>
+            <MudTh>SAP Doc Entry</MudTh>
+            <MudTh>Failure Reason</MudTh>
+            <MudTh>Created</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+
+        <RowTemplate>
+            <MudTd>@context.Id</MudTd>
+
+            <MudTd>
+                @context.DocumentType.ToString()
+            </MudTd>
+
+            <MudTd>
+                @(GetCardName(context.RequestBody))
+            </MudTd>
+
+            <MudTd>
+                <MudChip T="string" Color="@GetStatusColor(context.OverallStatus)">
+                    @context.OverallStatus
+                </MudChip>
+            </MudTd>
+            <MudTd>
+                @context.SapResponseDocEntry
+            </MudTd>
+            <MudTd>
+                @context.SapResponseDocNum
+            </MudTd>
+
+            <MudTd>
+                @context.FailureReason
+            </MudTd>
+
+            <MudTd>
+                @context.CreatedAt.ToString(Constants.DateTimeFormat)
+            </MudTd>
+
+            <MudTd>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => OpenViewDialog(context)">
+                    View
+                </MudButton>
+
+                @if (context.OverallStatus == ApprovalStatus.Failed)
+                {
+                    <MudButton Size="Size.Small" class="ml-2" Variant="Variant.Outlined" Disabled="true">
+                        Retry
+                    </MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudPaper>
+@code {
+
+    List<SapBusinessPartner> SapBusinessPartnerResponses = [];
+
+    private List<ApprovalRequest> _requests = [];
+    private List<ApplicationUser> users = [];
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        var userId = int.Parse(auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+        users = UserManager.Users.ToList();
+        _requests = await ApprovalService.GetRequestsByRequesterAsync(userId);
+
+        var bpList = await BusinessPartnerService.GetAllBusinessPartners();
+        SapBusinessPartnerResponses = bpList?.Value ?? [];
+    
+    }
+
+    private async Task OpenViewDialog(ApprovalRequest request)
+    {
+        var parameters = new DialogParameters { ["Request"] = request, ["SelfRequests"] = true };
+        await DialogService.ShowAsync<RequestViewDialog>("Request Details", parameters, new DialogOptions
+        {
+            FullWidth = true,
+            MaxWidth = MaxWidth.Large
+        });
+    }
+
+    private Color GetStatusColor(ApprovalStatus status)
+    {
+        return status switch
+        {
+            ApprovalStatus.Pending => Color.Warning,
+            ApprovalStatus.Approved => Color.Success,
+            ApprovalStatus.Rejected => Color.Error,
+            ApprovalStatus.Failed => Color.Secondary,
+            _ => Color.Default
+        };
+    }
+    private string GetCardName(string? requestBody)
+    {
+        if (string.IsNullOrEmpty(requestBody)) return "";
+        using var doc = JsonDocument.Parse(requestBody);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("CardCode", out var value))
+        {
+            var cardCode = value.GetString();
+            return SapBusinessPartnerResponses.FirstOrDefault(x => x.CardCode == cardCode)?.CardName ?? "-";
+        }
+
+        return "-";
+    }
+
+}

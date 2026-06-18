@@ -1,0 +1,235 @@
+﻿@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Shared.Responses.Sap
+@page "/purchase-order/{id?}"
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject InventoryItemsTransferService ItemsTransferRequest
+@inject BusinessPartnerService BusinessPartnerService
+@inject SapPurchaseOrderService PurchaseOrderService
+@inject SapTaxCodesService TaxCodesService
+
+<div class="my-4">
+    <h2>Purchase Order</h2>
+    @(_showLoader ? "Loading..." : "")
+    
+    <MudPaper Elevation="0">
+        <MudAutocomplete @bind-Value="Entity.CardCode" SearchFunc="SearchBusinessPartner" ToStringFunc="@(x => BusinessPartnerList.FirstOrDefault(b => b.CardCode == x)?.CardName)" Disabled="@(Id is not null)" Required="true" RequiredError="Please Select Business Partner"
+                         Label="Business Partner Code" Clearable="true" Modal="true" />
+
+        <MudDatePicker Label="Doc Date" @bind-Date="Entity.DocDate" For="() => Entity.DocDate" />
+        <MudDatePicker Label="Due Date" @bind-Date="Entity.DueDate" For="() => Entity.DueDate" />
+        <MudTextField T="string" Label="Journal Memo" @bind-Value="Entity.JournalMemo" For="() => Entity.JournalMemo" />
+        <MudTextField T="int?" Label="SalesPersonCode" @bind-Value="Entity.SalesPersonCode" For="() => Entity.SalesPersonCode" />
+        <div class="m-4">
+            <h3 class="mt-4">
+                Add Items
+            </h3>
+            <div class="d-flex">
+                <MudAutocomplete @bind-Value="Modal.ItemCode" SearchFunc="SearchItemCodes" ToStringFunc="@(x => ItemsList.FirstOrDefault(i => i.ItemCode == x)?.ItemName)" Label="Item Codes" Clearable="true" Modal="true" />
+                <MudTextField T="double" Label="Quantity" @bind-Value="Modal.Quantity" For="() => Modal.Quantity" />
+                <MudTextField Disabled="true" T="string" Label="Stock UOM" Value="ItemsList.FirstOrDefault(x => x.ItemCode == Modal.ItemCode)?.InventoryUom" />
+                <MudAutocomplete @bind-Value="Modal.TaxCode" SearchFunc="SearchTaxCodes" Label="Tax Codes" Clearable="true" Modal="true" />
+                <MudTextField T="double" Label="Unit Price" @bind-Value="Modal.UnitPrice" For="() => Modal.UnitPrice" />
+
+            </div>
+            <div class="d-flex align-center mt-4 justify-space-between">
+                <MudButton OnClick="AddItem" Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto">Add Item</MudButton>
+            </div>
+
+            <MudDataGrid T="SapInventoryTransferItemsRequests" MultiSelection="true" Filterable="true" FilterMode="DataGridFilterMode.ColumnFilterMenu"
+                         FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive" SelectedItemsChanged="SelectedItemsChanged" Items="Entity.DocumentLines">
+                <ToolBarContent>
+                    <MudText Typo="Typo.h6">Purchase Order Items</MudText>
+                    <MudSpacer />
+                    <MudButton OnClick="RemoveItems" Variant="Variant.Filled" Color="Color.Error" Class="ml-auto">Remove Selected Items</MudButton>
+                </ToolBarContent>
+                <Columns>
+                    <SelectColumn T="SapInventoryTransferItemsRequests" />
+                    <PropertyColumn Title="Item Code" Property="x => x.ItemCode" Sortable="true" />
+                    <PropertyColumn Title="Item Description" Property="@(x => x.ItemDescription ?? ItemsList.FirstOrDefault(item => x.ItemCode == item.ItemCode)!.ItemName)" Sortable="true" />
+                    <PropertyColumn Title="Warehouse" Property="x => x.WarehouseCode" Sortable="true" />
+                    <PropertyColumn Title="Unit Price" Property="x => x.UnitPrice" />
+                    <PropertyColumn Title="Quantity" Property="x => x.Quantity" />
+                    <TemplateColumn Title="Stock Unit">
+                        <CellTemplate>
+                            @(ItemsList.FirstOrDefault(x => x.ItemCode == context.Item.ItemCode)?.InventoryUom)
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Title="Line Total" Property="x => x.LineTotal ?? x.UnitPrice * x.Quantity" />
+                    <PropertyColumn Title="Tax Code" Property="x => x.TaxCode" />
+                    <PropertyColumn Title="Tax Total" Property="x => x.TaxTotal ?? GetTaxAmount(x.TaxCode, x.LineTotal ?? x.UnitPrice * x.Quantity)" />
+                    <PropertyColumn Title="Gross Total" Property="x => x.GrossTotal ?? GetTaxAmount(x.TaxCode, x.LineTotal ?? x.UnitPrice * x.Quantity) + x.UnitPrice * x.Quantity" />
+                </Columns>
+
+                <PagerContent>
+                    <MudDataGridPager T="SapInventoryTransferItemsRequests" />
+                </PagerContent>
+            </MudDataGrid>
+        </div>
+
+    </MudPaper>
+
+    <PreviousNextButtons Id="@Id" NextRecord="@NextRecord" PreviousRecord="@PreviousRecord" />
+    <MudButton OnClick="Submit" ButtonType="ButtonType.Submit" Variant="Variant.Filled">Submit</MudButton>
+
+</div>
+
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    SapPurchaseOrdersResponse Entity { get; set; } = new();
+    SapInventoryTransferItemsRequests Modal { get; set; } = new();
+    List<SapInventoryTransferItemsRequests> SelectedItems { get; set; } = [];
+
+
+    int? IntId => string.IsNullOrEmpty(Id) ? 0 : int.Parse(Id);
+    bool _showLoader;
+
+    List<ItemsResponse> ItemsList { get; set; } = [];
+    List<WarehouseResponse> WarehouseList { get; set; } = [];
+    List<SapBusinessPartner> BusinessPartnerList { get; set; } = [];
+    List<SapTaxCodesResponse> TaxCodes { get; set; } = [];
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        _showLoader = true;
+        ItemsList = await ItemsTransferRequest.GetAllItems() ?? [];
+        WarehouseList = await ItemsTransferRequest.GetAllWarehouses() ?? [];
+        BusinessPartnerList = (await BusinessPartnerService.GetAllBusinessPartners())?.Value ?? [];
+        TaxCodes = (await TaxCodesService.GetAllTaxCodes())?.Value ?? [];
+        if (!string.IsNullOrEmpty(Id))
+            Entity = await PurchaseOrderService.GetPurchaseOrders(Id ?? throw new ApiErrorException("Record not found")) ?? throw new ApiErrorException("Record not found");
+        _showLoader = false;
+
+        await base.OnInitializedAsync();
+    }
+
+    #region Grid Actions
+
+    void SelectedItemsChanged(HashSet<SapInventoryTransferItemsRequests> items)
+    {
+        SelectedItems.AddRange(items);
+    }
+
+    void RemoveItems()
+    {
+        foreach (var item in SelectedItems)
+        {
+            Entity.DocumentLines?.Remove(item);
+        }
+    }
+
+    void AddItem()
+    {
+        Entity.DocumentLines?.Add(Modal);
+        Modal = new();
+    }
+
+    #endregion
+
+    async Task PreviousRecord()
+    {
+        if (IntId is null) return;
+        Nav.NavigateTo($"/purchase-order/{IntId - 1}");
+        Id = (IntId - 1).ToString();
+
+        Entity = await PurchaseOrderService.GetPurchaseOrders(Id ?? throw new ApiErrorException("Record not found")) ?? throw new ApiErrorException("Record not found");
+    }
+
+    async Task NextRecord()
+    {
+        if (IntId is null) return;
+        Nav.NavigateTo($"/purchase-order/{IntId + 1}");
+        Id = (IntId + 1).ToString();
+        Entity = await PurchaseOrderService.GetPurchaseOrders(Id ?? throw new ApiErrorException("Record not found")) ?? throw new ApiErrorException("Record not found");
+    }
+
+    #region Search Data
+
+    private async Task<IEnumerable<string?>> SearchItemCodes(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return ItemsList.Select(x => x.ItemCode);
+        }
+
+        return ItemsList.Where(x => x is not null && (x.ItemName.Contains(value, StringComparison.InvariantCultureIgnoreCase) || x.ItemCode.Contains(value, StringComparison.InvariantCultureIgnoreCase))).Select(x => x.ItemCode);
+    }
+
+    private async Task<IEnumerable<string?>> SearchWarehouse(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return WarehouseList.Select(x => x.WarehouseCode);
+        }
+
+        return WarehouseList.Select(x => x.WarehouseCode).Where(x => x is not null && x.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private async Task<IEnumerable<string?>> SearchBusinessPartner(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return BusinessPartnerList.Where(x => x.CardType == Constants.SapBusinessPartnerType.Vendor).Select(x => x.CardCode);
+        }
+
+        return BusinessPartnerList.Where(x => x is not null && x.CardType == Constants.SapBusinessPartnerType.Vendor && (x.CardCode.Contains(value, StringComparison.InvariantCultureIgnoreCase) || x.CardName.Contains(value, StringComparison.InvariantCultureIgnoreCase))).Select(x => x.CardCode);
+    }
+
+    private async Task<IEnumerable<string?>> SearchTaxCodes(string value, CancellationToken token)
+    {
+        // if text is null or empty, show complete list
+        if (string.IsNullOrEmpty(value))
+        {
+            return TaxCodes.Select(x => x.Code);
+        }
+
+        return TaxCodes.Select(x => x.Code).Where(x => x is not null && x.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+
+    #endregion
+
+    double? GetTaxAmount(string? taxCode, double totalAmount)
+    {
+        var taxRate = TaxCodes.FirstOrDefault(x => x.Code == taxCode)?.Rate ?? 0.0;
+        return (totalAmount * taxRate) / 100;
+    }
+
+    private async Task Submit()
+    {
+        if (string.IsNullOrEmpty(Id))
+        {
+            Entity.PostingDate = DateTime.Now;
+            Entity.BPLId = 1;
+        }
+        var response = await PurchaseOrderService.CreatePurchaseOrder(Entity);
+
+        if (response?.PendingApproval == true)
+        {
+            Snackbar.Add("Request pending for approvals", Severity.Success);
+            Nav.NavigateTo("/purchase-order-list");
+        }
+
+        if (!string.IsNullOrEmpty(response?.Error?.Message?.Value))
+        {
+            Snackbar.Add(response?.Error?.Message?.Value ?? "Some error occurred while performing operation!", Severity.Error);
+        }
+
+        if (response?.DocEntry > 0 && string.IsNullOrEmpty(Id))
+        {
+            Snackbar.Add("Purchase Order created successfully!", Severity.Success);
+            Nav.NavigateTo("/purchase-order-list");
+        }
+        else if (response?.DocEntry > 0 && !string.IsNullOrEmpty(Id))
+        {
+            Snackbar.Add("Purchase Order updated successfully!", Severity.Success);
+            Nav.NavigateTo("/purchase-order-list");
+        }
+    }
+}

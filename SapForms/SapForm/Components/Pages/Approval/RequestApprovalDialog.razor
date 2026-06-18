@@ -1,0 +1,80 @@
+﻿@inject ApprovalService ApprovalService
+@inject AuthenticationStateProvider AuthProvider
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+
+        <MudText Typo="Typo.h6">Request Body</MudText>
+
+        <MudTextField T="string"
+                      Lines="5"
+                      Label="Request Body"
+                      @bind-Value="_editableBody" />
+
+        <MudTextField T="string"
+                      Label="Comment"
+                      @bind-Value="_comment"
+                      Lines="3" />
+
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton Color="Color.Success"
+                   OnClick="Approve">
+            Approve
+        </MudButton>
+
+        <MudButton Color="Color.Error"
+                   OnClick="Reject">
+            Reject
+        </MudButton>
+
+        <MudButton OnClick="MudDialog.Cancel">
+            Cancel
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public ApprovalRequest Request { get; set; }
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; }
+
+    private string _editableBody;
+    private string _comment;
+
+    protected override void OnInitialized()
+    {
+        _editableBody = Request.RequestBody;
+    }
+
+    private async Task Approve()
+    {
+        await Process(ApprovalStatus.Approved);
+    }
+
+    private async Task Reject()
+    {
+        if (string.IsNullOrWhiteSpace(_comment))
+        {
+            Snackbar.Add("Comment required when rejecting.", Severity.Error);
+            return;
+        }
+
+        await Process(ApprovalStatus.Rejected);
+    }
+
+    private async Task Process(ApprovalStatus status)
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        var userId = int.Parse(auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+
+        await ApprovalService.ApproveAsync(
+            Request.Id,
+            userId,
+            _comment,
+            _editableBody);
+
+        MudDialog.Close();
+    }
+}

@@ -1,0 +1,171 @@
+@page "/user-roles"
+@attribute [Authorize(Roles = Constants.Roles.SuperAdmin + "," + Constants.Roles.Admin)]
+
+@inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<ApplicationRole> RoleManager
+@inject ISnackbar Snackbar
+
+<MudPaper Class="pa-4">
+    <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudText Typo="Typo.h5">User Role Management</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            @($"Total users: {_users.Count}")
+        </MudText>
+    </MudStack>
+
+    @if (_isLoading)
+    {
+        <MudStack Class="mt-4" AlignItems="AlignItems.Center" Justify="Justify.Center">
+            <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+        </MudStack>
+    }
+    else if (!_users.Any())
+    {
+        <MudText Typo="Typo.body1">No users found.</MudText>
+    }
+    else
+    {
+        <MudTable Items="_users" Hover="true" Dense="true">
+            <HeaderContent>
+                <MudTh>Id</MudTh>
+                <MudTh>Name</MudTh>
+                <MudTh>Email</MudTh>
+                <MudTh>Roles</MudTh>
+                <MudTh>Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Id</MudTd>
+                <MudTd>@(string.IsNullOrWhiteSpace(context.FullName) ? context.UserName : context.FullName)</MudTd>
+                <MudTd>@context.Email</MudTd>
+                <MudTd Style="min-width: 260px;">
+                    @if (_userRoleSelections.TryGetValue(context.Id, out var selectedRoles))
+                    {
+                        var user = context;
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var role in _roles)
+                            {
+                                var r = role;
+                                <label class="d-flex align-center gap-1 mud-typography-body2">
+                                    <input type="checkbox"
+                                           checked="@selectedRoles.Contains(r.Name, StringComparer.OrdinalIgnoreCase)"
+                                           @onchange="@(_ => ToggleUserRole(user.Id, r.Name, !selectedRoles.Contains(r.Name, StringComparer.OrdinalIgnoreCase)))" />
+                                    @r.Name
+                                </label>
+                            }
+                        </div>
+                    }
+                </MudTd>
+                <MudTd>
+                    <MudIconButton Icon="@Icons.Material.Filled.Save"
+                                   Color="Color.Primary"
+                                   Size="Size.Small"
+                                   OnClick="() => SaveRolesAsync(context)" />
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager />
+            </PagerContent>
+        </MudTable>
+    }
+</MudPaper>
+
+@code {
+    private List<ApplicationUser> _users = new();
+    private List<ApplicationRole> _roles = new();
+    private readonly Dictionary<int, HashSet<string>> _userRoleSelections = new();
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _isLoading = true;
+
+        _roles = RoleManager.Roles.OrderBy(r => r.Name).ToList();
+        _users = UserManager.Users
+            .OrderBy(u => u.Email)
+            .ToList();
+
+        _userRoleSelections.Clear();
+
+        foreach (var user in _users)
+        {
+            var roles = await UserManager.GetRolesAsync(user);
+            _userRoleSelections[user.Id] = roles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        _isLoading = false;
+    }
+
+    private void ToggleUserRole(int userId, string roleName, bool isChecked)
+    {
+        if (!_userRoleSelections.TryGetValue(userId, out var roles))
+        {
+            roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _userRoleSelections[userId] = roles;
+        }
+        if (isChecked)
+            roles.Add(roleName);
+        else
+            roles.Remove(roleName);
+    }
+
+    private async Task SaveRolesAsync(ApplicationUser user)
+    {
+        try
+        {
+            if (!_userRoleSelections.TryGetValue(user.Id, out var selectedRoles))
+            {
+                selectedRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _userRoleSelections[user.Id] = selectedRoles;
+            }
+
+            var currentRoles = await UserManager.GetRolesAsync(user);
+
+            var rolesToAdd = selectedRoles.Except(currentRoles, StringComparer.OrdinalIgnoreCase).ToList();
+            var rolesToRemove = currentRoles.Except(selectedRoles, StringComparer.OrdinalIgnoreCase).ToList();
+
+            if (!rolesToAdd.Any() && !rolesToRemove.Any())
+            {
+                Snackbar.Add("No role changes to save.", Severity.Info);
+                return;
+            }
+
+            if (rolesToAdd.Any())
+            {
+                var addResult = await UserManager.AddToRolesAsync(user, rolesToAdd);
+                if (!addResult.Succeeded)
+                {
+                    foreach (var error in addResult.Errors)
+                    {
+                        Snackbar.Add(error.Description, Severity.Error);
+                    }
+                    return;
+                }
+            }
+
+            if (rolesToRemove.Any())
+            {
+                var removeResult = await UserManager.RemoveFromRolesAsync(user, rolesToRemove);
+                if (!removeResult.Succeeded)
+                {
+                    foreach (var error in removeResult.Errors)
+                    {
+                        Snackbar.Add(error.Description, Severity.Error);
+                    }
+                    return;
+                }
+            }
+
+            Snackbar.Add("User roles updated successfully.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to update roles: {ex.Message}", Severity.Error);
+        }
+    }
+}
+

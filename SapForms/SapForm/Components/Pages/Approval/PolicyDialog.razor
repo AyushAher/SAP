@@ -1,0 +1,248 @@
+@inject ApprovalPolicyService PolicyService
+@inject Context Context
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudPaper Style="width: 80vw;">
+            <MudSelect T="int?" Label="Requesting User" Required @bind-Value="_requestingUserId">
+                @foreach (var type in _users)
+                {
+                    <MudSelectItem Value="@((int?)type.Id)">@type.Email</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudSelect T="ApprovalDocumentType" Required Label="Document Type" @bind-Value="_docType">
+                @foreach (var type in Enum.GetValues<ApprovalDocumentType>())
+                {
+                    <MudSelectItem Value="@type">@type</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudDivider Class="my-4" />
+
+            <MudText Typo="Typo.h6" Class="my-4">Approvers</MudText>
+
+            <MudTable Items="_approvers" Dense="true">
+                <HeaderContent>
+                    <MudTh>User</MudTh>
+                    <MudTh>Priority</MudTh>
+                    <MudTh />
+                </HeaderContent>
+
+                <RowTemplate>
+                    <MudTd>
+                        <MudSelect T="int" @bind-Value="context.UserId">
+                            @foreach (var user in _users)
+                            {
+                                <MudSelectItem Value="@user.Id">@user.Email</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudTd>
+
+                    <MudTd>
+                        <MudNumericField T="int"
+                                         Min="1"
+                                         @bind-Value="context.Priority" />
+                    </MudTd>
+
+                    <MudTd>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       OnClick="() => RemoveApprover(context)" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudButton StartIcon="@Icons.Material.Filled.Add" Class="my-3"
+                       OnClick="AddApprover">
+                Add Approver
+            </MudButton>
+
+
+            <MudDivider Class="my-4" />
+
+            <MudText Typo="Typo.h6" Class="my-3">Approval Rules</MudText>
+
+            <MudTable Items="_rules" Dense="true">
+                <HeaderContent>
+                    <MudTh>Field</MudTh>
+                    <MudTh>Operator</MudTh>
+                    <MudTh>Value</MudTh>
+                    <MudTh />
+                </HeaderContent>
+
+                <RowTemplate>
+                    <MudTd>
+                        <MudSelect T="string" @bind-Value="context.Field">
+                            @if (Constants.ApprovalDocFields.TryGetValue(_docType, out var list))
+                            {
+                                @foreach (var field in list)
+                                {
+                                    <MudSelectItem Value="@field">@field</MudSelectItem>
+                                }
+                            }
+                        </MudSelect>
+                    </MudTd>
+
+                    <MudTd>
+                        <MudSelect T="string"
+                                   @bind-Value="context.Operator">
+                            @foreach (var op in Constants.ApprovalOperator)
+                            {
+                                <MudSelectItem Value="@op">@op</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudTd>
+
+                    <MudTd>
+                        <MudTextField @bind-Value="context.Value" />
+                    </MudTd>
+
+                    <MudTd>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       OnClick="() => RemoveRule(context)" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudButton StartIcon="@Icons.Material.Filled.Add" Class="my-3"
+                       OnClick="AddRule">
+                Add Rule
+            </MudButton>
+        </MudPaper>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="Save" Color="Color.Primary">Save</MudButton>
+        <MudButton OnClick="MudDialog.Cancel">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+
+    [Parameter] public ApprovalPolicy? Policy { get; set; }
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; }
+
+    private List<ApplicationUser> _users = new();
+
+    private ApprovalDocumentType _docType;
+    private int? _requestingUserId;
+
+    private List<ApproverModel> _approvers = new();
+    private List<RuleModel> _rules = new();
+
+    protected override void OnInitialized()
+    {
+        _users = Context.Users.ToList();
+
+        if (Policy != null)
+        {
+            _docType = Policy.DocumentType;
+            _requestingUserId = Policy.RequesterUserId;
+
+            _approvers = Policy.Approvers
+                .Select(a => new ApproverModel
+                {
+                    UserId = a.ApproverUserId,
+                    Priority = a.Priority
+                }).ToList();
+
+            _rules = Policy.Rules
+                .Select(r => new RuleModel
+                {
+                    Field = r.FieldName,
+                    Operator = r.Operator,
+                    Value = r.Value
+                }).ToList();
+        }
+    }
+
+    private void AddApprover()
+    {
+        _approvers.Add(new ApproverModel { Priority = 1 });
+    }
+
+    private void RemoveApprover(ApproverModel model)
+    {
+        _approvers.Remove(model);
+    }
+
+    private void AddRule()
+    {
+        _rules.Add(new RuleModel());
+    }
+
+    private void RemoveRule(RuleModel rule)
+    {
+        _rules.Remove(rule);
+    }
+
+    private async Task Save()
+    {
+        if (_requestingUserId == null)
+        {
+            Snackbar.Add("Requester required.", Severity.Error);
+            return;
+        }
+
+        if (!_approvers.Any())
+        {
+            Snackbar.Add("At least one approver required.", Severity.Error);
+            return;
+        }
+
+        if (_approvers.GroupBy(x => x.UserId).Any(g => g.Count() > 1))
+        {
+            Snackbar.Add("Duplicate approvers not allowed.", Severity.Error);
+            return;
+        }
+
+        var approvers = _approvers
+            .Select(x => new ApprovalPolicyApprover
+            {
+                ApproverUserId = x.UserId,
+                Priority = x.Priority
+            }).ToList();
+
+        var rules = _rules
+            .Select(x => new ApprovalPolicyRule
+            {
+                FieldName = x.Field!,
+                Operator = x.Operator,
+                Value = x.Value!
+            }).ToList();
+
+        if (Policy == null)
+        {
+            await PolicyService.CreatePolicyAsync(
+                _docType,
+                _requestingUserId.Value,
+                approvers,
+                rules);
+        }
+        else
+        {
+            await PolicyService.UpdatePolicyAsync(
+                Policy.Id,
+                _docType,
+                _requestingUserId.Value,
+                approvers,
+                rules);
+        }
+
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private class ApproverModel
+    {
+        public int UserId { get; set; }
+        public int Priority { get; set; }
+    }
+
+    private class RuleModel
+    {
+        public string? Field { get; set; }
+        public string? Operator { get; set; }
+        public string? Value { get; set; }
+    }
+}

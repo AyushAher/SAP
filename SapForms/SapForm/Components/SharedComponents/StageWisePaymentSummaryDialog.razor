@@ -1,0 +1,165 @@
+@using Shared.Entities
+@using Shared.Responses.Sap
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Payment Summary</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudDataGrid T="StageWisePaymentSummaryRow" Items="@GridRows" Dense="true" Hover="true" Striped="true"
+                     ReadOnly="true" Elevation="0">
+            <Columns>
+                <TemplateColumn Title="Request ID">
+                    <CellTemplate>
+                        @if (context.Item.IsTotalRow)
+                        {
+                            <b>@context.Item.RequestId</b>
+                        }
+                        else
+                        {
+                            @context.Item.RequestId
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                
+                <TemplateColumn Title="Payment Stage" HeaderStyle="text-align: right;"
+                                CellStyle="text-align: right;">
+                    <CellTemplate>
+                        @(PaymentTerms.FirstOrDefault(x=>x.Id.ToString() == context.Item.PaymentStage)?.DropDownValue() ?? context.Item.PaymentStage)
+                    </CellTemplate>
+                </TemplateColumn>
+                
+                <TemplateColumn Title="Net Basic Amount" HeaderStyle="text-align: right;"
+                                CellStyle="text-align: right;">
+                    <CellTemplate>
+                        @if (context.Item.IsTotalRow)
+                        {
+                            <b>@context.Item.NetBasicAmount.ToString("N2")</b>
+                        }
+                        else
+                        {
+                            @context.Item.NetBasicAmount.ToString("N2")
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="TDS Amount" HeaderStyle="text-align: right;" CellStyle="text-align: right;">
+                    <CellTemplate>
+                        @if (context.Item.IsTotalRow)
+                        {
+                            <b>@context.Item.TdsAmount.ToString("N2")</b>
+                        }
+                        else
+                        {
+                            @context.Item.TdsAmount.ToString("N2")
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="GST Amount" HeaderStyle="text-align: right;" CellStyle="text-align: right;">
+                    <CellTemplate>
+                        @if (context.Item.IsTotalRow)
+                        {
+                            <b>@context.Item.GstAmount.ToString("N2")</b>
+                        }
+                        else
+                        {
+                            @context.Item.GstAmount.ToString("N2")
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Gross Amount" HeaderStyle="text-align: right;" CellStyle="text-align: right;">
+                    <CellTemplate>
+                        @if (context.Item.IsTotalRow)
+                        {
+                            <b>@context.Item.GrossAmount.ToString("N2")</b>
+                        }
+                        else
+                        {
+                            @context.Item.GrossAmount.ToString("N2")
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                <PropertyColumn Title="Status" Property="x => x.Status" />
+            </Columns>
+        </MudDataGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public List<StageWisePayment> Payments { get; set; } = [];
+    [Parameter] public List<PaymentTermsUdf> PaymentTerms { get; set; } = [];
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    List<StageWisePaymentSummaryRow> GridRows { get; set; } = [];
+
+    protected override void OnParametersSet() => GridRows = BuildGridRows();
+
+    void Close() => MudDialog.Close();
+
+    List<StageWisePaymentSummaryRow> BuildGridRows()
+    {
+        var payments = Payments.Where(p => p.Status != StageWisePaymentStatus.Cancelled).ToList();
+        var rows = payments.Select(p => new StageWisePaymentSummaryRow
+        {
+            RequestId = p.ApprovalRequestId ?? "",
+            PaymentStage = GetPaymentStage(p),
+            NetBasicAmount = GetNetBasicAmount(p),
+            TdsAmount = p.Tds ?? 0,
+            GstAmount = p.GstAmount ?? 0,
+            GrossAmount = GetGrossAmount(p),
+            Status = GetPaymentStatus(p),
+        }).ToList();
+
+        rows.Add(new StageWisePaymentSummaryRow
+        {
+            IsTotalRow = true,
+            RequestId = "Total",
+            NetBasicAmount = rows.Sum(r => r.NetBasicAmount),
+            TdsAmount = rows.Sum(r => r.TdsAmount),
+            GstAmount = rows.Sum(r => r.GstAmount),
+            GrossAmount = rows.Sum(r => r.GrossAmount),
+        });
+
+        return rows;
+    }
+
+    static double GetNetBasicAmount(StageWisePayment payment) =>
+        (payment.GrossAmount ?? 0) - (payment.Tds ?? 0);
+
+    static double GetGrossAmount(StageWisePayment payment) =>
+        (payment.GrossAmount ?? 0) + (payment.GstAmount ?? 0);
+
+    string GetPaymentStage(StageWisePayment payment)
+    {
+        if (!string.IsNullOrWhiteSpace(payment.StageDesc))
+            return payment.StageDesc;
+
+        return PaymentTerms.FirstOrDefault(x => x.Id == payment.PaymentTermsType)?.DropDownValue()
+            ?? payment.Stage.ToString();
+    }
+
+    static string GetPaymentStatus(StageWisePayment record) =>
+        record.Status switch
+        {
+            StageWisePaymentStatus.PendingApproval => "Approval Pending",
+            StageWisePaymentStatus.Approved => "Approved",
+            StageWisePaymentStatus.Added => "Created",
+            StageWisePaymentStatus.Cancelled => "Cancelled",
+            _ => record.Status.ToString(),
+        };
+
+    sealed class StageWisePaymentSummaryRow
+    {
+        public string RequestId { get; set; } = "";
+        public string PaymentStage { get; set; } = "";
+        public double NetBasicAmount { get; set; }
+        public double TdsAmount { get; set; }
+        public double GstAmount { get; set; }
+        public double GrossAmount { get; set; }
+        public string Status { get; set; } = "";
+        public bool IsTotalRow { get; set; }
+    }
+}
