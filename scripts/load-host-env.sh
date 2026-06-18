@@ -24,7 +24,7 @@ load_host_env_file() {
   # Passwords with @ must be quoted or Npgsql fails to parse the connection string.
   if [[ -n "${DB_CONNECTION:-}" ]] && [[ "$DB_CONNECTION" =~ Password=([^;]+) ]]; then
     local pass="${BASH_REMATCH[1]}"
-    if [[ "$pass" == *@* ]] && [[ "$pass" != \'*\' ]]; then
+    if [[ "$pass" == *@* ]] && [[ "$pass" != "'"* ]]; then
       export DB_CONNECTION="${DB_CONNECTION//Password=${pass}/Password='${pass}'}"
     fi
   fi
@@ -43,7 +43,7 @@ normalize_db_connection() {
   if [[ "$cs" =~ Port=([^;]+) ]]; then port="${BASH_REMATCH[1]}"; fi
   if [[ "$cs" =~ Database=([^;]+) ]]; then db="${BASH_REMATCH[1]}"; fi
   if [[ "$cs" =~ Username=([^;]+) ]]; then user="${BASH_REMATCH[1]}"; fi
-  if [[ "$cs" =~ Password=(.+)$ ]] || [[ "$cs" =~ Password=([^;]+) ]]; then
+  if [[ "$cs" =~ Password=([^;]+) ]]; then
     pass="${BASH_REMATCH[1]}"
     pass="${pass#\'}"; pass="${pass%\'}"
     pass="${pass#\"}"; pass="${pass%\"}"
