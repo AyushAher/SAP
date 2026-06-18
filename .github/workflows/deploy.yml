@@ -89,6 +89,7 @@ jobs:
       - name: Build and push API image
         run: |
           sudo docker build . \
+            --no-cache \
             --file ./SapApi/Dockerfile \
             --tag "${API_IMAGE}" \
             --tag "${REGISTRY}/sap-api:${SHA_TAG}"
@@ -173,7 +174,7 @@ jobs:
             echo "Using Host=postgres via postgres_default network"
           fi
 
-          export TAG="${SHA_TAG}" DOCKER_REGISTRY="${REGISTRY}"
+          export TAG DOCKER_REGISTRY="${REGISTRY}"
 
           sudo -E docker stack deploy "${STACK_NAME}" \
             --compose-file "${COMPOSE_FILE}" \
