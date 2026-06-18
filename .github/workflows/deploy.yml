@@ -218,6 +218,8 @@ jobs:
 
           echo "Deployment health check failed on port ${UI_PORT}"
           sudo docker service ls
+          echo "--- sap-api logs ---"
+          sudo docker service logs --tail 80 "${STACK_NAME}_sap-api" 2>&1 || true
           echo "--- sap-api tasks ---"
           sudo docker service ps --no-trunc "${STACK_NAME}_sap-api" || true
           echo "--- sap-ui tasks ---"

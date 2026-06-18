@@ -35,17 +35,25 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+try
 {
-    DependencyInjection.InitializeEncryption(scope.ServiceProvider);
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    if (app.Environment.IsEnvironment("Testing"))
-        await db.Database.EnsureCreatedAsync();
-    else
-        await db.Database.MigrateAsync();
+    using (var scope = app.Services.CreateScope())
+    {
+        DependencyInjection.InitializeEncryption(scope.ServiceProvider);
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        if (app.Environment.IsEnvironment("Testing"))
+            await db.Database.EnsureCreatedAsync();
+        else
+            await db.Database.MigrateAsync();
 
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-    await IdentityDataSeeder.SeedRolesAsync(roleManager);
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+        await IdentityDataSeeder.SeedRolesAsync(roleManager);
+    }
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application startup failed during database initialization");
+    throw;
 }
 
 if (app.Environment.IsDevelopment())

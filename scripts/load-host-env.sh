@@ -15,4 +15,9 @@ load_host_env_file() {
       export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
     fi
   done < "$file"
+
+  # Host .env files sometimes omit the Npgsql Host= prefix (e.g. 192.168.0.5;Port=5432;...).
+  if [[ -n "${DB_CONNECTION:-}" ]] && [[ ! "$DB_CONNECTION" =~ Host= ]]; then
+    export DB_CONNECTION="Host=${DB_CONNECTION}"
+  fi
 }
