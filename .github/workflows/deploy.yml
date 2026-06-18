@@ -105,6 +105,7 @@ jobs:
         run: |
           sudo docker build . \
             --build-arg VITE_API_BASE_URL=/api \
+            --build-arg API_UPSTREAM="tasks.${STACK_NAME}_sap-api:8080" \
             --tag "${UI_IMAGE}" \
             --tag "${REGISTRY}/sap-ui:${SHA_TAG}"
 
@@ -116,54 +117,50 @@ jobs:
             sudo docker push "${REGISTRY}/sap-ui:latest"
           fi
 
-      # - name: Sync compose file to host
-      #   run: |
-      #     sudo mkdir -p "${DEPLOY_DIR}"
-      #     sudo cp "docker-compose.${ENV}.yml" "${COMPOSE_FILE}"
-      #     sudo cp deploy.env.example "${DEPLOY_DIR}/.env.${ENV}.example"
+      - name: Sync compose file to host
+        run: |
+          sudo mkdir -p "${DEPLOY_DIR}"
+          sudo cp "docker-compose.${ENV}.yml" "${COMPOSE_FILE}"
+          sudo cp deploy.env.example "${DEPLOY_DIR}/.env.${ENV}.example"
 
-      # - name: Validate host environment file
-      #   run: |
-      #     ENV_FILE="${DEPLOY_DIR}/.env.${ENV}"
-      #     if [ ! -f "$ENV_FILE" ]; then
-      #       ENV_FILE="${DEPLOY_DIR}/.env"
-      #     fi
-      #     if [ ! -f "$ENV_FILE" ]; then
-      #       echo "::error::Missing host env file. Create ${DEPLOY_DIR}/.env.${ENV} from ${DEPLOY_DIR}/.env.${ENV}.example"
-      #       echo "See deploy.env.example in the repo for the required checklist."
-      #       exit 1
-      #     fi
+      - name: Validate host environment file
+        run: |
+          ENV_FILE="${DEPLOY_DIR}/.env.${ENV}"
+          if [ ! -f "$ENV_FILE" ]; then
+            ENV_FILE="${DEPLOY_DIR}/.env"
+          fi
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "::error::Missing host env file. Create ${DEPLOY_DIR}/.env.${ENV} from ${DEPLOY_DIR}/.env.${ENV}.example"
+            echo "See deploy.env.example in the repo for the required checklist."
+            exit 1
+          fi
 
-      #     # shellcheck source=scripts/load-host-env.sh
-      #     source scripts/load-host-env.sh
-      #     set -a
-      #     load_host_env_file "$ENV_FILE"
-      #     set +a
+          # shellcheck source=scripts/load-host-env.sh
+          source scripts/load-host-env.sh
+          load_host_env_file "$ENV_FILE"
 
-      #     MISSING=()
-      #     for var in DB_CONNECTION SAP_SERVICE_LAYER_URL SAP_USERNAME SAP_COMPANY_DB HMAC_SECRET JWT_SECRET_KEY CORS_ORIGIN; do
-      #       if [ -z "${!var:-}" ]; then
-      #         MISSING+=("$var")
-      #       fi
-      #     done
+          MISSING=()
+          for var in DB_CONNECTION SAP_SERVICE_LAYER_URL SAP_USERNAME SAP_COMPANY_DB HMAC_SECRET JWT_SECRET_KEY CORS_ORIGIN; do
+            if [ -z "${!var:-}" ]; then
+              MISSING+=("$var")
+            fi
+          done
 
-      #     if [ "${#MISSING[@]}" -gt 0 ]; then
-      #       echo "::error::Host env file ${ENV_FILE} is missing required values:"
-      #       printf '  - %s\n' "${MISSING[@]}"
-      #       echo "Copy ${DEPLOY_DIR}/.env.${ENV}.example, fill in secrets, and redeploy."
-      #       exit 1
-      #     fi
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "::error::Host env file ${ENV_FILE} is missing required values:"
+            printf '  - %s\n' "${MISSING[@]}"
+            echo "Copy ${DEPLOY_DIR}/.env.${ENV}.example, fill in secrets, and redeploy."
+            exit 1
+          fi
 
-      #     echo "ENV_FILE=${ENV_FILE}" >> "$GITHUB_ENV"
-      #     echo "Host environment file validated: ${ENV_FILE}"
+          echo "ENV_FILE=${ENV_FILE}" >> "$GITHUB_ENV"
+          echo "Host environment file validated: ${ENV_FILE}"
 
       - name: Deploy stack
         run: |
           # shellcheck source=scripts/load-host-env.sh
-          # source scripts/load-host-env.sh
-          # set -a
-          # load_host_env_file "${ENV_FILE}"
-          # set +a
+          source scripts/load-host-env.sh
+          load_host_env_file "${ENV_FILE}"
 
           export TAG DOCKER_REGISTRY="${REGISTRY}"
 
@@ -177,16 +174,45 @@ jobs:
           sleep 30
 
           for i in $(seq 1 18); do
+            UI_OK=0
+            API_OK=0
+
             if curl -fsS "http://localhost:${UI_PORT}/" > /dev/null; then
-              echo "UI is healthy on port ${UI_PORT}"
+              UI_OK=1
+            fi
+
+            API_REPLICAS="$(sudo docker service ls --filter "name=${STACK_NAME}_sap-api" --format '{{.Replicas}}')"
+            if [ "$API_REPLICAS" = "1/1" ]; then
+              API_OK=1
+            fi
+
+            if [ "$UI_OK" -eq 1 ] && [ "$API_OK" -eq 1 ]; then
+              if curl -fsS -X POST "http://localhost:${UI_PORT}/api/auth/register" \
+                -H "Content-Type: application/json" \
+                -d '{}' > /dev/null 2>&1; then
+                :
+              else
+                HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://localhost:${UI_PORT}/api/auth/register" \
+                  -H "Content-Type: application/json" \
+                  -d '{}')"
+                if [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ]; then
+                  echo "API proxy returned ${HTTP_CODE}; waiting for nginx DNS/upstream..."
+                  API_OK=0
+                fi
+              fi
+            fi
+
+            if [ "$UI_OK" -eq 1 ] && [ "$API_OK" -eq 1 ]; then
+              echo "UI and API are healthy on port ${UI_PORT}"
               sudo docker service ls --filter "label=com.docker.stack.namespace=${STACK_NAME}"
               exit 0
             fi
-            echo "Attempt ${i}/18: UI not ready yet..."
+
+            echo "Attempt ${i}/18: UI_OK=${UI_OK} API_OK=${API_OK} API_REPLICAS=${API_REPLICAS:-unknown}"
             sleep 10
           done
 
-          echo "UI health check failed on port ${UI_PORT}"
+          echo "Deployment health check failed on port ${UI_PORT}"
           sudo docker service ls
           echo "--- sap-api tasks ---"
           sudo docker service ps --no-trunc "${STACK_NAME}_sap-api" || true
