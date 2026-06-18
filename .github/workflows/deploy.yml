@@ -81,9 +81,10 @@ jobs:
           elif [ -f "${DEPLOY_DIR}/keys/private.pem" ]; then
             cp "${DEPLOY_DIR}/keys/private.pem" "${KEYS_DIR}/private.pem"
           else
-            echo "::warning::RSA private key not found (RSA_PRIVATE_KEY secret or ${DEPLOY_DIR}/keys/private.pem). Encrypted login will not work."
+            echo "::error::RSA private key not found. Set GitHub environment secret RSA_PRIVATE_KEY or place ${DEPLOY_DIR}/keys/private.pem on the deploy host."
+            exit 1
           fi
-          chmod 600 "${KEYS_DIR}/private.pem" 2>/dev/null || true
+          chmod 600 "${KEYS_DIR}/private.pem"
 
       - name: Build and push API image
         run: |

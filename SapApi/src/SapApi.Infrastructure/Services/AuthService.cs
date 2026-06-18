@@ -24,7 +24,15 @@ public class AuthService(
 {
     public async Task<ApiResponse<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
-        var password = DecryptIfNeeded(request.Password);
+        string password;
+        try
+        {
+            password = DecryptIfNeeded(request.Password);
+        }
+        catch (ApiErrorException ex)
+        {
+            return ApiResponse<LoginResponse>.Fail(ex.ErrorCode, ex.Message);
+        }
         var user = await userManager.FindByNameAsync(request.UserName);
         if (user == null)
             return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
@@ -87,7 +95,15 @@ public class AuthService(
 
     public async Task<ApiResponse<RegisterUserResponse>> RegisterAsync(RegisterUserRequest request, CancellationToken cancellationToken = default)
     {
-        var password = DecryptIfNeeded(request.Password);
+        string password;
+        try
+        {
+            password = DecryptIfNeeded(request.Password);
+        }
+        catch (ApiErrorException ex)
+        {
+            return ApiResponse<RegisterUserResponse>.Fail(ex.ErrorCode, ex.Message);
+        }
 
         if (!appConfig.Value.SkipSapLoginOnUserAuth)
         {
@@ -118,16 +134,20 @@ public class AuthService(
 
     private string DecryptIfNeeded(string value)
     {
+        var looksEncrypted = value.Length > 100 && !value.Contains(' ');
+        if (!looksEncrypted)
+            return value;
+
         try
         {
-            if (value.Length > 100 && !value.Contains(' '))
-                return rsa.Decrypt(value);
+            return rsa.Decrypt(value);
         }
         catch
         {
-            // Plain text password for internal/testing
+            throw new ApiErrorException(
+                BaseErrorCodes.SystemError,
+                "Unable to decrypt credentials. The server encryption key is not configured correctly.");
         }
-        return value;
     }
 
     private static List<Claim> BuildUserClaims(ApplicationUser user, IList<string> roles)
