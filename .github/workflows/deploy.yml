@@ -179,6 +179,9 @@ jobs:
             --compose-file "${COMPOSE_FILE}" \
             --with-registry-auth
 
+          sudo docker service update --force --detach=false "${STACK_NAME}_sap-api"
+          sudo docker service update --force --detach=false "${STACK_NAME}_sap-ui"
+
       - name: Verify deployment health
         run: |
           echo "Waiting for services to become healthy..."

@@ -26,6 +26,8 @@ RUN dotnet publish "SapApi.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publish /
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+# Keys are prepared in CI before build; copy from context so publish cache cannot serve stale PEMs.
+COPY SapApi/src/SapApi.Api/Keys/*.pem ./Keys/
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
