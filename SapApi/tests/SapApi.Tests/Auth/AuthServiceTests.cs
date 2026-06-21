@@ -9,6 +9,7 @@ using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
+using SapApi.Shared.Enums;
 using SapApi.Shared.Requests.Account;
 
 namespace SapApi.Tests.Auth;
@@ -93,6 +94,7 @@ public class AuthServiceTests
             UserName = userName,
             Email = email,
             Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
         });
 
         result.Success.Should().BeTrue();
@@ -117,9 +119,10 @@ public class AuthServiceTests
             UserName = userName,
             Email = email,
             Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
         });
 
-        var login = await sut.LoginAsync(new LoginRequest { UserName = userName, Password = "Test123!" });
+        var login = await sut.LoginAsync(new LoginRequest { UserName = userName, Password = "Test123!", CompanyDb = SapCompanyDatabase.PBBPL_UAT });
 
         login.Success.Should().BeTrue();
         login.Data!.Token.Should().NotBeNullOrWhiteSpace();
@@ -141,10 +144,11 @@ public class AuthServiceTests
             UserName = userName,
             Email = email,
             Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
         });
 
-        var login = await sut.LoginAsync(new LoginRequest { UserName = userName, Password = "Test123!" });
-        var refresh = await sut.RefreshAsync(new RefreshTokenRequest { RefreshToken = login.Data!.RefreshToken! });
+        var login = await sut.LoginAsync(new LoginRequest { UserName = userName, Password = "Test123!", CompanyDb = SapCompanyDatabase.PBBPL_UAT });
+        var refresh = await sut.RefreshAsync(new RefreshTokenRequest { RefreshToken = login.Data!.RefreshToken!, CompanyDb = SapCompanyDatabase.PBBPL_UAT });
 
         refresh.Success.Should().BeTrue();
         refresh.Data!.Token.Should().NotBeNullOrWhiteSpace();
@@ -161,6 +165,7 @@ public class AuthServiceTests
         {
             UserName = "missing@test.com",
             Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
         });
 
         login.Success.Should().BeFalse();
@@ -181,9 +186,10 @@ public class AuthServiceTests
             UserName = userName,
             Email = email,
             Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
         });
 
-        var login = await sut.LoginAsync(new LoginRequest { UserName = userName, Password = "WrongPass1!" });
+        var login = await sut.LoginAsync(new LoginRequest { UserName = userName, Password = "WrongPass1!", CompanyDb = SapCompanyDatabase.PBBPL_UAT });
 
         login.Success.Should().BeFalse();
         login.ErrorCode.Should().Be(Shared.BaseErrorCodes.IncorrectCredentials);
@@ -224,7 +230,7 @@ public class AuthServiceTests
 
         var sapLogin = new Mock<ISapLoginService>();
         sapLogin
-            .Setup(s => s.ValidateCredentialsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.ValidateCredentialsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SapCompanyDatabase>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Shared.Exceptions.ApiErrorException(Shared.BaseErrorCodes.IncorrectCredentials, "SAP credentials are invalid. Please verify your username and password."));
         services.AddSingleton(sapLogin.Object);
         services.AddScoped<AuthService>();
@@ -244,12 +250,13 @@ public class AuthServiceTests
             UserName = userName,
             Email = $"sapfail_{Guid.NewGuid():N}@test.com",
             Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
         });
 
         result.Success.Should().BeFalse();
         result.ErrorCode.Should().Be(Shared.BaseErrorCodes.IncorrectCredentials);
         (await userManager.FindByNameAsync(userName)).Should().BeNull();
-        sapLogin.Verify(s => s.ValidateCredentialsAsync(userName, "Test123!", It.IsAny<CancellationToken>()), Times.Once);
+        sapLogin.Verify(s => s.ValidateCredentialsAsync(userName, "Test123!", SapCompanyDatabase.PBBPL_UAT, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -287,7 +294,7 @@ public class AuthServiceTests
 
         var sapLogin = new Mock<ISapLoginService>();
         sapLogin
-            .Setup(s => s.ValidateCredentialsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.ValidateCredentialsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SapCompanyDatabase>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         services.AddSingleton(sapLogin.Object);
         services.AddScoped<AuthService>();
@@ -307,11 +314,12 @@ public class AuthServiceTests
             UserName = userName,
             Email = $"sapsuccess_{Guid.NewGuid():N}@test.com",
             Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
         });
 
         result.Success.Should().BeTrue();
         (await userManager.FindByNameAsync(userName)).Should().NotBeNull();
-        sapLogin.Verify(s => s.ValidateCredentialsAsync(userName, "Test123!", It.IsAny<CancellationToken>()), Times.Once);
-        sapLogin.Verify(s => s.LoginWithUserCredentialsAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        sapLogin.Verify(s => s.ValidateCredentialsAsync(userName, "Test123!", SapCompanyDatabase.PBBPL_UAT, It.IsAny<CancellationToken>()), Times.Once);
+        sapLogin.Verify(s => s.LoginWithUserCredentialsAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SapCompanyDatabase>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
+using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
@@ -20,8 +21,10 @@ public class ApprovalsController(
     ApprovalRequestViewService requestViewService,
     StageWisePaymentService stageWisePaymentService,
     AppDbContext db,
-    IHttpContextAccessor httpContext) : ControllerBase
+    IHttpContextAccessor httpContext,
+    ICurrentCompanyDbAccessor companyDbAccessor) : ControllerBase
 {
+    private string CompanyDb => companyDbAccessor.GetCompanyDbName();
     [HttpGet("{requestId:int}")]
     public async Task<IActionResult> GetById(int requestId, CancellationToken cancellationToken)
     {
@@ -73,7 +76,7 @@ public class ApprovalsController(
             .Include(x => x.UserApprovals)
             .Include(x => x.RequesterUser)
             .Include(x => x.Policy)
-            .Where(x => x.RequesterUserId == userId)
+            .Where(x => x.CompanyDb == CompanyDb && x.RequesterUserId == userId)
             .OrderByDescending(x => x.CreatedAt);
 
         var (items, totalCount) = await query.ToPaginatedListAsync(normalized, cancellationToken);

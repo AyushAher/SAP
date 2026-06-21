@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Mail, Lock, User } from 'lucide-react'
-import { Button, Input } from '@/Components/ui'
+import { Button, Input, Select } from '@/Components/ui'
+import { DEFAULT_COMPANY_DB, SAP_COMPANY_DATABASES } from '@/config/companyDb'
 import { ROUTES } from '@/config/constants'
 import { registerApi } from '@/Requests/auth'
 
@@ -11,6 +12,7 @@ export function RegisterPage() {
   const [email, setEmail] = useState('')
   const [userName, setUserName] = useState('')
   const [password, setPassword] = useState('')
+  const [companyDb, setCompanyDb] = useState<string>(DEFAULT_COMPANY_DB)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -24,6 +26,7 @@ export function RegisterPage() {
         userName,
         email,
         password,
+        companyDb,
       })
       navigate(ROUTES.LOGIN)
     } catch (err) {
@@ -44,6 +47,13 @@ export function RegisterPage() {
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
         )}
+        <Select
+          label="SAP Company Database"
+          options={[...SAP_COMPANY_DATABASES]}
+          value={companyDb}
+          onChange={setCompanyDb}
+          required
+        />
         <Input
           label="Full Name"
           value={fullName}

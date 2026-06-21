@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using SapApi.Domain.Entities;
+using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
 using SapApi.Shared;
 using SapApi.Shared.Enums;
@@ -13,18 +14,20 @@ namespace SapApi.Infrastructure.Services;
 public class ApprovalService
 {
     private readonly int UserId;
+    private readonly string CompanyDb;
     private readonly AppDbContext context;
 
-    public ApprovalService(AppDbContext dbContext, IHttpContextAccessor httpContext)
+    public ApprovalService(AppDbContext dbContext, IHttpContextAccessor httpContext, ICurrentCompanyDbAccessor companyDbAccessor)
     {
         context = dbContext;
 
         var userId = httpContext.GetUserIdAsync();
-            if (!userId.HasValue)
-                throw new ApiErrorException(BaseErrorCodes.NullValue, "User not found!");
+        if (!userId.HasValue)
+            throw new ApiErrorException(BaseErrorCodes.NullValue, "User not found!");
 
-            UserId = userId.Value;
-        }
+        UserId = userId.Value;
+        CompanyDb = companyDbAccessor.GetCompanyDbName();
+    }
 
         #region ENTRY POINT (Policy Check)
 
@@ -39,6 +42,7 @@ public class ApprovalService
                 ApprovalRequest request = await context.ApprovalRequests
                     .FirstOrDefaultAsync(x =>
                         x.Id == policyRequestId &&
+                        x.CompanyDb == CompanyDb &&
                         x.Action == action)
                     ?? throw new ApiErrorException(
                         BaseErrorCodes.NullValue,
@@ -89,6 +93,7 @@ public class ApprovalService
                 .Include(x => x.Approvers)
                 .Include(x => x.Rules)
                 .FirstOrDefaultAsync(x =>
+                    x.CompanyDb == CompanyDb &&
                     x.RequesterUserId == UserId &&
                     x.DocumentType == docType &&
                     x.IsActive);
@@ -104,6 +109,7 @@ public class ApprovalService
 
             var approvalRequest = new ApprovalRequest
             {
+                CompanyDb = CompanyDb,
                 DocumentType = docType,
                 RequesterUserId = UserId,
                 CreatedAt = DateTime.UtcNow,
@@ -314,6 +320,7 @@ public class ApprovalService
                 .Include(r => r.UserApprovals)
                 .Include(x => x.Policy)
                 .Include(x => x.RequesterUser)
+                .Where(r => r.CompanyDb == CompanyDb)
                 .ToListAsync();
 
             var visibleRequests = new List<ApprovalRequest>();
@@ -358,7 +365,7 @@ public class ApprovalService
                  .Include(x => x.UserApprovals)
                  .Include(x => x.RequesterUser)
                 .Include(x => x.Policy)
-                 .Where(x => x.RequesterUserId == userId)
+                 .Where(x => x.CompanyDb == CompanyDb && x.RequesterUserId == userId)
                  .OrderByDescending(x => x.CreatedAt)
                  .ToListAsync();
         }

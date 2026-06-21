@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { User, Lock, Eye, EyeOff } from 'lucide-react'
-import { Button, Input, Checkbox } from '@/Components/ui'
+import { User, Lock, Eye, EyeOff, Building2 } from 'lucide-react'
+import { Button, Input, Checkbox, Select } from '@/Components/ui'
+import { DEFAULT_COMPANY_DB, SAP_COMPANY_DATABASES } from '@/config/companyDb'
 import { ROUTES } from '@/config/constants'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { login, clearError } from '@/store/slices/authSlice'
@@ -14,6 +15,7 @@ export function LoginPage() {
 
   const [userName, setUserName] = useState('')
   const [password, setPassword] = useState('')
+  const [companyDb, setCompanyDb] = useState<string>(DEFAULT_COMPANY_DB)
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
 
@@ -22,7 +24,7 @@ export function LoginPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     dispatch(clearError())
-    const result = await dispatch(login({ userName, password }))
+    const result = await dispatch(login({ userName, password, companyDb }))
     if (login.fulfilled.match(result)) {
       navigate(from, { replace: true })
     }
@@ -39,6 +41,14 @@ export function LoginPage() {
             {error}
           </div>
         )}
+
+        <Select
+          label="SAP Company Database"
+          options={[...SAP_COMPANY_DATABASES]}
+          value={companyDb}
+          onChange={setCompanyDb}
+          required
+        />
 
         <Input
           label="Username"
@@ -98,6 +108,10 @@ export function LoginPage() {
         </Link>
       </p>
 
+      <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+        <Building2 className="h-3.5 w-3.5" />
+        Select the SAP company database you want to connect to
+      </p>
     </div>
   )
 }

@@ -6,6 +6,8 @@ namespace SapApi.Domain.Entities
     {
         public int Id { get; set; }
 
+        public string CompanyDb { get; set; } = string.Empty;
+
         public int PolicyId { get; set; }
 
         public ApprovalDocumentType DocumentType { get; set; }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
+using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
@@ -16,8 +17,11 @@ public class ApprovalRequestViewService(
     AppDbContext db,
     SapMasterDataService masterDataService,
     SapPurchaseOrderService purchaseOrderService,
-    IHttpContextAccessor httpContext)
+    IHttpContextAccessor httpContext,
+    ICurrentCompanyDbAccessor companyDbAccessor)
 {
+    private string CompanyDb => companyDbAccessor.GetCompanyDbName();
+
     public async Task<ApprovalRequest?> GetRequestAsync(int requestId, CancellationToken cancellationToken = default)
     {
         var userId = httpContext.GetUserIdAsync();
@@ -25,7 +29,7 @@ public class ApprovalRequestViewService(
             .Include(x => x.RequesterUser)
             .Include(x => x.Policy)
             .Include(x => x.UserApprovals).ThenInclude(x => x.User)
-            .FirstOrDefaultAsync(x => x.Id == requestId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == requestId && x.CompanyDb == CompanyDb, cancellationToken);
 
         if (request is null || !userId.HasValue)
             return null;
@@ -46,7 +50,7 @@ public class ApprovalRequestViewService(
     {
         var request = await db.ApprovalRequests.AsNoTracking()
             .Include(x => x.UserApprovals).ThenInclude(x => x.User)
-            .FirstOrDefaultAsync(x => x.Id == requestId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == requestId && x.CompanyDb == CompanyDb, cancellationToken);
 
         if (request is null || request.DocumentType != ApprovalDocumentType.Payments)
             return null;
@@ -71,7 +75,7 @@ public class ApprovalRequestViewService(
         }
 
         var stagePayment = await db.StageWisePayments.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ApprovalRequestId != null
+            .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb && x.ApprovalRequestId != null
                 && (x.ApprovalRequestId == requestId.ToString()
                     || x.ApprovalRequestId.StartsWith(requestId + ",")
                     || x.ApprovalRequestId.EndsWith("," + requestId)
@@ -81,7 +85,7 @@ public class ApprovalRequestViewService(
         var poDocNum = po?.DocNum;
         var stagePayments = poDocNum is not null
             ? await db.StageWisePayments.AsNoTracking()
-                .Where(x => x.DocNumber == poDocNum && x.Status != StageWisePaymentStatus.Cancelled)
+                .Where(x => x.CompanyDb == CompanyDb && x.DocNumber == poDocNum && x.Status != StageWisePaymentStatus.Cancelled)
                 .ToListAsync(cancellationToken)
             : [];
 

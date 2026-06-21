@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Moq;
 using SapApi.Domain.Entities;
+using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Shared.Enums;
@@ -22,7 +24,12 @@ public class ApprovalPolicyServiceTests
         _context = new AppDbContext(options);
         _context.Database.EnsureCreated();
         await SeedUsersAsync(1, 2, 5, 10, 20, 30, 40);
-        _sut = new ApprovalPolicyService(_context);
+
+        var companyDbAccessor = new Mock<ICurrentCompanyDbAccessor>();
+        companyDbAccessor.Setup(x => x.GetCompanyDb()).Returns(SapCompanyDatabase.PBBPL_UAT);
+        companyDbAccessor.Setup(x => x.GetCompanyDbName()).Returns(SapCompanyDatabase.PBBPL_UAT.ToString());
+
+        _sut = new ApprovalPolicyService(_context, companyDbAccessor.Object);
     }
 
     private async Task SeedUsersAsync(params int[] userIds)

@@ -4,6 +4,7 @@ export interface User {
   name: string
   role: string
   roles?: string[]
+  companyDb?: string
 }
 
 export interface AuthState {
@@ -11,6 +12,7 @@ export interface AuthState {
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
+  companyDb: string | null
 }
 
 export interface SelectOption {
@@ -28,6 +30,7 @@ export interface ApiError {
 export interface LoginCredentials {
   userName: string
   password: string
+  companyDb: string
 }
 
 export type {

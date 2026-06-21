@@ -10,13 +10,18 @@ namespace SapApi.Infrastructure.Caching;
 /// <summary>
 /// Two-tier cache: L1 in-memory (fast) + L2 PostgreSQL (durable). No Redis required.
 /// </summary>
-public class HybridCacheService(IMemoryCache memoryCache, AppDbContext dbContext) : ICacheService
+public class HybridCacheService(
+    IMemoryCache memoryCache,
+    AppDbContext dbContext,
+    ICurrentCompanyDbAccessor companyDbAccessor) : ICacheService
 {
     private static readonly MemoryCacheEntryOptions MemoryOptions = new()
     {
         Size = 1,
         SlidingExpiration = TimeSpan.FromMinutes(30)
     };
+
+    private string CompanyDb => companyDbAccessor.GetCompanyDbName();
 
     public async Task<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default)
     {
@@ -25,7 +30,7 @@ public class HybridCacheService(IMemoryCache memoryCache, AppDbContext dbContext
 
         var entry = await dbContext.CacheEntries
             .AsNoTracking()
-            .FirstOrDefaultAsync(e => e.Key == key, cancellationToken);
+            .FirstOrDefaultAsync(e => e.Key == key && e.CompanyDb == CompanyDb, cancellationToken);
 
         if (entry == null || entry.ExpiresAtUtc <= DateTime.UtcNow)
             return default;
@@ -52,12 +57,14 @@ public class HybridCacheService(IMemoryCache memoryCache, AppDbContext dbContext
             await dbContext.CacheEntries.AddAsync(new CacheEntry
             {
                 Key = key,
+                CompanyDb = CompanyDb,
                 CompressedValue = compressed,
                 ExpiresAtUtc = expiresAt
             }, cancellationToken);
         }
         else
         {
+            existing.CompanyDb = CompanyDb;
             existing.CompressedValue = compressed;
             existing.ExpiresAtUtc = expiresAt;
             dbContext.CacheEntries.Update(existing);
@@ -70,7 +77,7 @@ public class HybridCacheService(IMemoryCache memoryCache, AppDbContext dbContext
     {
         memoryCache.Remove(key);
         var entry = await dbContext.CacheEntries.FindAsync([key], cancellationToken);
-        if (entry != null)
+        if (entry != null && entry.CompanyDb == CompanyDb)
         {
             dbContext.CacheEntries.Remove(entry);
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -86,7 +93,7 @@ public class HybridCacheService(IMemoryCache memoryCache, AppDbContext dbContext
         return ms.ToArray();
     }
 
-    public static string Decompress(byte[] data)
+    private static string Decompress(byte[] data)
     {
         using var input = new MemoryStream(data);
         using var gzip = new GZipStream(input, CompressionMode.Decompress);

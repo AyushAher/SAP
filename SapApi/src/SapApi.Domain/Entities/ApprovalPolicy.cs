@@ -5,6 +5,8 @@ public class ApprovalPolicy
 {
     public int Id { get; set; }
 
+    public string CompanyDb { get; set; } = string.Empty;
+
     public ApprovalDocumentType DocumentType { get; set; }
 
     public int RequesterUserId { get; set; }

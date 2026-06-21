@@ -1,4 +1,5 @@
 ﻿using SapApi.Domain.Entities;
+using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Requests;
@@ -9,8 +10,10 @@ namespace SapApi.Infrastructure.Services;
 public class StageWisePaymentService(
     SapPurchaseDownPaymentService sapPurchaseDownPaymentService,
     SapVendorPaymentService sapVendorPaymentService,
-    AppDbContext context)
+    AppDbContext context,
+    ICurrentCompanyDbAccessor companyDbAccessor)
 {
+    private string CompanyDb => companyDbAccessor.GetCompanyDbName();
     public async Task<(bool IsSuccess, string Message)> CreateStageWisePayment(
         StageWisePayment entity,
         SapPurchaseOrdersResponse? purchaseOrder,
@@ -58,6 +61,7 @@ public class StageWisePaymentService(
         var approvalRequestIds = new List<int>();
 
         var entity1 = entity;
+        entity1.CompanyDb = CompanyDb;
 
         StageWisePayment? entity2 = null;
         SapBaseResponse? sapResponse = null;
@@ -99,6 +103,7 @@ public class StageWisePaymentService(
             {
                 entity2 = new StageWisePayment
                 {
+                    CompanyDb = CompanyDb,
                     Bank = entity.Bank,
                     GrossAmount = 0,
                     DocNumber = entity.DocNumber,
@@ -369,7 +374,7 @@ public class StageWisePaymentService(
     {
         var approvalRequestIdStr = approvalRequestId.ToString();
         var records = await context.StageWisePayments
-            .Where(x => x.ApprovalRequestId != null && x.Status == StageWisePaymentStatus.PendingApproval)
+            .Where(x => x.CompanyDb == CompanyDb && x.ApprovalRequestId != null && x.Status == StageWisePaymentStatus.PendingApproval)
             .ToListAsync();
 
         foreach (var record in records)
@@ -389,7 +394,7 @@ public class StageWisePaymentService(
     {
         var approvalRequestIdStr = approvalRequestId.ToString();
         var records = await context.StageWisePayments
-            .Where(x => x.ApprovalRequestId != null && x.Status == StageWisePaymentStatus.PendingApproval)
+            .Where(x => x.CompanyDb == CompanyDb && x.ApprovalRequestId != null && x.Status == StageWisePaymentStatus.PendingApproval)
             .ToListAsync();
 
         foreach (var record in records)
@@ -402,7 +407,7 @@ public class StageWisePaymentService(
                 continue;
 
             var statuses = await context.ApprovalRequests
-                .Where(r => requestIds.Contains(r.Id))
+                .Where(r => r.CompanyDb == CompanyDb && requestIds.Contains(r.Id))
                 .Select(r => r.OverallStatus)
                 .ToListAsync();
 
@@ -445,7 +450,7 @@ public class StageWisePaymentService(
         context.StageWisePayments.Remove(record);
 
         var recordApprovalRequests = record.ApprovalRequestId?.Split(",").ToList() ?? [];
-        var approvalRequests = context.ApprovalRequests.Where(x => record.ApprovalRequestId != null
+        var approvalRequests = context.ApprovalRequests.Where(x => x.CompanyDb == CompanyDb && record.ApprovalRequestId != null
             && recordApprovalRequests.Contains(x.Id.ToString())).ToList();
         context.ApprovalRequests.RemoveRange(approvalRequests);
         await context.SaveChangesAsync();

@@ -19,8 +19,10 @@ public class StageWisePaymentsController(
     StageWisePaymentService service,
     StageWisePaymentPageService pageService,
     SapPurchaseOrderService purchaseOrderService,
-    IPdfService pdfService) : ControllerBase
+    IPdfService pdfService,
+    ICurrentCompanyDbAccessor companyDbAccessor) : ControllerBase
 {
+    private string CompanyDb => companyDbAccessor.GetCompanyDbName();
     [HttpGet("page-data/{poDocEntry:int}")]
     public async Task<IActionResult> GetPageData(int poDocEntry, CancellationToken cancellationToken)
     {
@@ -37,7 +39,7 @@ public class StageWisePaymentsController(
         var docNum = po?.DocNum ?? poDocEntry;
         var records = await db.StageWisePayments
             .AsNoTracking()
-            .Where(x => x.DocNumber == docNum)
+            .Where(x => x.CompanyDb == CompanyDb && x.DocNumber == docNum)
             .OrderByDescending(x => x.Id)
             .ToListAsync(cancellationToken);
         return Ok(ApiResponse<object>.Ok(records));
@@ -59,7 +61,7 @@ public class StageWisePaymentsController(
 
         var totalBasic = (po.DocTotal ?? 0) - (po.VatSum ?? 0);
         var existing = await db.StageWisePayments
-            .Where(x => x.DocNumber == (request.DocNumber ?? po.DocNum))
+            .Where(x => x.CompanyDb == CompanyDb && x.DocNumber == (request.DocNumber ?? po.DocNum))
             .ToListAsync(cancellationToken);
 
         var activeRecords = existing.Where(x => x.Status != StageWisePaymentStatus.Cancelled).ToList();
@@ -75,6 +77,7 @@ public class StageWisePaymentsController(
 
         var entity = new StageWisePayment
         {
+            CompanyDb = CompanyDb,
             PaymentTermsType = request.PaymentTermsType ?? request.SelectedPaymentTermsUdf.Id,
             StageDesc = request.StageDesc ?? request.SelectedPaymentTermsUdf.Desc,
             Bank = request.Bank,
@@ -97,7 +100,7 @@ public class StageWisePaymentsController(
     [HttpGet("{id:int}/pdf")]
     public async Task<IActionResult> DownloadPdf(int id, [FromQuery] int poDocEntry, CancellationToken cancellationToken)
     {
-        var record = await db.StageWisePayments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var record = await db.StageWisePayments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.CompanyDb == CompanyDb, cancellationToken);
         if (record is null)
             return NotFound(ApiResponse<object>.Fail("SYS-02", "Record not found"));
 
@@ -163,7 +166,7 @@ public class StageWisePaymentsController(
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
-        var record = await db.StageWisePayments.FindAsync([id], cancellationToken);
+        var record = await db.StageWisePayments.FirstOrDefaultAsync(x => x.Id == id && x.CompanyDb == CompanyDb, cancellationToken);
         if (record == null) return NotFound(ApiResponse<object>.Fail("SYS-02", "Record not found"));
         var (success, message) = await service.DeleteStageWisePayment(record);
         return success ? Ok(ApiResponse<object>.Ok(null, message)) : BadRequest(ApiResponse<object>.Fail("SYS-01", message));
@@ -172,7 +175,7 @@ public class StageWisePaymentsController(
     [HttpPost("{id:int}/cancel")]
     public async Task<IActionResult> Cancel(int id, CancellationToken cancellationToken)
     {
-        var record = await db.StageWisePayments.FindAsync([id], cancellationToken);
+        var record = await db.StageWisePayments.FirstOrDefaultAsync(x => x.Id == id && x.CompanyDb == CompanyDb, cancellationToken);
         if (record == null) return NotFound(ApiResponse<object>.Fail("SYS-02", "Record not found"));
         var (success, operations) = await service.CancelOutgoingPayment(record);
         return Ok(ApiResponse<object>.Ok(new { success, operations }));

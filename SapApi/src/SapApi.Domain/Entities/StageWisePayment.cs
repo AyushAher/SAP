@@ -4,6 +4,7 @@ namespace SapApi.Domain.Entities
     public class StageWisePayment
     {
         public int Id { get; set; }
+        public string CompanyDb { get; set; } = string.Empty;
         public int? PaymentTermsType { get; set; }
         public StageWisePaymentStages Stage { get; set; }
         public string? StageDesc { get; set; }

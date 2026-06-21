@@ -13,13 +13,16 @@ namespace SapApi.Infrastructure.Sap;
 public class HttpRequestHandler(
     HttpClient client,
     ICacheService cache,
-    ISapLoginService sapLoginService) : IHttpRequestHandler
+    ISapLoginService sapLoginService,
+    ICurrentCompanyDbAccessor companyDbAccessor) : IHttpRequestHandler
 {
     private static readonly ConcurrentDictionary<string, Task<object?>> InFlightGets = new();
 
+    private string BuildCacheKey(string url) => $"{companyDbAccessor.GetCompanyDbName()}::GET::{url}";
+
     public async Task<T?> GetAsync<T>(string url, bool setTimeout = true, bool checkCache = true, CancellationToken cancellationToken = default)
     {
-        var cacheKey = $"GET::{url}";
+        var cacheKey = BuildCacheKey(url);
         try
         {
             if (checkCache && url.StartsWith(Constants.SapServiceLayerUrl))
@@ -101,7 +104,7 @@ public class HttpRequestHandler(
 
         foreach (var endpoint in Constants.CachedEndpoints.Endpoints.Where(e => e.Contains(entity)))
         {
-            var cacheKey = $"GET::{endpoint}";
+            var cacheKey = BuildCacheKey(endpoint);
             var cached = await cache.GetAsync<SapCacheResponse<T>>(cacheKey, cancellationToken);
             if (cached?.Value is null) continue;
 

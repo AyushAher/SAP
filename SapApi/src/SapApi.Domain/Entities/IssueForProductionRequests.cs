@@ -3,6 +3,7 @@ namespace SapApi.Domain.Entities
     public class IssueForProductionRequests
     {
         public int Id { get; set; }
+        public string CompanyDb { get; set; } = string.Empty;
         public string RequestBody { get; set; } = string.Empty;
         public string CardCode { get; set; } = string.Empty;
         public string CardName { get; set; } = string.Empty;

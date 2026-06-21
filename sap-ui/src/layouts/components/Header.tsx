@@ -2,6 +2,7 @@ import { Menu, Bell, Search } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { toggleMobileSidebar } from '@/store/slices/uiSlice'
 import { Input } from '@/Components/ui'
+import { CompanySwitcher } from '@/layouts/components/CompanySwitcher'
 
 export function Header() {
   const dispatch = useAppDispatch()
@@ -31,6 +32,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-3">
+        <CompanySwitcher />
         <button
           type="button"
           className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100"

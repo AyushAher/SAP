@@ -6,6 +6,7 @@ using RotatingJwt;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Caching;
+using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Sap;
 using SapApi.Infrastructure.Security;
 using SapApi.Infrastructure.Services;
@@ -76,6 +77,7 @@ public static class DependencyInjection
         .AddDefaultTokenProviders();
 
         services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentCompanyDbAccessor, CurrentCompanyDbAccessor>();
         services.AddSingleton<IAesEncryptionService, AesEncryptionService>();
         services.AddSingleton<IRsaDecryptionService, RsaDecryptionService>();
         services.AddSingleton<IHmacVerificationService, HmacVerificationService>();

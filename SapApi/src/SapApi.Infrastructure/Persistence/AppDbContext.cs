@@ -74,10 +74,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .Property(x => x.FullName)
             .HasMaxLength(150);
 
+        modelBuilder.Entity<ApprovalRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.HasIndex(p => new { p.CompanyDb, p.OverallStatus });
+            entity.Property(e => e.RequestBody).HasConversion(EncryptedStringConverter.Instance);
+            entity.Property(e => e.SupportingData).HasConversion(EncryptedStringConverter.Instance);
+            entity.HasMany(r => r.UserApprovals).WithOne(u => u.ApprovalRequest).HasForeignKey(u => u.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<StageWisePayment>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.HasIndex(e => new { e.CompanyDb, e.DocNumber });
             entity.Property(e => e.UtrNo).HasConversion(EncryptedStringConverter.Instance);
             entity.Property(e => e.Bank).HasConversion(EncryptedStringConverter.Instance);
         });
@@ -86,7 +99,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
-            entity.HasIndex(p => p.DocumentType);
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.HasIndex(p => new { p.CompanyDb, p.DocumentType });
             entity.HasMany(x => x.Approvers).WithOne(a => a.Policy).HasForeignKey(a => a.ApprovalPolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(x => x.Rules).WithOne(a => a.Policy).HasForeignKey(a => a.ApprovalPolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.RequesterUser).WithMany().HasForeignKey(x => x.RequesterUserId).OnDelete(DeleteBehavior.Restrict);
@@ -99,16 +113,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.HasOne(x => x.ApproverUser).WithMany().HasForeignKey(x => x.ApproverUserId).OnDelete(DeleteBehavior.Restrict);
         });
 
-        modelBuilder.Entity<ApprovalRequest>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).ValueGeneratedOnAdd();
-            entity.HasIndex(p => p.OverallStatus);
-            entity.Property(e => e.RequestBody).HasConversion(EncryptedStringConverter.Instance);
-            entity.Property(e => e.SupportingData).HasConversion(EncryptedStringConverter.Instance);
-            entity.HasMany(r => r.UserApprovals).WithOne(u => u.ApprovalRequest).HasForeignKey(u => u.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
-        });
-
         modelBuilder.Entity<UserApproval>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -118,14 +122,27 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         });
 
         modelBuilder.Entity<ApprovalPolicyRule>(entity => entity.Property(x => x.Id).ValueGeneratedOnAdd());
-        modelBuilder.Entity<IssueForProductionRequests>(entity => entity.Property(x => x.Id).ValueGeneratedOnAdd());
-        modelBuilder.Entity<ReceiptFromProductionRequests>(entity => entity.Property(x => x.Id).ValueGeneratedOnAdd());
+
+        modelBuilder.Entity<IssueForProductionRequests>(entity =>
+        {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.Property(x => x.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => x.CompanyDb);
+        });
+
+        modelBuilder.Entity<ReceiptFromProductionRequests>(entity =>
+        {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.Property(x => x.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => x.CompanyDb);
+        });
 
         modelBuilder.Entity<CacheEntry>(entity =>
         {
             entity.HasKey(e => e.Key);
             entity.Property(e => e.Key).HasMaxLength(512);
-            entity.HasIndex(e => e.ExpiresAtUtc);
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.HasIndex(e => new { e.CompanyDb, e.ExpiresAtUtc });
         });
     }
 }

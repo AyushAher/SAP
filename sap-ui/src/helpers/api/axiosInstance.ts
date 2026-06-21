@@ -19,14 +19,16 @@ function clearStoredAuth() {
   localStorage.removeItem(STORAGE_KEYS.TOKEN)
   localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
   localStorage.removeItem(STORAGE_KEYS.USER)
+  localStorage.removeItem(STORAGE_KEYS.COMPANY_DB)
 }
 
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)
-  if (!refreshToken) return null
+  const companyDb = localStorage.getItem(STORAGE_KEYS.COMPANY_DB)
+  if (!refreshToken || !companyDb) return null
 
   try {
-    const response = await refreshTokenApi(refreshToken)
+    const response = await refreshTokenApi(refreshToken, companyDb)
     const token = getLoginToken(response)
     const nextRefreshToken = getLoginRefreshToken(response)
     if (!token) return null

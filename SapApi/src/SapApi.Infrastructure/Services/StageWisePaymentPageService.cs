@@ -14,8 +14,11 @@ public class StageWisePaymentPageService(
     SapPurchaseOrderService purchaseOrderService,
     SapVendorPaymentService vendorPaymentService,
     SapMasterDataService masterDataService,
-    ISapLoginService sapLogin)
+    ISapLoginService sapLogin,
+    ICurrentCompanyDbAccessor companyDbAccessor)
 {
+    private string CompanyDb => companyDbAccessor.GetCompanyDbName();
+
     public async Task<StageWisePaymentPageDataResponse?> LoadPageDataAsync(int poDocEntry, CancellationToken cancellationToken = default)
     {
         await sapLogin.SapLoginAsync(cancellationToken);
@@ -27,7 +30,7 @@ public class StageWisePaymentPageService(
         var docNum = po.DocNum ?? poDocEntry;
         var tableRecords = await db.StageWisePayments
             .AsNoTracking()
-            .Where(x => x.DocNumber == docNum)
+            .Where(x => x.CompanyDb == CompanyDb && x.DocNumber == docNum)
             .OrderByDescending(x => x.Id)
             .ToListAsync(cancellationToken);
 

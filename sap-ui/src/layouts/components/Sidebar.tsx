@@ -18,7 +18,7 @@ import { cn } from '@/helpers/lib/utils'
 import { APP_NAME, ROUTES, ROLES } from '@/config/constants'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { toggleSidebar, setMobileSidebarOpen } from '@/store/slices/uiSlice'
-import { logout } from '@/store/slices/authSlice'
+import { logoutUser } from '@/store/slices/authSlice'
 
 const navItems = [
   { to: ROUTES.HOME, label: 'Home', icon: Home },
@@ -52,7 +52,7 @@ export function Sidebar() {
   }
 
   const handleLogout = () => {
-    dispatch(logout())
+    dispatch(logoutUser())
     handleNavClick()
   }
 

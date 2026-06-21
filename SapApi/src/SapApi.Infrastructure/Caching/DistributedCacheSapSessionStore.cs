@@ -4,31 +4,32 @@ using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 using SapApi.Domain.Interfaces;
 using SapApi.Domain.Models;
+using SapApi.Shared.Enums;
 
 namespace SapApi.Infrastructure.Caching;
 
 public class DistributedCacheSapSessionStore(IDistributedCache cache) : ISapSessionStore
 {
-    private static string SessionKey(int userId) => $"sap:session:{userId}";
-    private static string CredentialsKey(int userId) => $"sap:cred:{userId}";
+    private static string SessionKey(int userId, SapCompanyDatabase companyDb) => $"sap:session:{userId}:{companyDb}";
+    private static string CredentialsKey(int userId, SapCompanyDatabase companyDb) => $"sap:cred:{userId}:{companyDb}";
 
-    public async Task<SapSessionInfo?> GetSessionAsync(int userId, CancellationToken cancellationToken = default) =>
-        await GetAsync<SapSessionInfo>(SessionKey(userId), cancellationToken);
+    public async Task<SapSessionInfo?> GetSessionAsync(int userId, SapCompanyDatabase companyDb, CancellationToken cancellationToken = default) =>
+        await GetAsync<SapSessionInfo>(SessionKey(userId, companyDb), cancellationToken);
 
-    public async Task<SapRenewalCredentials?> GetCredentialsAsync(int userId, CancellationToken cancellationToken = default) =>
-        await GetAsync<SapRenewalCredentials>(CredentialsKey(userId), cancellationToken);
+    public async Task<SapRenewalCredentials?> GetCredentialsAsync(int userId, SapCompanyDatabase companyDb, CancellationToken cancellationToken = default) =>
+        await GetAsync<SapRenewalCredentials>(CredentialsKey(userId, companyDb), cancellationToken);
 
-    public async Task SetSessionAsync(int userId, SapSessionInfo session, SapRenewalCredentials credentials, TimeSpan ttl, CancellationToken cancellationToken = default)
+    public async Task SetSessionAsync(int userId, SapCompanyDatabase companyDb, SapSessionInfo session, SapRenewalCredentials credentials, TimeSpan ttl, CancellationToken cancellationToken = default)
     {
         var options = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl };
-        await SetAsync(SessionKey(userId), session, options, cancellationToken);
-        await SetAsync(CredentialsKey(userId), credentials, options, cancellationToken);
+        await SetAsync(SessionKey(userId, companyDb), session, options, cancellationToken);
+        await SetAsync(CredentialsKey(userId, companyDb), credentials, options, cancellationToken);
     }
 
-    public async Task RemoveSessionAsync(int userId, CancellationToken cancellationToken = default)
+    public async Task RemoveSessionAsync(int userId, SapCompanyDatabase companyDb, CancellationToken cancellationToken = default)
     {
-        await cache.RemoveAsync(SessionKey(userId), cancellationToken);
-        await cache.RemoveAsync(CredentialsKey(userId), cancellationToken);
+        await cache.RemoveAsync(SessionKey(userId, companyDb), cancellationToken);
+        await cache.RemoveAsync(CredentialsKey(userId, companyDb), cancellationToken);
     }
 
     private async Task<T?> GetAsync<T>(string key, CancellationToken cancellationToken)

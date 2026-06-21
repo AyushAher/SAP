@@ -28,7 +28,7 @@ describe('authSlice', () => {
     })
 
     const store = configureStore({ reducer: { auth: authReducer } })
-    await store.dispatch(login({ userName: 'testuser', password: 'secret' }))
+    await store.dispatch(login({ userName: 'testuser', password: 'secret', companyDb: 'PBBPL_UAT' }))
 
     const state = store.getState().auth
     expect(state.isAuthenticated).toBe(true)
@@ -43,7 +43,7 @@ describe('authSlice', () => {
     vi.mocked(authApi.loginApi).mockRejectedValue(new Error('Invalid credentials'))
 
     const store = configureStore({ reducer: { auth: authReducer } })
-    await store.dispatch(login({ userName: 'baduser', password: 'x' }))
+    await store.dispatch(login({ userName: 'baduser', password: 'x', companyDb: 'PBBPL_UAT' }))
 
     expect(store.getState().auth.isAuthenticated).toBe(false)
     expect(store.getState().auth.error).toBe('Invalid credentials')
@@ -59,6 +59,7 @@ describe('authSlice', () => {
         auth: {
           user: { id: '1', email: 'a@b.com', name: 'A', role: 'Standard' },
           token: 't',
+          companyDb: 'PBBPL_UAT',
           isAuthenticated: true,
           isLoading: false,
           error: null,

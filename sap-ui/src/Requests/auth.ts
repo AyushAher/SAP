@@ -1,5 +1,6 @@
 import { apiPost, apiGet } from '@/helpers/api/client'
 import { rsaEncrypt } from '@/helpers/lib/rsa'
+import type { SapCompanyDatabase } from '@/config/companyDb'
 
 export interface AuthClaim {
   type?: string
@@ -25,17 +26,17 @@ export function getLoginRefreshToken(response: LoginApiResponse): string | undef
   return response.RefreshToken ?? response.refreshToken
 }
 
-export async function refreshTokenApi(refreshToken: string) {
-  return apiPost<LoginApiResponse>('/auth/refresh', { refreshToken })
+export async function refreshTokenApi(refreshToken: string, companyDb: string) {
+  return apiPost<LoginApiResponse>('/auth/refresh', { refreshToken, companyDb })
 }
 
 export function getLoginClaims(response: LoginApiResponse): AuthClaim[] {
   return response.Claims ?? response.claims ?? []
 }
 
-export async function loginApi(userName: string, password: string) {
+export async function loginApi(userName: string, password: string, companyDb: string) {
   const encrypted = rsaEncrypt(password)
-  return apiPost<LoginApiResponse>('/auth/login', { userName, password: encrypted })
+  return apiPost<LoginApiResponse>('/auth/login', { userName, password: encrypted, companyDb })
 }
 
 export async function registerApi(payload: {
@@ -43,6 +44,7 @@ export async function registerApi(payload: {
   userName: string
   email: string
   password: string
+  companyDb: string
 }) {
   const encrypted = rsaEncrypt(payload.password)
   return apiPost('/auth/register', {
@@ -50,9 +52,23 @@ export async function registerApi(payload: {
     userName: payload.userName,
     email: payload.email,
     password: encrypted,
+    companyDb: payload.companyDb,
   })
+}
+
+export async function switchCompanyApi(companyDb: SapCompanyDatabase, password: string) {
+  const encrypted = rsaEncrypt(password)
+  return apiPost<LoginApiResponse>('/auth/switch-company', { companyDb, password: encrypted })
+}
+
+export async function logoutApi() {
+  return apiPost('/auth/logout', {})
 }
 
 export async function getPublicKey() {
   return apiGet<{ publicKey: string }>('/auth/public-key')
+}
+
+export async function getCompanyDatabasesApi() {
+  return apiGet<string[]>('/auth/company-databases')
 }

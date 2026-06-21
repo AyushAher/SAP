@@ -11,6 +11,8 @@ namespace SapApi.Tests.Auth;
 [TestFixture]
 public class AuthIntegrationTests
 {
+    private const string TestCompanyDb = "PBBPL_UAT";
+
     private WebApplicationFactory<Program> _factory = null!;
     private HttpClient _client = null!;
 
@@ -41,6 +43,7 @@ public class AuthIntegrationTests
             userName,
             email,
             password = "Test123!",
+            companyDb = TestCompanyDb,
         });
 
         registerResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -52,6 +55,7 @@ public class AuthIntegrationTests
         {
             userName,
             password = "Test123!",
+            companyDb = TestCompanyDb,
         });
 
         loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -59,6 +63,7 @@ public class AuthIntegrationTests
         loginBody!.Success.Should().BeTrue();
         loginBody.Data!.Token.Should().NotBeNullOrWhiteSpace();
         loginBody.Data.Claims.Should().Contain(c => c.Type.Contains("role", StringComparison.OrdinalIgnoreCase));
+        loginBody.Data.Claims.Should().Contain(c => c.Type == "CompanyDb" && c.Value == TestCompanyDb);
     }
 
     [Test]
@@ -72,12 +77,14 @@ public class AuthIntegrationTests
             userName,
             email,
             password = "Test123!",
+            companyDb = TestCompanyDb,
         });
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new
         {
             userName,
             password = "WrongPassword1!",
+            companyDb = TestCompanyDb,
         });
 
         loginResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -96,6 +103,7 @@ public class AuthIntegrationTests
             userName,
             email,
             password = "Test123!",
+            companyDb = TestCompanyDb,
         };
 
         (await _client.PostAsJsonAsync("/api/auth/register", payload)).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -110,5 +118,15 @@ public class AuthIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.Content.ReadAsStringAsync();
         json.Should().Contain("publicKey");
+    }
+
+    [Test]
+    public async Task CompanyDatabases_ReturnsEnumValues()
+    {
+        var response = await _client.GetAsync("/api/auth/company-databases");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.Content.ReadAsStringAsync();
+        json.Should().Contain("PBBPL_LIVE");
+        json.Should().Contain("PBBPL_UAT");
     }
 }

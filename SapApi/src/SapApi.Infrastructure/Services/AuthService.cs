@@ -7,6 +7,7 @@ using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Shared;
 using SapApi.Shared.Configuration;
+using SapApi.Shared.Enums;
 using SapApi.Shared.Models;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Requests.Account;
@@ -45,7 +46,7 @@ public class AuthService(
         {
             try
             {
-                await sapLoginService.LoginWithUserCredentialsAsync(user.Id, request.UserName, password, cancellationToken);
+                await sapLoginService.LoginWithUserCredentialsAsync(user.Id, request.UserName, password, request.CompanyDb, cancellationToken);
             }
             catch (ApiErrorException ex)
             {
@@ -54,16 +55,60 @@ public class AuthService(
         }
 
         var roles = await userManager.GetRolesAsync(user);
-        var claims = BuildUserClaims(user, roles);
+        var claims = BuildUserClaims(user, roles, request.CompanyDb);
         var tokenResponse = await jwtTokenService.GenerateAccessToken(user.Id.ToString(), claims, needRefreshToken: true);
 
-        return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles));
+        return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles, request.CompanyDb));
+    }
+
+    public async Task<ApiResponse<LoginResponse>> SwitchCompanyAsync(SwitchCompanyRequest request, int userId, string userName, CancellationToken cancellationToken = default)
+    {
+        string password;
+        try
+        {
+            password = DecryptIfNeeded(request.Password);
+        }
+        catch (ApiErrorException ex)
+        {
+            return ApiResponse<LoginResponse>.Fail(ex.ErrorCode, ex.Message);
+        }
+
+        var user = await userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
+
+        var passwordValid = await userManager.CheckPasswordAsync(user, password);
+        if (!passwordValid)
+            return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
+
+        await sapLoginService.LogoutAsync(cancellationToken);
+
+        if (!appConfig.Value.SkipSapLoginOnUserAuth)
+        {
+            try
+            {
+                await sapLoginService.LoginWithUserCredentialsAsync(user.Id, userName, password, request.CompanyDb, cancellationToken);
+            }
+            catch (ApiErrorException ex)
+            {
+                return ApiResponse<LoginResponse>.Fail(ex.ErrorCode, ex.Message);
+            }
+        }
+
+        var roles = await userManager.GetRolesAsync(user);
+        var claims = BuildUserClaims(user, roles, request.CompanyDb);
+        var tokenResponse = await jwtTokenService.GenerateAccessToken(user.Id.ToString(), claims, needRefreshToken: true);
+
+        return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles, request.CompanyDb));
     }
 
     public async Task<ApiResponse<LoginResponse>> RefreshAsync(RefreshTokenRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
             return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Refresh token is required");
+
+        if (request.CompanyDb is null)
+            return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.NullValue, "Company database is required for token refresh");
 
         var userId = await jwtTokenService.ResolveUserIdFromRefreshTokenAsync(request.RefreshToken);
         if (userId is null)
@@ -74,12 +119,12 @@ public class AuthService(
             return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid refresh token");
 
         var roles = await userManager.GetRolesAsync(user);
-        var claims = BuildUserClaims(user, roles);
+        var claims = BuildUserClaims(user, roles, request.CompanyDb.Value);
 
         try
         {
             var tokenResponse = await jwtTokenService.GenerateTokenByRefreshToken(request.RefreshToken, claims);
-            return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles));
+            return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles, request.CompanyDb.Value));
         }
         catch (SecurityTokenException ex)
         {
@@ -109,7 +154,7 @@ public class AuthService(
         {
             try
             {
-                await sapLoginService.ValidateCredentialsAsync(request.UserName!, password, cancellationToken);
+                await sapLoginService.ValidateCredentialsAsync(request.UserName!, password, request.CompanyDb, cancellationToken);
             }
             catch (ApiErrorException ex)
             {
@@ -150,26 +195,28 @@ public class AuthService(
         }
     }
 
-    private static List<Claim> BuildUserClaims(ApplicationUser user, IList<string> roles)
+    private static List<Claim> BuildUserClaims(ApplicationUser user, IList<string> roles, SapCompanyDatabase companyDb)
     {
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new(ClaimTypes.Name, user.UserName ?? string.Empty),
             new(ClaimTypes.Email, user.Email ?? string.Empty),
-            new("FullName", user.FullName ?? string.Empty)
+            new("FullName", user.FullName ?? string.Empty),
+            new(SapClaimTypes.CompanyDb, companyDb.ToString())
         };
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
         return claims;
     }
 
-    private static LoginResponse BuildLoginResponse(TokenResponse tokenResponse, ApplicationUser user, IList<string> roles)
+    private static LoginResponse BuildLoginResponse(TokenResponse tokenResponse, ApplicationUser user, IList<string> roles, SapCompanyDatabase companyDb)
     {
         var claims = new List<ClaimsDto>
         {
             new() { Type = ClaimTypes.NameIdentifier, Value = user.Id.ToString() },
             new() { Type = ClaimTypes.Email, Value = user.Email ?? string.Empty },
-            new() { Type = "FullName", Value = user.FullName ?? string.Empty }
+            new() { Type = "FullName", Value = user.FullName ?? string.Empty },
+            new() { Type = SapClaimTypes.CompanyDb, Value = companyDb.ToString() }
         };
         claims.AddRange(roles.Select(r => new ClaimsDto { Type = ClaimTypes.Role, Value = r }));
 
