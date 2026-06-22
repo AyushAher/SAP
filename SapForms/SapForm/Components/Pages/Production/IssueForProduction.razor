@@ -183,6 +183,12 @@ SapInventoryGenExitRequestOrderLines?.ProductionOrder.Project)?.ProjectName ?? "
     {
         SapInventoryGenExitRequestOrderLines?.ProductionOrderLinesEntryNumber.AddRange(selectedLines);
 
+        if (SapInventoryGenExitRequestOrderLines?.ProductionOrderLinesEntryNumber.Any(x => x.IssuedQuantity > x.PlannedQuantity) == true)
+        {
+            Snackbar.Add("Issued quantity cannot exceed planned quantity for any line item.", Severity.Error);
+            return;
+        }
+
         var lines = SapInventoryGenExitRequestOrderLines?.ProductionOrderLinesEntryNumber.Select(x => new
 SapInventoryGenExitRequestOrderLinesRequest
         {
@@ -192,6 +198,8 @@ SapInventoryGenExitRequestOrderLinesRequest
             Quantity = x.IssuedQuantity,
             Warehouse = x.Warehouse ?? ""
         }).ToList();
+
+
 
         inventoryGenRequest = new SapInventoryGenExitRequestOrderRequest
         {
