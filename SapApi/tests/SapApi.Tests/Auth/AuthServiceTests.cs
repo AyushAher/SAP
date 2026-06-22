@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -68,6 +69,10 @@ public class AuthServiceTests
         services.AddSingleton(rsa.Object);
         services.AddScoped<ISapLoginService, NoOpSapLoginService>();
         services.AddScoped<AuthService>();
+
+        var httpContextAccessor = new HttpContextAccessor();
+        services.AddSingleton<IHttpContextAccessor>(httpContextAccessor);
+        services.AddSingleton(httpContextAccessor);
 
         _provider = services.BuildServiceProvider();
 
@@ -321,5 +326,95 @@ public class AuthServiceTests
         (await userManager.FindByNameAsync(userName)).Should().NotBeNull();
         sapLogin.Verify(s => s.ValidateCredentialsAsync(userName, "Test123!", SapCompanyDatabase.PBBPL_UAT, It.IsAny<CancellationToken>()), Times.Once);
         sapLogin.Verify(s => s.LoginWithUserCredentialsAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SapCompanyDatabase>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task SwitchCompanyAsync_ValidPassword_ReturnsNewTokenAndClearsBranch()
+    {
+        using var scope = _provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<AuthService>();
+
+        var email = $"switch_{Guid.NewGuid():N}@test.com";
+        var userName = $"switchuser_{Guid.NewGuid():N}";
+        await sut.RegisterAsync(new RegisterUserRequest
+        {
+            FullName = "Switch User",
+            UserName = userName,
+            Email = email,
+            Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
+        });
+
+        var login = await sut.LoginAsync(new LoginRequest { UserName = userName, Password = "Test123!", CompanyDb = SapCompanyDatabase.PBBPL_UAT });
+        login.Success.Should().BeTrue();
+
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.FindByNameAsync(userName);
+        var httpContextAccessor = scope.ServiceProvider.GetRequiredService<HttpContextAccessor>();
+        httpContextAccessor.HttpContext = new DefaultHttpContext
+        {
+            User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [
+                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, user!.Id.ToString()),
+                new System.Security.Claims.Claim(SapApi.Shared.SapClaimTypes.CompanyDb, SapCompanyDatabase.PBBPL_UAT.ToString()),
+            ])),
+        };
+
+        var switched = await sut.SwitchCompanyAsync(
+            new SwitchCompanyRequest { CompanyDb = SapCompanyDatabase.PBBPL_LIVE, Password = "Test123!" },
+            user.Id);
+
+        switched.Success.Should().BeTrue();
+        switched.Data!.Token.Should().NotBeNullOrWhiteSpace();
+        switched.Data.Claims.Should().Contain(c => c.Type == SapApi.Shared.SapClaimTypes.CompanyDb && c.Value == SapCompanyDatabase.PBBPL_LIVE.ToString());
+        switched.Data.Claims.Should().NotContain(c => c.Type == SapApi.Shared.SapClaimTypes.Branch);
+    }
+
+    [Test]
+    public async Task SwitchBranchAsync_UpdatesBranchClaimInToken()
+    {
+        using var scope = _provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<AuthService>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var email = $"branch_{Guid.NewGuid():N}@test.com";
+        var userName = $"branchuser_{Guid.NewGuid():N}";
+        await sut.RegisterAsync(new RegisterUserRequest
+        {
+            FullName = "Branch User",
+            UserName = userName,
+            Email = email,
+            Password = "Test123!",
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT,
+        });
+
+        var user = await userManager.FindByNameAsync(userName);
+        var httpContextAccessor = scope.ServiceProvider.GetRequiredService<HttpContextAccessor>();
+        httpContextAccessor.HttpContext = new DefaultHttpContext
+        {
+            User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [
+                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, user!.Id.ToString()),
+                new System.Security.Claims.Claim(SapApi.Shared.SapClaimTypes.CompanyDb, SapCompanyDatabase.PBBPL_UAT.ToString()),
+            ])),
+        };
+
+        var switched = await sut.SwitchBranchAsync(new SwitchBranchRequest { BranchId = 3 }, user.Id);
+        switched.Success.Should().BeTrue();
+        switched.Data!.Claims.Should().Contain(c => c.Type == SapApi.Shared.SapClaimTypes.Branch && c.Value == "3");
+
+        httpContextAccessor.HttpContext = new DefaultHttpContext
+        {
+            User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [
+                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new System.Security.Claims.Claim(SapApi.Shared.SapClaimTypes.CompanyDb, SapCompanyDatabase.PBBPL_UAT.ToString()),
+                new System.Security.Claims.Claim(SapApi.Shared.SapClaimTypes.Branch, "3"),
+            ])),
+        };
+
+        var cleared = await sut.SwitchBranchAsync(new SwitchBranchRequest { BranchId = null }, user.Id);
+        cleared.Success.Should().BeTrue();
+        cleared.Data!.Claims.Should().NotContain(c => c.Type == SapApi.Shared.SapClaimTypes.Branch);
     }
 }

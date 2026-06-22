@@ -6,4 +6,5 @@ public class RefreshTokenRequest
 {
     public string RefreshToken { get; set; } = string.Empty;
     public SapCompanyDatabase? CompanyDb { get; set; }
+    public int? BranchId { get; set; }
 }

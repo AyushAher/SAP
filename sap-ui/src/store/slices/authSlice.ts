@@ -7,6 +7,7 @@ import {
   getLoginToken,
   loginApi,
   logoutApi,
+  switchBranchApi,
   switchCompanyApi,
   type AuthClaim,
 } from '@/Requests/auth'
@@ -16,6 +17,7 @@ interface AuthSliceState {
   user: User | null
   token: string | null
   companyDb: string | null
+  branchId: number | null
   isAuthenticated: boolean
   isLoading: boolean
   error: string | null
@@ -40,6 +42,8 @@ function claimsToUser(claims: AuthClaim[], fallbackUserName: string): User {
     .filter(Boolean)
 
   const companyDb = claimValue(claims, 'CompanyDb')
+  const branchClaim = claimValue(claims, 'Branch')
+  const branchId = branchClaim ? Number(branchClaim) : null
 
   return {
     id: claimValue(
@@ -57,16 +61,28 @@ function claimsToUser(claims: AuthClaim[], fallbackUserName: string): User {
     role: roles[0] ?? 'Standard',
     roles,
     companyDb: companyDb || undefined,
+    branchId: Number.isFinite(branchId) ? branchId : null,
   }
 }
 
-function persistAuth(user: User, token: string, refreshToken: string | undefined, companyDb: string) {
+function persistAuth(
+  user: User,
+  token: string,
+  refreshToken: string | undefined,
+  companyDb: string,
+  branchId: number | null,
+) {
   localStorage.setItem(STORAGE_KEYS.TOKEN, token)
   if (refreshToken) {
     localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken)
   }
   localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user))
   localStorage.setItem(STORAGE_KEYS.COMPANY_DB, companyDb)
+  if (branchId === null) {
+    localStorage.removeItem(STORAGE_KEYS.BRANCH_ID)
+  } else {
+    localStorage.setItem(STORAGE_KEYS.BRANCH_ID, String(branchId))
+  }
 }
 
 function clearStoredAuth() {
@@ -74,12 +90,15 @@ function clearStoredAuth() {
   localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
   localStorage.removeItem(STORAGE_KEYS.USER)
   localStorage.removeItem(STORAGE_KEYS.COMPANY_DB)
+  localStorage.removeItem(STORAGE_KEYS.BRANCH_ID)
 }
 
-function loadStoredAuth(): Pick<AuthSliceState, 'user' | 'token' | 'companyDb' | 'isAuthenticated'> {
+function loadStoredAuth(): Pick<AuthSliceState, 'user' | 'token' | 'companyDb' | 'branchId' | 'isAuthenticated'> {
   const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
   const userRaw = localStorage.getItem(STORAGE_KEYS.USER)
   const companyDb = localStorage.getItem(STORAGE_KEYS.COMPANY_DB)
+  const branchRaw = localStorage.getItem(STORAGE_KEYS.BRANCH_ID)
+  const branchId = branchRaw ? Number(branchRaw) : null
   if (token && userRaw) {
     try {
       const user = JSON.parse(userRaw) as User
@@ -87,13 +106,26 @@ function loadStoredAuth(): Pick<AuthSliceState, 'user' | 'token' | 'companyDb' |
         user,
         token,
         companyDb: companyDb ?? user.companyDb ?? DEFAULT_COMPANY_DB,
+        branchId: Number.isFinite(branchId) ? branchId : user.branchId ?? null,
         isAuthenticated: true,
       }
     } catch {
       clearStoredAuth()
     }
   }
-  return { user: null, token: null, companyDb: null, isAuthenticated: false }
+  return { user: null, token: null, companyDb: null, branchId: null, isAuthenticated: false }
+}
+
+function applyAuthSession(
+  state: AuthSliceState,
+  payload: { user: User; token: string; refreshToken?: string; companyDb: string; branchId: number | null },
+) {
+  state.user = payload.user
+  state.token = payload.token
+  state.companyDb = payload.companyDb
+  state.branchId = payload.branchId
+  state.isAuthenticated = true
+  persistAuth(payload.user, payload.token, payload.refreshToken, payload.companyDb, payload.branchId)
 }
 
 export const login = createAsyncThunk(
@@ -105,7 +137,7 @@ export const login = createAsyncThunk(
       const refreshToken = getLoginRefreshToken(response)
       if (!token) return rejectWithValue('Invalid credentials')
       const user = claimsToUser(getLoginClaims(response), credentials.userName)
-      return { user, token, refreshToken, companyDb: credentials.companyDb }
+      return { user, token, refreshToken, companyDb: credentials.companyDb, branchId: null as number | null }
     } catch (err) {
       return rejectWithValue(err instanceof Error ? err.message : 'Login failed')
     }
@@ -121,9 +153,26 @@ export const switchCompany = createAsyncThunk(
       const refreshToken = getLoginRefreshToken(response)
       if (!token) return rejectWithValue('Unable to switch company database')
       const user = claimsToUser(getLoginClaims(response), '')
-      return { user, token, refreshToken, companyDb }
+      return { user, token, refreshToken, companyDb, branchId: null as number | null }
     } catch (err) {
       return rejectWithValue(err instanceof Error ? err.message : 'Company switch failed')
+    }
+  },
+)
+
+export const switchBranch = createAsyncThunk(
+  'auth/switchBranch',
+  async (branchId: number | null, { rejectWithValue, getState }) => {
+    try {
+      const response = await switchBranchApi(branchId)
+      const token = getLoginToken(response)
+      const refreshToken = getLoginRefreshToken(response)
+      if (!token) return rejectWithValue('Unable to switch branch')
+      const user = claimsToUser(getLoginClaims(response), '')
+      const companyDb = (getState() as { auth: AuthSliceState }).auth.companyDb ?? DEFAULT_COMPANY_DB
+      return { user, token, refreshToken, companyDb, branchId }
+    } catch (err) {
+      return rejectWithValue(err instanceof Error ? err.message : 'Branch switch failed')
     }
   },
 )
@@ -152,6 +201,7 @@ const authSlice = createSlice({
       state.user = null
       state.token = null
       state.companyDb = null
+      state.branchId = null
       state.isAuthenticated = false
       state.error = null
       clearStoredAuth()
@@ -171,16 +221,7 @@ const authSlice = createSlice({
       })
       .addCase(login.fulfilled, (state, action) => {
         state.isLoading = false
-        state.user = action.payload.user
-        state.token = action.payload.token
-        state.companyDb = action.payload.companyDb
-        state.isAuthenticated = true
-        persistAuth(
-          action.payload.user,
-          action.payload.token,
-          action.payload.refreshToken,
-          action.payload.companyDb,
-        )
+        applyAuthSession(state, action.payload)
       })
       .addCase(login.rejected, (state, action) => {
         state.isLoading = false
@@ -192,18 +233,21 @@ const authSlice = createSlice({
       })
       .addCase(switchCompany.fulfilled, (state, action) => {
         state.isLoading = false
-        state.user = action.payload.user
-        state.token = action.payload.token
-        state.companyDb = action.payload.companyDb
-        state.isAuthenticated = true
-        persistAuth(
-          action.payload.user,
-          action.payload.token,
-          action.payload.refreshToken,
-          action.payload.companyDb,
-        )
+        applyAuthSession(state, action.payload)
       })
       .addCase(switchCompany.rejected, (state, action) => {
+        state.isLoading = false
+        state.error = action.payload as string
+      })
+      .addCase(switchBranch.pending, (state) => {
+        state.isLoading = true
+        state.error = null
+      })
+      .addCase(switchBranch.fulfilled, (state, action) => {
+        state.isLoading = false
+        applyAuthSession(state, action.payload)
+      })
+      .addCase(switchBranch.rejected, (state, action) => {
         state.isLoading = false
         state.error = action.payload as string
       })
@@ -211,6 +255,7 @@ const authSlice = createSlice({
         state.user = null
         state.token = null
         state.companyDb = null
+        state.branchId = null
         state.isAuthenticated = false
         state.error = null
         clearStoredAuth()

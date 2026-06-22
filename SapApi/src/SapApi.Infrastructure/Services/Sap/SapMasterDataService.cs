@@ -3,6 +3,7 @@ using SapApi.Infrastructure.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
+using SapApi.Shared.Responses.Account;
 using SapApi.Shared.Responses.Sap;
 using SapApi.Shared.Sap;
 
@@ -51,6 +52,29 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
             request,
             r => r?.Value,
             cancellationToken);
+
+    public async Task<List<BranchOptionResponse>> ListBranchOptionsAsync(CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+        var queries = new SapQueries
+        {
+            Select = "BPLID,BPLName",
+            Top = "500",
+        };
+        var response = await http.GetAsync<SapGetAllBranchesResponse>(
+            Constants.SapApiUrls.BusinessPlacesCollection + queries.GetQueryValue(),
+            checkCache: true,
+            cancellationToken: cancellationToken);
+
+        return response?.Value?
+            .Select(branch => new BranchOptionResponse
+            {
+                Id = branch.BplId,
+                Name = string.IsNullOrWhiteSpace(branch.BplName) ? $"Branch {branch.BplId}" : branch.BplName,
+            })
+            .OrderBy(branch => branch.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+    }
 
     public Task<PaginationResponse<List<SapBusinessPartner>>> SearchVendorsAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>
         SearchAsync<SapBusinessPartnerResponse, SapBusinessPartner>(

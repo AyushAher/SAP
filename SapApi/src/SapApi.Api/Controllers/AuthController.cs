@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Services;
+using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests.Account;
 
@@ -12,6 +14,7 @@ namespace SapApi.Api.Controllers;
 [Route("api/auth")]
 public class AuthController(
     AuthService authService,
+    SapMasterDataService masterDataService,
     IRsaDecryptionService rsa,
     IHttpContextAccessor httpContext) : ControllerBase
 {
@@ -55,11 +58,28 @@ public class AuthController(
     {
         var userId = httpContext.GetUserIdAsync()
             ?? throw new UnauthorizedAccessException();
-        var userName = httpContext.HttpContext?.User?.Identity?.Name
+
+        var result = await authService.SwitchCompanyAsync(request, userId, cancellationToken);
+        return result.Success ? Ok(result) : Unauthorized(result);
+    }
+
+    [Authorize]
+    [HttpGet("branches")]
+    public async Task<IActionResult> GetBranches(CancellationToken cancellationToken)
+    {
+        var branches = await masterDataService.ListBranchOptionsAsync(cancellationToken);
+        return Ok(ApiResponse<object>.Ok(branches));
+    }
+
+    [Authorize]
+    [HttpPost("switch-branch")]
+    public async Task<IActionResult> SwitchBranch([FromBody] SwitchBranchRequest request, CancellationToken cancellationToken)
+    {
+        var userId = httpContext.GetUserIdAsync()
             ?? throw new UnauthorizedAccessException();
 
-        var result = await authService.SwitchCompanyAsync(request, userId, userName, cancellationToken);
-        return result.Success ? Ok(result) : Unauthorized(result);
+        var result = await authService.SwitchBranchAsync(request, userId, cancellationToken);
+        return result.Success ? Ok(result) : BadRequest(result);
     }
 
     [Authorize]

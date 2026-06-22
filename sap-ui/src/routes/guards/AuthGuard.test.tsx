@@ -1,3 +1,4 @@
+import React from 'react'
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -14,6 +15,8 @@ function renderGuard(isAuthenticated: boolean, isLoading = false) {
       auth: {
         user: isAuthenticated ? { id: '1', email: 'u@test.com', name: 'User', role: 'Standard' } : null,
         token: isAuthenticated ? 'token' : null,
+        companyDb: isAuthenticated ? 'PBBPL_UAT' : null,
+        branchId: null,
         isAuthenticated,
         isLoading,
         error: null,

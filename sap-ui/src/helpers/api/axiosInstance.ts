@@ -15,11 +15,28 @@ type RetriableRequest = InternalAxiosRequestConfig & { _retry?: boolean }
 
 let refreshInFlight: Promise<string | null> | null = null
 
+function isCredentialAuthRoute(url?: string): boolean {
+  if (!url) return false
+  return url.includes('/auth/login')
+    || url.includes('/auth/refresh')
+    || url.includes('/auth/register')
+    || url.includes('/auth/switch-company')
+    || url.includes('/auth/switch-branch')
+}
+
+function readStoredBranchId(): number | null {
+  const raw = localStorage.getItem(STORAGE_KEYS.BRANCH_ID)
+  if (!raw) return null
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function clearStoredAuth() {
   localStorage.removeItem(STORAGE_KEYS.TOKEN)
   localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
   localStorage.removeItem(STORAGE_KEYS.USER)
   localStorage.removeItem(STORAGE_KEYS.COMPANY_DB)
+  localStorage.removeItem(STORAGE_KEYS.BRANCH_ID)
 }
 
 async function refreshAccessToken(): Promise<string | null> {
@@ -28,7 +45,7 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshToken || !companyDb) return null
 
   try {
-    const response = await refreshTokenApi(refreshToken, companyDb)
+    const response = await refreshTokenApi(refreshToken, companyDb, readStoredBranchId())
     const token = getLoginToken(response)
     const nextRefreshToken = getLoginRefreshToken(response)
     if (!token) return null
@@ -70,9 +87,7 @@ axiosInstance.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as RetriableRequest | undefined
-    const isAuthRoute = originalRequest?.url?.includes('/auth/login')
-      || originalRequest?.url?.includes('/auth/refresh')
-      || originalRequest?.url?.includes('/auth/register')
+    const isAuthRoute = isCredentialAuthRoute(originalRequest?.url)
 
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
       originalRequest._retry = true
@@ -87,7 +102,7 @@ axiosInstance.interceptors.response.use(
       }
     }
 
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !isAuthRoute) {
       clearStoredAuth()
       if (!window.location.pathname.startsWith('/auth')) {
         window.location.href = '/auth/login'

@@ -5,6 +5,7 @@ export const STORAGE_KEYS = {
   REFRESH_TOKEN: 'sap_refresh_token',
   USER: 'sap_user',
   COMPANY_DB: 'sap_company_db',
+  BRANCH_ID: 'sap_branch_id',
 } as const
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api'

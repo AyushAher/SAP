@@ -26,8 +26,8 @@ export function getLoginRefreshToken(response: LoginApiResponse): string | undef
   return response.RefreshToken ?? response.refreshToken
 }
 
-export async function refreshTokenApi(refreshToken: string, companyDb: string) {
-  return apiPost<LoginApiResponse>('/auth/refresh', { refreshToken, companyDb })
+export async function refreshTokenApi(refreshToken: string, companyDb: string, branchId?: number | null) {
+  return apiPost<LoginApiResponse>('/auth/refresh', { refreshToken, companyDb, branchId: branchId ?? null })
 }
 
 export function getLoginClaims(response: LoginApiResponse): AuthClaim[] {
@@ -59,6 +59,19 @@ export async function registerApi(payload: {
 export async function switchCompanyApi(companyDb: SapCompanyDatabase, password: string) {
   const encrypted = rsaEncrypt(password)
   return apiPost<LoginApiResponse>('/auth/switch-company', { companyDb, password: encrypted })
+}
+
+export interface BranchOption {
+  id: number
+  name: string
+}
+
+export async function getBranchesApi() {
+  return apiGet<BranchOption[]>('/auth/branches')
+}
+
+export async function switchBranchApi(branchId: number | null) {
+  return apiPost<LoginApiResponse>('/auth/switch-branch', { branchId })
 }
 
 export async function logoutApi() {

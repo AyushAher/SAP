@@ -5,6 +5,7 @@ export interface User {
   role: string
   roles?: string[]
   companyDb?: string
+  branchId?: number | null
 }
 
 export interface AuthState {
@@ -13,6 +14,7 @@ export interface AuthState {
   isAuthenticated: boolean
   isLoading: boolean
   companyDb: string | null
+  branchId: number | null
 }
 
 export interface SelectOption {

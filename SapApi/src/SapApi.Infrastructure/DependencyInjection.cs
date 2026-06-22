@@ -78,6 +78,7 @@ public static class DependencyInjection
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentCompanyDbAccessor, CurrentCompanyDbAccessor>();
+        services.AddScoped<ICurrentBranchAccessor, CurrentBranchAccessor>();
         services.AddSingleton<IAesEncryptionService, AesEncryptionService>();
         services.AddSingleton<IRsaDecryptionService, RsaDecryptionService>();
         services.AddSingleton<IHmacVerificationService, HmacVerificationService>();

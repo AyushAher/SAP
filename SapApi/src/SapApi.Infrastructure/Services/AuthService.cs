@@ -1,10 +1,12 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using RotatingJwt;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
+using SapApi.Infrastructure.Identity;
 using SapApi.Shared;
 using SapApi.Shared.Configuration;
 using SapApi.Shared.Enums;
@@ -21,6 +23,7 @@ public class AuthService(
     IRsaDecryptionService rsa,
     ISapLoginService sapLoginService,
     IJwtTokenService jwtTokenService,
+    IHttpContextAccessor httpContextAccessor,
     IOptions<ApplicationConfiguration> appConfig)
 {
     public async Task<ApiResponse<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
@@ -61,7 +64,7 @@ public class AuthService(
         return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles, request.CompanyDb));
     }
 
-    public async Task<ApiResponse<LoginResponse>> SwitchCompanyAsync(SwitchCompanyRequest request, int userId, string userName, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<LoginResponse>> SwitchCompanyAsync(SwitchCompanyRequest request, int userId, CancellationToken cancellationToken = default)
     {
         string password;
         try
@@ -81,7 +84,10 @@ public class AuthService(
         if (!passwordValid)
             return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
 
-        await sapLoginService.LogoutAsync(cancellationToken);
+        var userName = user.UserName ?? string.Empty;
+        var previousCompanyDb = httpContextAccessor.GetCompanyDb();
+        if (previousCompanyDb.HasValue)
+            await sapLoginService.LogoutAsync(userId, previousCompanyDb.Value, cancellationToken);
 
         if (!appConfig.Value.SkipSapLoginOnUserAuth)
         {
@@ -102,6 +108,23 @@ public class AuthService(
         return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles, request.CompanyDb));
     }
 
+    public async Task<ApiResponse<LoginResponse>> SwitchBranchAsync(SwitchBranchRequest request, int userId, CancellationToken cancellationToken = default)
+    {
+        var user = await userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
+
+        var companyDb = httpContextAccessor.GetCompanyDb();
+        if (companyDb is null)
+            return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.NullValue, "Company database context is not available.");
+
+        var roles = await userManager.GetRolesAsync(user);
+        var claims = BuildUserClaims(user, roles, companyDb.Value, request.BranchId);
+        var tokenResponse = await jwtTokenService.GenerateAccessToken(user.Id.ToString(), claims, needRefreshToken: true);
+
+        return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles, companyDb.Value, request.BranchId));
+    }
+
     public async Task<ApiResponse<LoginResponse>> RefreshAsync(RefreshTokenRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
@@ -119,12 +142,12 @@ public class AuthService(
             return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid refresh token");
 
         var roles = await userManager.GetRolesAsync(user);
-        var claims = BuildUserClaims(user, roles, request.CompanyDb.Value);
+        var claims = BuildUserClaims(user, roles, request.CompanyDb.Value, request.BranchId);
 
         try
         {
             var tokenResponse = await jwtTokenService.GenerateTokenByRefreshToken(request.RefreshToken, claims);
-            return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles, request.CompanyDb.Value));
+            return ApiResponse<LoginResponse>.Ok(BuildLoginResponse(tokenResponse, user, roles, request.CompanyDb.Value, request.BranchId));
         }
         catch (SecurityTokenException ex)
         {
@@ -195,7 +218,7 @@ public class AuthService(
         }
     }
 
-    private static List<Claim> BuildUserClaims(ApplicationUser user, IList<string> roles, SapCompanyDatabase companyDb)
+    private static List<Claim> BuildUserClaims(ApplicationUser user, IList<string> roles, SapCompanyDatabase companyDb, int? branchId = null)
     {
         var claims = new List<Claim>
         {
@@ -205,11 +228,20 @@ public class AuthService(
             new("FullName", user.FullName ?? string.Empty),
             new(SapClaimTypes.CompanyDb, companyDb.ToString())
         };
+
+        if (branchId.HasValue)
+            claims.Add(new Claim(SapClaimTypes.Branch, branchId.Value.ToString()));
+
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
         return claims;
     }
 
-    private static LoginResponse BuildLoginResponse(TokenResponse tokenResponse, ApplicationUser user, IList<string> roles, SapCompanyDatabase companyDb)
+    private static LoginResponse BuildLoginResponse(
+        TokenResponse tokenResponse,
+        ApplicationUser user,
+        IList<string> roles,
+        SapCompanyDatabase companyDb,
+        int? branchId = null)
     {
         var claims = new List<ClaimsDto>
         {
@@ -218,6 +250,10 @@ public class AuthService(
             new() { Type = "FullName", Value = user.FullName ?? string.Empty },
             new() { Type = SapClaimTypes.CompanyDb, Value = companyDb.ToString() }
         };
+
+        if (branchId.HasValue)
+            claims.Add(new ClaimsDto { Type = SapClaimTypes.Branch, Value = branchId.Value.ToString() });
+
         claims.AddRange(roles.Select(r => new ClaimsDto { Type = ClaimTypes.Role, Value = r }));
 
         return new LoginResponse

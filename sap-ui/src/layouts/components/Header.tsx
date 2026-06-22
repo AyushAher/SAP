@@ -3,6 +3,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { toggleMobileSidebar } from '@/store/slices/uiSlice'
 import { Input } from '@/Components/ui'
 import { CompanySwitcher } from '@/layouts/components/CompanySwitcher'
+import { BranchSwitcher } from '@/layouts/components/BranchSwitcher'
 
 export function Header() {
   const dispatch = useAppDispatch()
@@ -33,6 +34,7 @@ export function Header() {
 
       <div className="flex items-center gap-3">
         <CompanySwitcher />
+        <BranchSwitcher />
         <button
           type="button"
           className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100"

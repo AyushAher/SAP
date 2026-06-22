@@ -20,4 +20,13 @@ public static class UserClaimsExtensions
             ? companyDb
             : null;
     }
+
+    public static int? GetBranchId(this IHttpContextAccessor httpContextAccessor)
+    {
+        var value = httpContextAccessor.HttpContext?.User?.FindFirst(SapClaimTypes.Branch)?.Value;
+        return int.TryParse(value, out var branchId) ? branchId : null;
+    }
+
+    public static string? GetUserName(this IHttpContextAccessor httpContextAccessor) =>
+        httpContextAccessor.HttpContext?.User?.FindFirstValue(ClaimTypes.Name);
 }
