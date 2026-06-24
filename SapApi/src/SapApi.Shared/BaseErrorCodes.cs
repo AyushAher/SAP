@@ -13,6 +13,7 @@
         #region Auth
 
         public static string IncorrectCredentials = "AUTH-01";
+        public static string SapSessionUnavailable = "AUTH-02";
 
         #endregion
 

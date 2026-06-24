@@ -1,3 +1,4 @@
+import { apiDownloadGet } from '@/helpers/api/client'
 import { apiListPost } from '@/helpers/api/list'
 import { normalizeProductionOrderSelection } from '@/helpers/productionOrderMapper'
 import type { PaginationRequest, PaginationResponse } from '@/types/api'
@@ -34,4 +35,14 @@ export async function saveIssueForProduction(orderLines: ProductionOrderSelectio
 export async function deleteIssueForProduction(id: number) {
   const { apiDelete } = await import('@/helpers/api/client')
   return apiDelete(`/issue-for-production/${id}`)
+}
+
+export async function downloadIssueForProductionPdf(id: number): Promise<void> {
+  const blob = await apiDownloadGet(`/issue-for-production/${id}/pdf`)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `IssueForProduction(${id}).pdf`
+  a.click()
+  URL.revokeObjectURL(url)
 }

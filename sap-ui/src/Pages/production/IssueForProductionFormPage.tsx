@@ -1,6 +1,10 @@
 import { ProductionRequestForm } from '@/Components/production/ProductionRequestForm'
 import { ROUTES } from '@/config/constants'
-import { getIssueForProductionOrderLines, saveIssueForProduction } from '@/Requests/issueForProduction'
+import {
+  downloadIssueForProductionPdf,
+  getIssueForProductionOrderLines,
+  saveIssueForProduction,
+} from '@/Requests/issueForProduction'
 
 export function IssueForProductionFormPage() {
   return (
@@ -9,6 +13,7 @@ export function IssueForProductionFormPage() {
       listRoute={ROUTES.ISSUE_FOR_PRODUCTION}
       loadOrderLines={getIssueForProductionOrderLines}
       saveOrderLines={saveIssueForProduction}
+      downloadPdf={downloadIssueForProductionPdf}
     />
   )
 }

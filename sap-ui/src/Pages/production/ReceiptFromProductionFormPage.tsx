@@ -1,6 +1,10 @@
 import { ProductionRequestForm } from '@/Components/production/ProductionRequestForm'
 import { ROUTES } from '@/config/constants'
-import { getReceiptFromProductionOrderLines, saveReceiptFromProduction } from '@/Requests/receiptFromProduction'
+import {
+  downloadReceiptFromProductionPdf,
+  getReceiptFromProductionOrderLines,
+  saveReceiptFromProduction,
+} from '@/Requests/receiptFromProduction'
 
 export function ReceiptFromProductionFormPage() {
   return (
@@ -9,6 +13,7 @@ export function ReceiptFromProductionFormPage() {
       listRoute={ROUTES.RECEIPT_FROM_PRODUCTION}
       loadOrderLines={getReceiptFromProductionOrderLines}
       saveOrderLines={saveReceiptFromProduction}
+      downloadPdf={downloadReceiptFromProductionPdf}
     />
   )
 }

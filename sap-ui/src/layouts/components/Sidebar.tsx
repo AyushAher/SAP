@@ -15,7 +15,8 @@ import {
   LogOut,
 } from 'lucide-react'
 import { cn } from '@/helpers/lib/utils'
-import { APP_NAME, ROUTES, ROLES } from '@/config/constants'
+import { ROUTES, ROLES } from '@/config/constants'
+import { ConnectEdgeLogo } from '@/Components/brand/ConnectEdgeLogo'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { toggleSidebar, setMobileSidebarOpen } from '@/store/slices/uiSlice'
 import { logoutUser } from '@/store/slices/authSlice'
@@ -67,8 +68,8 @@ export function Sidebar() {
         cn(
           'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
           isActive
-            ? 'bg-sidebar-active text-white'
-            : 'text-slate-300 hover:bg-sidebar-hover hover:text-white',
+            ? 'border-l-2 border-cyan-400 bg-sidebar-active text-white'
+            : 'border-l-2 border-transparent text-slate-300 hover:bg-sidebar-hover hover:text-white',
           collapsed && 'justify-center px-2',
         )
       }
@@ -98,11 +99,13 @@ export function Sidebar() {
         <div
           className={cn(
             'flex h-16 items-center border-b border-white/10 px-4',
-            collapsed ? 'justify-center' : 'justify-between',
+            collapsed ? 'flex-col justify-center gap-1 py-2' : 'justify-between',
           )}
         >
-          {!collapsed && (
-            <span className="text-lg font-bold tracking-tight">{APP_NAME}</span>
+          {collapsed ? (
+            <ConnectEdgeLogo variant="icon" className="h-7 w-7" />
+          ) : (
+            <ConnectEdgeLogo />
           )}
           <button
             type="button"

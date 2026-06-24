@@ -15,11 +15,13 @@ function normalizeBranch(option: BranchOption): { value: string; label: string }
 
 export function BranchSwitcher() {
   const dispatch = useAppDispatch()
-  const { branchId, isLoading } = useAppSelector((state) => state.auth)
+  const { branchId, isLoading, isAuthenticated, token, companyDb } = useAppSelector((state) => state.auth)
   const [branches, setBranches] = useState<Array<{ value: string; label: string }>>([])
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!isAuthenticated || !token) return
+
     let active = true
     getBranchesApi()
       .then((items) => {
@@ -34,7 +36,7 @@ export function BranchSwitcher() {
     return () => {
       active = false
     }
-  }, [])
+  }, [isAuthenticated, token, companyDb])
 
   const options = useMemo(
     () => [{ value: NONE_VALUE, label: 'None' }, ...branches],

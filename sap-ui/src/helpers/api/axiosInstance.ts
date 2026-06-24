@@ -15,13 +15,19 @@ type RetriableRequest = InternalAxiosRequestConfig & { _retry?: boolean }
 
 let refreshInFlight: Promise<string | null> | null = null
 
-function isCredentialAuthRoute(url?: string): boolean {
+function shouldSkipLogoutOn401(url?: string): boolean {
   if (!url) return false
   return url.includes('/auth/login')
     || url.includes('/auth/refresh')
     || url.includes('/auth/register')
     || url.includes('/auth/switch-company')
     || url.includes('/auth/switch-branch')
+    || url.includes('/auth/branches')
+}
+
+function forceSessionExpiredRedirect() {
+  clearStoredAuth()
+  window.dispatchEvent(new Event('auth:session-expired'))
 }
 
 function readStoredBranchId(): number | null {
@@ -87,9 +93,9 @@ axiosInstance.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as RetriableRequest | undefined
-    const isAuthRoute = isCredentialAuthRoute(originalRequest?.url)
+    const skipLogout = shouldSkipLogoutOn401(originalRequest?.url)
 
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !skipLogout) {
       originalRequest._retry = true
       refreshInFlight ??= refreshAccessToken().finally(() => {
         refreshInFlight = null
@@ -102,8 +108,8 @@ axiosInstance.interceptors.response.use(
       }
     }
 
-    if (error.response?.status === 401 && !isAuthRoute) {
-      clearStoredAuth()
+    if (error.response?.status === 401 && !skipLogout) {
+      forceSessionExpiredRedirect()
       if (!window.location.pathname.startsWith('/auth')) {
         window.location.href = '/auth/login'
       }

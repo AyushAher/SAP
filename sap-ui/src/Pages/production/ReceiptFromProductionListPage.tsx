@@ -5,8 +5,7 @@ import { Button, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
-import { listReceiptFromProduction, type ReceiptFromProductionRequest } from '@/Requests/receiptFromProduction'
-import { downloadPdfTemplate } from '@/Requests/pdf'
+import { downloadReceiptFromProductionPdf, listReceiptFromProduction, type ReceiptFromProductionRequest } from '@/Requests/receiptFromProduction'
 
 const extractors = {
   itemCodes: (row: ReceiptFromProductionRequest) => row.itemNo,
@@ -51,7 +50,7 @@ export function ReceiptFromProductionListPage() {
       render: (row) => row.id && (
         <div className="flex gap-2">
           <Link to={`${ROUTES.RECEIPT_FROM_PRODUCTION_FORM}/${row.id}`}><Button size="sm" variant="outline">Edit</Button></Link>
-          <Button size="sm" variant="outline" onClick={() => downloadPdfTemplate('receipt-from-production-template.html')}>PDF</Button>
+          <Button size="sm" variant="outline" onClick={() => downloadReceiptFromProductionPdf(row.id)}>PDF</Button>
         </div>
       ),
     },

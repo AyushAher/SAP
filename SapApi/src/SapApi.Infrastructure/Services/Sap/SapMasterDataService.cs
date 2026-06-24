@@ -130,7 +130,7 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         var queries = new SapQueries
         {
             Filter = $"ItemCode eq '{safeCode}'",
-            Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM",
+            Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight",
             Top = "1",
         };
         var response = await http.GetAsync<SapItemsResponse>(

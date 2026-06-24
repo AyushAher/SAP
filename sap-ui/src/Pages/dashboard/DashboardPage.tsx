@@ -18,7 +18,7 @@ const modules = [
 export function DashboardPage() {
   return (
     <div className="space-y-6">
-      <PageHeader title="Home" description="Welcome to SAP UI — migrated from SapForms Blazor app" />
+      <PageHeader title="Home" description="Welcome to ConnectEdge — your enterprise integration hub" />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {modules.map((m) => (
           <Link key={m.to} to={m.to}>

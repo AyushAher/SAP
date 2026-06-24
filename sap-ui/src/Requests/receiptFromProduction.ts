@@ -1,3 +1,4 @@
+import { apiDownloadGet } from '@/helpers/api/client'
 import { apiListPost } from '@/helpers/api/list'
 import { normalizeProductionOrderSelection } from '@/helpers/productionOrderMapper'
 import type { PaginationRequest, PaginationResponse } from '@/types/api'
@@ -34,4 +35,14 @@ export async function saveReceiptFromProduction(orderLines: ProductionOrderSelec
 export async function deleteReceiptFromProduction(id: number) {
   const { apiDelete } = await import('@/helpers/api/client')
   return apiDelete(`/receipt-from-production/${id}`)
+}
+
+export async function downloadReceiptFromProductionPdf(id: number): Promise<void> {
+  const blob = await apiDownloadGet(`/receipt-from-production/${id}/pdf`)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `ReceiptFromProduction(${id}).pdf`
+  a.click()
+  URL.revokeObjectURL(url)
 }

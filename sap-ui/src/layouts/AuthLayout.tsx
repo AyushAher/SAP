@@ -1,30 +1,36 @@
 import { Outlet, Link } from 'react-router-dom'
-import { APP_NAME, ROUTES } from '@/config/constants'
+import { APP_TAGLINE, ROUTES } from '@/config/constants'
+import { ConnectEdgeLogo } from '@/Components/brand/ConnectEdgeLogo'
 
 export function AuthLayout() {
   return (
     <div className="flex min-h-screen">
-      <div className="hidden w-1/2 flex-col justify-between bg-primary-900 p-12 text-white lg:flex">
-        <div>
-          <h1 className="text-3xl font-bold">{APP_NAME}</h1>
-          <p className="mt-2 text-primary-200">Enterprise Application Platform</p>
+      <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-sidebar p-12 text-white lg:flex">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-indigo-500/10 blur-3xl" />
+
+        <div className="relative">
+          <ConnectEdgeLogo textClassName="text-2xl" />
+          <p className="mt-3 text-primary-200">{APP_TAGLINE}</p>
         </div>
-        <div>
-          <blockquote className="text-lg leading-relaxed text-primary-100">
-            &ldquo;Streamline your business operations with a modern, secure, and scalable
-            enterprise solution.&rdquo;
+
+        <div className="relative">
+          <blockquote className="text-lg leading-relaxed text-slate-300">
+            &ldquo;Bridge your business systems with a modern, secure, and scalable
+            integration platform.&rdquo;
           </blockquote>
-          <p className="mt-4 text-sm text-primary-300">— Enterprise Team</p>
+          <p className="mt-4 text-sm text-slate-500">— ConnectEdge Team</p>
         </div>
-        <p className="text-sm text-primary-400">
-          &copy; {new Date().getFullYear()} {APP_NAME}. All rights reserved.
+
+        <p className="relative text-sm text-slate-500">
+          &copy; {new Date().getFullYear()} ConnectEdge. All rights reserved.
         </p>
       </div>
 
       <div className="flex w-full flex-col items-center justify-center bg-slate-50 px-4 py-12 lg:w-1/2">
         <div className="mb-8 text-center lg:hidden">
-          <Link to={ROUTES.LOGIN} className="text-2xl font-bold text-primary-900">
-            {APP_NAME}
+          <Link to={ROUTES.LOGIN} className="inline-flex">
+            <ConnectEdgeLogo textClassName="text-slate-900" />
           </Link>
         </div>
         <div className="w-full max-w-md">

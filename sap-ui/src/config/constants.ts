@@ -1,4 +1,5 @@
-export const APP_NAME = 'SAP UI'
+export const APP_NAME = 'ConnectEdge'
+export const APP_TAGLINE = 'Enterprise Integration Platform'
 
 export const STORAGE_KEYS = {
   TOKEN: 'sap_token',

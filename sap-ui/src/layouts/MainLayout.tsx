@@ -3,12 +3,14 @@ import { cn } from '@/helpers/lib/utils'
 import { useAppSelector } from '@/store/hooks'
 import { Sidebar } from './components/Sidebar'
 import { Header } from './components/Header'
+import { AuthSessionListener } from './components/AuthSessionListener'
 
 export function MainLayout() {
   const collapsed = useAppSelector((state) => state.ui.sidebarCollapsed)
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <AuthSessionListener />
       <Sidebar />
       <div
         className={cn(

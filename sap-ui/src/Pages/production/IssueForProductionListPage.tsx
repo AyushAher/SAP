@@ -5,8 +5,7 @@ import { Button, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
-import { listIssueForProduction, type IssueForProductionRequest } from '@/Requests/issueForProduction'
-import { downloadPdfTemplate } from '@/Requests/pdf'
+import { downloadIssueForProductionPdf, listIssueForProduction, type IssueForProductionRequest } from '@/Requests/issueForProduction'
 
 const extractors = {
   itemCodes: (row: IssueForProductionRequest) => row.itemNo,
@@ -51,7 +50,7 @@ export function IssueForProductionListPage() {
       render: (row) => row.id && (
         <div className="flex gap-2">
           <Link to={`${ROUTES.ISSUE_FOR_PRODUCTION_FORM}/${row.id}`}><Button size="sm" variant="outline">Edit</Button></Link>
-          <Button size="sm" variant="outline" onClick={() => downloadPdfTemplate('issue-for-production-template.html')}>PDF</Button>
+          <Button size="sm" variant="outline" onClick={() => downloadIssueForProductionPdf(row.id)}>PDF</Button>
         </div>
       ),
     },

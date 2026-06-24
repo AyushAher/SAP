@@ -57,9 +57,9 @@ public class SapLoginService(
     public async Task SapLoginAsync(CancellationToken cancellationToken = default)
     {
         var userId = GetCurrentUserId()
-            ?? throw new ApiErrorException(BaseErrorCodes.IncorrectCredentials, "SAP session not found. Please log in again.");
+            ?? throw new ApiErrorException(BaseErrorCodes.SapSessionUnavailable, "SAP session not found. Please log in again.");
         var companyDb = GetCurrentCompanyDb()
-            ?? throw new ApiErrorException(BaseErrorCodes.IncorrectCredentials, "Company database context is not available.");
+            ?? throw new ApiErrorException(BaseErrorCodes.SapSessionUnavailable, "Company database context is not available.");
 
         if (await TryGetValidSessionAsync(userId, companyDb, cancellationToken) is not null)
             return;
@@ -70,9 +70,9 @@ public class SapLoginService(
     public async Task RenewSessionAsync(CancellationToken cancellationToken = default)
     {
         var userId = GetCurrentUserId()
-            ?? throw new ApiErrorException(BaseErrorCodes.IncorrectCredentials, "SAP session expired. Please log in again.");
+            ?? throw new ApiErrorException(BaseErrorCodes.SapSessionUnavailable, "SAP session expired. Please log in again.");
         var companyDb = GetCurrentCompanyDb()
-            ?? throw new ApiErrorException(BaseErrorCodes.IncorrectCredentials, "Company database context is not available.");
+            ?? throw new ApiErrorException(BaseErrorCodes.SapSessionUnavailable, "Company database context is not available.");
 
         var userLock = UserLocks.GetOrAdd(LockKey(userId, companyDb), _ => new SemaphoreSlim(1, 1));
         await userLock.WaitAsync(cancellationToken);
@@ -83,7 +83,7 @@ public class SapLoginService(
 
             var credentials = await sessionStore.GetCredentialsAsync(userId, companyDb, cancellationToken);
             if (credentials is null)
-                throw new ApiErrorException(BaseErrorCodes.IncorrectCredentials, "SAP session expired. Please log in again.");
+                throw new ApiErrorException(BaseErrorCodes.SapSessionUnavailable, "SAP session expired. Please log in again.");
 
             var password = aesEncryption.Decrypt(credentials.EncryptedPassword);
             var session = await AuthenticateWithSapAsync(credentials.UserName, password, companyDb, cancellationToken);

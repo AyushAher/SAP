@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" fill="none">
+  <defs>
+    <linearGradient id="logo-grad" x1="0" y1="32" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#06b6d4"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+  <circle cx="9" cy="31" r="4.5" fill="url(#logo-grad)"/>
+  <circle cx="23" cy="9" r="4.5" fill="url(#logo-grad)"/>
+  <path d="M12 27.5L20.5 12.5" stroke="url(#logo-grad)" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="16" cy="20" r="2.5" fill="#22d3ee"/>
+  <text x="40" y="27" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="currentColor">
+    Connect<tspan fill="url(#logo-grad)" font-weight="700">Edge</tspan>
+  </text>
+</svg>
