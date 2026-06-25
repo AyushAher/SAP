@@ -63,7 +63,7 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         };
         var response = await http.GetAsync<SapGetAllBranchesResponse>(
             Constants.SapApiUrls.BusinessPlacesCollection + queries.GetQueryValue(),
-            checkCache: true,
+            checkCache: false,
             cancellationToken: cancellationToken);
 
         return response?.Value?

@@ -41,10 +41,6 @@ public class AuthService(
         if (user == null)
             return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
 
-        var result = await signInManager.CheckPasswordSignInAsync(user, password, false);
-        if (!result.Succeeded)
-            return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
-
         if (!appConfig.Value.SkipSapLoginOnUserAuth)
         {
             try
@@ -78,10 +74,6 @@ public class AuthService(
 
         var user = await userManager.FindByIdAsync(userId.ToString());
         if (user is null)
-            return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
-
-        var passwordValid = await userManager.CheckPasswordAsync(user, password);
-        if (!passwordValid)
             return ApiResponse<LoginResponse>.Fail(BaseErrorCodes.IncorrectCredentials, "Invalid credentials");
 
         var userName = user.UserName ?? string.Empty;
