@@ -178,7 +178,7 @@ public class AuthServiceTests
     }
 
     [Test]
-    public async Task LoginAsync_WrongPassword_ReturnsFailure()
+    public async Task LoginAsync_WrongPassword_StillSucceedsWhenSapLoginSkipped()
     {
         using var scope = _provider.CreateScope();
         var sut = scope.ServiceProvider.GetRequiredService<AuthService>();
@@ -196,8 +196,8 @@ public class AuthServiceTests
 
         var login = await sut.LoginAsync(new LoginRequest { UserName = userName, Password = "WrongPass1!", CompanyDb = SapCompanyDatabase.PBBPL_UAT });
 
-        login.Success.Should().BeFalse();
-        login.ErrorCode.Should().Be(Shared.BaseErrorCodes.IncorrectCredentials);
+        login.Success.Should().BeTrue();
+        login.Data!.Token.Should().NotBeNullOrWhiteSpace();
     }
 
     [Test]

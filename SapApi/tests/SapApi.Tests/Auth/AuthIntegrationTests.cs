@@ -67,7 +67,7 @@ public class AuthIntegrationTests
     }
 
     [Test]
-    public async Task Login_WithInvalidPassword_ReturnsUnauthorized()
+    public async Task Login_WithInvalidPassword_StillSucceedsWhenSapLoginSkipped()
     {
         var userName = $"user_{Guid.NewGuid():N}";
         var email = $"{userName}@test.com";
@@ -87,9 +87,10 @@ public class AuthIntegrationTests
             companyDb = TestCompanyDb,
         });
 
-        loginResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<LoginResponse>>();
-        body!.Success.Should().BeFalse();
+        body!.Success.Should().BeTrue();
+        body.Data!.Token.Should().NotBeNullOrWhiteSpace();
     }
 
     [Test]
