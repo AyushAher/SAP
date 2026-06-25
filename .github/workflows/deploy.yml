@@ -74,7 +74,6 @@ jobs:
         run: |
           KEYS_DIR="SapApi/src/SapApi.Api/Keys"
           mkdir -p "${KEYS_DIR}"
-          cp sap-ui/src/config/keys/public.pem "${KEYS_DIR}/public.pem"
 
           if [ -n "${{ secrets.RSA_PRIVATE_KEY }}" ]; then
             printf '%s\n' "${{ secrets.RSA_PRIVATE_KEY }}" > "${KEYS_DIR}/private.pem"
@@ -85,6 +84,9 @@ jobs:
             exit 1
           fi
           chmod 600 "${KEYS_DIR}/private.pem"
+
+          openssl pkey -in "${KEYS_DIR}/private.pem" -pubout -out "${KEYS_DIR}/public.pem"
+          cp "${KEYS_DIR}/public.pem" sap-ui/src/config/keys/public.pem
 
       - name: Build and push API image
         run: |

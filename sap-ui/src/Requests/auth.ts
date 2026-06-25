@@ -35,7 +35,7 @@ export function getLoginClaims(response: LoginApiResponse): AuthClaim[] {
 }
 
 export async function loginApi(userName: string, password: string, companyDb: string) {
-  const encrypted = rsaEncrypt(password)
+  const encrypted = await rsaEncrypt(password)
   return apiPost<LoginApiResponse>('/auth/login', { userName, password: encrypted, companyDb })
 }
 
@@ -46,7 +46,7 @@ export async function registerApi(payload: {
   password: string
   companyDb: string
 }) {
-  const encrypted = rsaEncrypt(payload.password)
+  const encrypted = await rsaEncrypt(payload.password)
   return apiPost('/auth/register', {
     fullName: payload.fullName,
     userName: payload.userName,
@@ -57,7 +57,7 @@ export async function registerApi(payload: {
 }
 
 export async function switchCompanyApi(companyDb: SapCompanyDatabase, password: string) {
-  const encrypted = rsaEncrypt(password)
+  const encrypted = await rsaEncrypt(password)
   return apiPost<LoginApiResponse>('/auth/switch-company', { companyDb, password: encrypted })
 }
 

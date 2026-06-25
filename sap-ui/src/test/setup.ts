@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
 
 vi.mock('@/helpers/lib/rsa', () => ({
-  rsaEncrypt: (value: string) => value,
+  rsaEncrypt: async (value: string) => value,
 }))
 
 const storage = new Map<string, string>()

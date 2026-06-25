@@ -8,7 +8,7 @@ vi.mock('@/helpers/api/client', () => ({
 }))
 
 vi.mock('@/helpers/lib/rsa', () => ({
-  rsaEncrypt: vi.fn((value: string) => `encrypted:${value}`),
+  rsaEncrypt: vi.fn(async (value: string) => `encrypted:${value}`),
 }))
 
 describe('registerApi', () => {

@@ -17,12 +17,16 @@ public class RsaDecryptionService : IRsaDecryptionService
         var privateKeyPath = Path.Combine(env.ContentRootPath, options.Value.RsaPrivateKeyPath);
         var publicKeyPath = Path.Combine(env.ContentRootPath, options.Value.RsaPublicKeyPath);
 
-        _publicKeyPem = File.Exists(publicKeyPath) ? File.ReadAllText(publicKeyPath) : string.Empty;
-
         _rsa = RSA.Create();
         if (File.Exists(privateKeyPath))
         {
             _rsa.ImportFromPem(File.ReadAllText(privateKeyPath));
+            // Always publish the public key that matches the loaded private key.
+            _publicKeyPem = _rsa.ExportSubjectPublicKeyInfoPem();
+        }
+        else
+        {
+            _publicKeyPem = File.Exists(publicKeyPath) ? File.ReadAllText(publicKeyPath) : string.Empty;
         }
     }
 

@@ -37,4 +37,29 @@ public class RsaDecryptionServiceTests
 
         sut.Decrypt(cipher).Should().Be(plain);
     }
+
+    [Test]
+    public void GetPublicKeyPem_WhenPublicFileMismatchesPrivate_ReturnsMatchingPublicKey()
+    {
+        using var rsa = RSA.Create(2048);
+        using var other = RSA.Create(2048);
+
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        var privatePath = Path.Combine(tempDir, "private.pem");
+        var publicPath = Path.Combine(tempDir, "public.pem");
+        File.WriteAllText(privatePath, rsa.ExportPkcs8PrivateKeyPem());
+        File.WriteAllText(publicPath, other.ExportSubjectPublicKeyInfoPem());
+
+        var env = new Mock<IHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+
+        var sut = new RsaDecryptionService(env.Object, Options.Create(new SecurityOptions
+        {
+            RsaPrivateKeyPath = "private.pem",
+            RsaPublicKeyPath = "public.pem"
+        }));
+
+        sut.GetPublicKeyPem().Should().Be(rsa.ExportSubjectPublicKeyInfoPem());
+    }
 }
