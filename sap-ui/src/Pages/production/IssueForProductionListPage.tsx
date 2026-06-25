@@ -80,10 +80,12 @@ export function IssueForProductionListPage() {
       {
         key: "actions",
         header: "Actions",
-        render: (row) =>
-          row.id && (
+        render: (row) => {
+          if (!row.id) return null;
+          const id = row.id;
+          return (
             <div className="flex gap-2">
-              <Link to={`${ROUTES.ISSUE_FOR_PRODUCTION_FORM}/${row.id}`}>
+              <Link to={`${ROUTES.ISSUE_FOR_PRODUCTION_FORM}/${id}`}>
                 <Button size="sm" variant="outline">
                   Edit
                 </Button>
@@ -91,12 +93,13 @@ export function IssueForProductionListPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => downloadIssueForProductionPdf(row.id)}
+                onClick={() => downloadIssueForProductionPdf(id)}
               >
                 PDF
               </Button>
             </div>
-          ),
+          );
+        },
       },
     ],
     [lookupMaps],

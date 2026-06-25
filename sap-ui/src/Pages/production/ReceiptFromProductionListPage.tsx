@@ -47,12 +47,16 @@ export function ReceiptFromProductionListPage() {
     {
       key: 'actions',
       header: 'Actions',
-      render: (row) => row.id && (
-        <div className="flex gap-2">
-          <Link to={`${ROUTES.RECEIPT_FROM_PRODUCTION_FORM}/${row.id}`}><Button size="sm" variant="outline">Edit</Button></Link>
-          <Button size="sm" variant="outline" onClick={() => downloadReceiptFromProductionPdf(row.id)}>PDF</Button>
-        </div>
-      ),
+      render: (row) => {
+        if (!row.id) return null;
+        const id = row.id;
+        return (
+          <div className="flex gap-2">
+            <Link to={`${ROUTES.RECEIPT_FROM_PRODUCTION_FORM}/${id}`}><Button size="sm" variant="outline">Edit</Button></Link>
+            <Button size="sm" variant="outline" onClick={() => downloadReceiptFromProductionPdf(id)}>PDF</Button>
+          </div>
+        );
+      },
     },
   ], [lookupMaps])
 
