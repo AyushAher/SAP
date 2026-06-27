@@ -94,19 +94,10 @@ definitions:
 
 pipelines:
   branches:
-
     dev:
-      - stage:
-          name: UAT Pipeline
-          deployment: test
-          steps:
-            - step: *build-test
-            - step: *deploy-uat
+      - step: *build-test
+      - step: *deploy-uat
 
     main:
-      - stage:
-          name: Production Pipeline
-          deployment: production
-          steps:
-            - step: *build-test
-            - step: *deploy-prod
+      - step: *build-test
+      - step: *deploy-prod
