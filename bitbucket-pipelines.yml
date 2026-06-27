@@ -9,7 +9,7 @@ options:
 definitions:
   services:
     docker:
-      memory: 4096
+      memory: 3072
 
   steps:
     - step: &build-test
