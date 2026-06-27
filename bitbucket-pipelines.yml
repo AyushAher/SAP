@@ -1,4 +1,9 @@
-image: atlassian/default-image:4
+image: 
+  name: atlassian/default-image:4
+  username: $DOCKER_USERNAME
+  password: $DOCKER_PASSWORD
+  email: ayushaher118@gmail.com
+
 runs-on: 
   - 'self.hosted'
   - 'pbbpl'
@@ -26,14 +31,9 @@ definitions:
               mcr.microsoft.com/dotnet/sdk:10.0 \
               dotnet test SapApi/tests/SapApi.Tests/SapApi.Tests.csproj
 
-          # Docker Login
-          - echo "$DOCKER_PASSWORD" | docker login \
-              -u "$DOCKER_USERNAME" \
-              --password-stdin
-
     - step: &deploy-uat
         name: Deploy UAT
-        deployment: test
+        deployment: Test
         services:
           - docker
         script:
@@ -59,7 +59,7 @@ definitions:
 
     - step: &deploy-prod
         name: Deploy Production
-        deployment: production
+        deployment: Production
         services:
           - docker
         script:
