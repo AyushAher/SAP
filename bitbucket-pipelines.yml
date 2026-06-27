@@ -23,13 +23,8 @@ definitions:
           - docker
         script:
           - chmod +x scripts/*.sh
-
           # Run Tests
-          - docker run --rm \
-              -v $(pwd):/src \
-              -w /src \
-              mcr.microsoft.com/dotnet/sdk:10.0 \
-              dotnet test SapApi/tests/SapApi.Tests/SapApi.Tests.csproj
+          - docker run --rm -v $(pwd):/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet test SapApi/tests/SapApi.Tests/SapApi.Tests.csproj
 
     - step: &deploy-uat
         name: Deploy UAT
@@ -41,21 +36,15 @@ definitions:
           - export SHORT_SHA=$(echo $BITBUCKET_COMMIT | cut -c1-7)
 
           # Build Images
-          - docker build -f SapApi/Dockerfile \
-              -t ${DOCKER_REGISTRY}/sap-api:${TAG} .
-
-          - docker build sap-ui \
-              -t ${DOCKER_REGISTRY}/sap-ui:${TAG}
+          - docker build -f SapApi/Dockerfile -t ${DOCKER_REGISTRY}/sap-api:${TAG} .
+          - docker build sap-ui -t ${DOCKER_REGISTRY}/sap-ui:${TAG}
 
           # Push
           - docker push ${DOCKER_REGISTRY}/sap-api:${TAG}
           - docker push ${DOCKER_REGISTRY}/sap-ui:${TAG}
 
           # Deploy
-          - docker stack deploy \
-              --compose-file docker-compose.uat.yml \
-              sap-platform-uat \
-              --with-registry-auth
+          - docker stack deploy --compose-file docker-compose.uat.yml sap-platform-uat --with-registry-auth
 
     - step: &deploy-prod
         name: Deploy Production
@@ -67,30 +56,23 @@ definitions:
           - export SHORT_SHA=$(echo $BITBUCKET_COMMIT | cut -c1-7)
 
           # Build Images
-          - docker build -f SapApi/Dockerfile \
-              -t ${DOCKER_REGISTRY}/sap-api:${TAG} .
+          - docker build -f SapApi/Dockerfile -t ${DOCKER_REGISTRY}/sap-api:${TAG} .
 
-          - docker build sap-ui \
-              -t ${DOCKER_REGISTRY}/sap-ui:${TAG}
+          - docker build sap-ui -t ${DOCKER_REGISTRY}/sap-ui:${TAG}
 
           # Push
           - docker push ${DOCKER_REGISTRY}/sap-api:${TAG}
           - docker push ${DOCKER_REGISTRY}/sap-ui:${TAG}
 
           # Latest tags
-          - docker tag ${DOCKER_REGISTRY}/sap-api:${TAG} \
-              ${DOCKER_REGISTRY}/sap-api:latest
-          - docker tag ${DOCKER_REGISTRY}/sap-ui:${TAG} \
-              ${DOCKER_REGISTRY}/sap-ui:latest
+          - docker tag ${DOCKER_REGISTRY}/sap-api:${TAG} ${DOCKER_REGISTRY}/sap-api:latest
+          - docker tag ${DOCKER_REGISTRY}/sap-ui:${TAG} ${DOCKER_REGISTRY}/sap-ui:latest
 
           - docker push ${DOCKER_REGISTRY}/sap-api:latest
           - docker push ${DOCKER_REGISTRY}/sap-ui:latest
 
           # Deploy
-          - docker stack deploy \
-              --compose-file docker-compose.prod.yml \
-              sap-platform-prod \
-              --with-registry-auth
+          - docker stack deploy --compose-file docker-compose.prod.yml sap-platform-prod --with-registry-auth
 
 pipelines:
   branches:
