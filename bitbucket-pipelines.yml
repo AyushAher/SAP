@@ -54,10 +54,14 @@ definitions:
         script:
           - export TAG=prod
           - export SHORT_SHA=$(echo $BITBUCKET_COMMIT | cut -c1-7)
-          - openssl pkey -in SapApi/src/SapApi.Api/Keys/private.pem -pubout -out SapApi/src/SapApi.Api/Keys/public.pem
+          - mkdir -p SapApi/src/SapApi.Api/Keys
+          - openssl genpkey -algorithm RSA -out SapApi/src/SapApi.Api/Keys/private.pem -pkeyopt rsa_keygen_bits:4096
+          - openssl rsa -pubout -in SapApi/src/SapApi.Api/Keys/private.pem -out SapApi/src/SapApi.Api/Keys/public.pem
+          - ls -la SapApi/src/SapApi.Api/Keys
+          - mkdir -p sap-ui/src/config/keys
+          - cp SapApi/src/SapApi.Api/Keys/public.pem sap-ui/src/config/keys/public.pem
           # Build Images
           - docker build -f SapApi/Dockerfile -t ${DOCKER_REGISTRY}/sap-api:${TAG} .
-
           - docker build sap-ui -t ${DOCKER_REGISTRY}/sap-ui:${TAG}
 
           # Push
