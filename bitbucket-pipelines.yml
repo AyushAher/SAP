@@ -78,6 +78,20 @@ definitions:
           # Deploy
           - docker stack deploy --compose-file docker-compose.prod.yml sap-platform-prod --with-registry-auth
 
+    - step: &sonar-analysis
+        name: SonarQube analysis
+        caches:
+          - dotnetcore
+          - sonar
+        script:
+          - dotnet tool install --global dotnet-sonarscanner
+          - export PATH="$PATH:/root/.dotnet/tools"
+          - dotnet sonarscanner begin /k:"aerovia-infrasec_sap_03f39284-0ff8-40b9-a26e-1f8f7cd94bbc" /d:"sonar.token=${SONAR_TOKEN}"  /d:"sonar.host.url=${SONAR_HOST_URL}"
+          - dotnet build SapApi/SapApi.sln
+          - dotnet sonarscanner end /d:"sonar.token=${SONAR_TOKEN}"
+  caches:
+    sonar: ~/.sonar
+
 pipelines:
   branches:
     dev:
