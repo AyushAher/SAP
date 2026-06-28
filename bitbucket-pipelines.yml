@@ -96,6 +96,7 @@ pipelines:
   branches:
     dev:
       - step: *build-test
+      - step: *sonar-analysis
       - step: *deploy-uat
 
     main:
