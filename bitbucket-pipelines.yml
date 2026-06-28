@@ -80,6 +80,12 @@ definitions:
 
     - step: &sonar-analysis
         name: SonarQube analysis
+        image: 
+          name: mcr.microsoft.com/dotnet/sdk:10.0
+          username: $DOCKER_USERNAME
+          password: $DOCKER_PASSWORD
+          email: ayushaher118@gmail.com
+
         caches:
           - dotnetcore
           - sonar
