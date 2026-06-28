@@ -1,7 +1,4 @@
-﻿using Azure.Core;
-using Microsoft.Identity.Client;
-using Shared.Enums;
-using static System.Net.WebRequestMethods;
+﻿using Shared.Enums;
 
 namespace Shared
 {

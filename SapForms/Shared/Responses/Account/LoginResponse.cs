@@ -1,9 +1,4 @@
-﻿using Shared;
-using Shared.Responses;
-using System.Security.Claims;
-using System.Text.Json.Serialization;
-
-namespace Shared.Responses.Account
+﻿namespace Shared.Responses.Account
 {
     public class LoginResponse : BaseAuthServiceResponse
     {

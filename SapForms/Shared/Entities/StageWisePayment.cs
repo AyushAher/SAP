@@ -1,5 +1,4 @@
 ﻿using System.ComponentModel.DataAnnotations.Schema;
-using Shared.Responses.Sap;
 
 namespace Shared.Entities
 {

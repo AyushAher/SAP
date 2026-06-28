@@ -1,6 +1,4 @@
-﻿using System.Text.Json.Serialization;
-
-namespace SapApi.Modals.Responses
+﻿namespace SapApi.Modals.Responses
 {
     public class BaseAuthServiceResponse
     {

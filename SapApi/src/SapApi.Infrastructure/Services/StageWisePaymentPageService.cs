@@ -1,7 +1,5 @@
-using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
-using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Responses;

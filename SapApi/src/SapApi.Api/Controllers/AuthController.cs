@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Services;

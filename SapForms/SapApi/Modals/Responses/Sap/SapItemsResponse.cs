@@ -1,6 +1,4 @@
-﻿using System.Text.Json.Serialization;
-
-namespace SapApi.Modals.Responses.Sap
+﻿namespace SapApi.Modals.Responses.Sap
 {
     public record SapItemsResponse : SapBaseResponse
     {

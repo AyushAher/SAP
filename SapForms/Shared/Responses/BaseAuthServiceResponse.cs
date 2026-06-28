@@ -1,6 +1,4 @@
-﻿using System.Text.Json.Serialization;
-
-namespace Shared.Responses
+﻿namespace Shared.Responses
 {
     public class BaseAuthServiceResponse
     {

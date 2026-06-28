@@ -1,6 +1,4 @@
-﻿using System.Text.Json.Serialization;
-
-namespace Shared.Responses.Sap
+﻿namespace Shared.Responses.Sap
 {
     public record SapLoginResponse : SapBaseResponse
     {

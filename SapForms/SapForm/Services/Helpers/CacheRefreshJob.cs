@@ -1,5 +1,4 @@
 ﻿using Serilog;
-using System.Net;
 using static Shared.Constants;
 
 namespace SapForm.Services.Helpers

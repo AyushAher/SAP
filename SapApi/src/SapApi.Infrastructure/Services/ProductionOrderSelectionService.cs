@@ -1,5 +1,4 @@
 using SapApi.Infrastructure.Services.Sap;
-using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 

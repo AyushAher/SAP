@@ -1,6 +1,4 @@
-﻿using SapApi.Modals;
-
-namespace SapApi.Modals.Requests
+﻿namespace SapApi.Modals.Requests
 {
     public class SapVendorPaymentRequests
     {

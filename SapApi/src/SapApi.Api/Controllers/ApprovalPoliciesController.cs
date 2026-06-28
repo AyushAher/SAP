@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SapApi.Domain.Entities;
 using SapApi.Infrastructure.Services;

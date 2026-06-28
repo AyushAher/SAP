@@ -1,5 +1,4 @@
 using SapApi;
-using Serilog;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()

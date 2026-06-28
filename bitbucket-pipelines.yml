@@ -102,10 +102,10 @@ pipelines:
   branches:
     dev:
       - step: *build-test
-      - step: *sonar-analysis
+      # - step: *sonar-analysis
       - step: *deploy-uat
 
     main:
       - step: *build-test
-      - step: *sonar-analysis
-      - step: *deploy-prod
+      # - step: *sonar-analysis
+      - step: *deploy-uat

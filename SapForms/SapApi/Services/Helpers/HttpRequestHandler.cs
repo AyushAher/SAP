@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Caching.Memory;
 using SapApi.Modals;
-using System.Text;
 using System.Text.Json;
 
 namespace SapApi.Services.Helpers

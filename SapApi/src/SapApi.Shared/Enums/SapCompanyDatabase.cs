@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace SapApi.Shared.Enums;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

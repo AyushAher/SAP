@@ -1,9 +1,4 @@
-﻿using SapApi.Modals;
-using SapApi.Modals.Responses;
-using System.Security.Claims;
-using System.Text.Json.Serialization;
-
-namespace SapApi.Modals.Responses.Account
+﻿namespace SapApi.Modals.Responses.Account
 {
     public class LoginResponse : BaseAuthServiceResponse
     {

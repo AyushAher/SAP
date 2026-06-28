@@ -1,6 +1,4 @@
-﻿using Shared.Enums;
-
-namespace Shared.Entities
+﻿namespace Shared.Entities
 {
     public class UserApproval
     {

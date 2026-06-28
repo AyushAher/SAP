@@ -1,5 +1,4 @@
 ﻿using SapApi.Modals;
-using Microsoft.AspNetCore.Identity;
 
 namespace SapApi
 {

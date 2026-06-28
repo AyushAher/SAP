@@ -1,6 +1,4 @@
-﻿using SapApi.Modals.Responses.Sap;
-
-namespace SapApi.Modals.Entities
+﻿namespace SapApi.Modals.Entities
 {
     public class StageWisePayment
     {

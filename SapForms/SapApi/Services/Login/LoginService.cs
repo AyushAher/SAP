@@ -8,7 +8,6 @@ using SapApi.Modals.Requests.Account;
 using SapApi.Modals.Responses.Account;
 using SapApi.Modals.Responses.Sap;
 using System.Security.Claims;
-using System.Text;
 
 namespace SapApi.Services.Login
 {

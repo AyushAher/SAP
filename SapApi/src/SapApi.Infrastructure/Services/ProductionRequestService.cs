@@ -1,12 +1,8 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
-using SapApi.Infrastructure.Persistence;
-using SapApi.Infrastructure.Sap;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
-using SapApi.Shared.Responses.Sap;
 
 namespace SapApi.Infrastructure.Services;
 

@@ -1,5 +1,4 @@
-﻿using SapApi.Modals;
-using SapApi.Modals.Responses.Sap;
+﻿using SapApi.Modals.Responses.Sap;
 
 namespace SapApi.Modals.Requests
 {

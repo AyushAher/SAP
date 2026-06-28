@@ -1,6 +1,4 @@
-﻿using System.Text.Json.Serialization;
-
-namespace SapApi.Modals.Requests
+﻿namespace SapApi.Modals.Requests
 {
     public record PurchaseOrderStageWisePaymentRequest
     {

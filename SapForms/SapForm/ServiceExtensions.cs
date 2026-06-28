@@ -8,7 +8,6 @@ using SapForm.Services.Sap_Sevices;
 using Shared;
 using Shared.Configuration;
 using Shared.Entities;
-using StackExchange.Redis;
 using System.Net;
 
 namespace SapForm

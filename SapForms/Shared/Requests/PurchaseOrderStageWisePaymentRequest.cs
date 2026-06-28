@@ -1,6 +1,4 @@
-﻿using System.Text.Json.Serialization;
-
-namespace Shared.Requests
+﻿namespace Shared.Requests
 {
     public record PurchaseOrderStageWisePaymentRequest
     {

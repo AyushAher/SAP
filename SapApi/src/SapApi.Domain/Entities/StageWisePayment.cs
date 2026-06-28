@@ -12,6 +12,8 @@ namespace SapApi.Domain.Entities
         public string? UtrNo { get; set; }
         public DateTime? UtrDate { get; set; }
         public string? ApprovalRequestId { get; set; }
+        public string? DownPaymentDocEntry { get; set; }
+        public string? PaymentDocEntry { get; set; }
         public string? ApInvoiceDocEntry { get; set; }
         public string? ApDownPaymentInvoiceEntryNumber { get; set; }
         [NotMapped]
@@ -37,9 +39,9 @@ namespace SapApi.Domain.Entities
     public enum StageWisePaymentStages
     {
         AgainstPoAcceptance,
-        AgainstDrawingApproval,
-        AgainstDocumentApproval,
-        AgainstSubmissionOfCld,
+        // AgainstDrawingApproval,
+        // AgainstDocumentApproval,
+        // AgainstSubmissionOfCld,
         AgainstReadinessOfMaterial,
         AfterReceiptOfMaterial,
         AfterSuccessfulWorkCompletion

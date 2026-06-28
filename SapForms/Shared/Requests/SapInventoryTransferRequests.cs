@@ -1,5 +1,4 @@
-﻿using Shared;
-using Shared.Responses.Sap;
+﻿using Shared.Responses.Sap;
 
 namespace Shared.Requests
 {

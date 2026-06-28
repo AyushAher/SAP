@@ -1,7 +1,4 @@
 ﻿//using MongoDB.Bson;
-using SapApi.Modals.Enums.Pagination;
-using SapApi.Modals.Pagination;
-
 namespace Shared.Modals.Pagination
 {
     public partial class PaginationRequestModal<T> where T : class, new()

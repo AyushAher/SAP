@@ -1,6 +1,4 @@
-﻿using Shared;
-
-namespace Shared.Requests
+﻿namespace Shared.Requests
 {
     public class SapVendorPaymentRequests
     {
