@@ -101,4 +101,5 @@ pipelines:
 
     main:
       - step: *build-test
+      - step: *sonar-analysis
       - step: *deploy-prod
