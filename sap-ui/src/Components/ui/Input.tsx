@@ -1,5 +1,6 @@
-import { forwardRef, type InputHTMLAttributes } from 'react'
+import { forwardRef, type InputHTMLAttributes, type ChangeEvent, type KeyboardEvent } from 'react'
 import { cn } from '@/helpers/lib/utils'
+import { isNegativeAmountInputKey, sanitizeNonNegativeAmountInput } from '@/helpers/lib/numericInput'
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string
@@ -7,11 +8,49 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   hint?: string
   leftIcon?: React.ReactNode
   rightIcon?: React.ReactNode
+  nonNegative?: boolean
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, hint, leftIcon, rightIcon, id, required, ...props }, ref) => {
+  ({
+    className,
+    label,
+    error,
+    hint,
+    leftIcon,
+    rightIcon,
+    id,
+    required,
+    nonNegative = false,
+    type,
+    min,
+    onChange,
+    onKeyDown,
+    ...props
+  }, ref) => {
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-')
+
+    const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+      if (nonNegative) {
+        const sanitized = sanitizeNonNegativeAmountInput(event.target.value)
+        if (sanitized !== event.target.value) {
+          onChange?.({
+            ...event,
+            target: { ...event.target, value: sanitized },
+            currentTarget: { ...event.currentTarget, value: sanitized },
+          })
+          return
+        }
+      }
+      onChange?.(event)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+      if (nonNegative && isNegativeAmountInputKey(event.key)) {
+        event.preventDefault()
+      }
+      onKeyDown?.(event)
+    }
 
     return (
       <div className="w-full">
@@ -30,6 +69,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             id={inputId}
+            type={type}
+            min={nonNegative ? (min ?? '0') : min}
             className={cn(
               'block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900',
               'placeholder:text-slate-400',
@@ -45,6 +86,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             aria-invalid={!!error}
             aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
             required={required}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
             {...props}
           />
           {rightIcon && (

@@ -37,11 +37,12 @@ public static class DependencyInjection
         if (useInMemory)
         {
             var dbName = configuration["Testing:DatabaseName"] ?? Guid.NewGuid().ToString();
+            services.AddDbContextFactory<AppDbContext>(options => options.UseInMemoryDatabase(dbName));
             services.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(dbName));
         }
         else
         {
-            services.AddDbContextPool<AppDbContext>(options =>
+            Action<DbContextOptionsBuilder> configure = options =>
             {
                 options.UseNpgsql(connectionString, npgsql =>
                 {
@@ -49,7 +50,10 @@ public static class DependencyInjection
                     npgsql.CommandTimeout(30);
                 });
                 options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-            }, poolSize: 64);
+            };
+
+            services.AddDbContextPool<AppDbContext>(configure, poolSize: 64);
+            services.AddPooledDbContextFactory<AppDbContext>(configure, poolSize: 64);
         }
 
         services.AddMemoryCache();
@@ -109,6 +113,8 @@ public static class DependencyInjection
         services.AddScoped<ApprovalRequestViewService>();
         services.AddScoped<StageWisePaymentService>();
         services.AddScoped<StageWisePaymentPageService>();
+        services.AddScoped<StageWisePaymentBatchService>();
+        services.AddScoped<StageWisePaymentPdfBuilder>();
         services.AddScoped<IssueForProductionService>();
         services.AddScoped<ReceiptFromProductionService>();
         services.AddScoped<ProductionOrderSelectionService>();

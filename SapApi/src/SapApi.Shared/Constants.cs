@@ -22,15 +22,25 @@ namespace SapApi.Shared
                 SapApiUrls.GetAllBpl,
             ];
 
+            private static readonly System.Text.RegularExpressions.Regex SingleEntityReadPattern =
+                new(@"/(PurchaseOrders|ProductionOrders|Orders|BusinessPartners)\(\d+\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
             public static bool ShouldCache(string url)
             {
                 if (Endpoints.Any(e => url.Contains(e, StringComparison.OrdinalIgnoreCase)))
                     return true;
 
-                if (!url.Contains("/b1s/v1/", StringComparison.Ordinal)
-                    || !url.Contains("$top=", StringComparison.OrdinalIgnoreCase)
-                    || url.Contains("/SQLQueries", StringComparison.OrdinalIgnoreCase)
+                if (!url.Contains("/b1s/v1/", StringComparison.Ordinal))
+                    return false;
+
+                if (url.Contains("/SQLQueries", StringComparison.OrdinalIgnoreCase)
                     || url.Contains("/Login", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                if (SingleEntityReadPattern.IsMatch(url))
+                    return true;
+
+                if (!url.Contains("$top=", StringComparison.OrdinalIgnoreCase))
                     return false;
 
                 return !System.Text.RegularExpressions.Regex.IsMatch(url, @"\(\d+\)");
@@ -154,6 +164,17 @@ namespace SapApi.Shared
         public static class SapPaymentMeansType
         {
             public const string BankTransfer = "pmtBankTransfer";
+            public const string Check = "pmtChecks";
+            public const string CreditCard = "pmtCreditCard";
+            public const string Cash = "pmtCash";
+
+            public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [BankTransfer] = "Bank Transfer",
+                [Check] = "Check",
+                [CreditCard] = "Credit Card",
+                [Cash] = "Cash",
+            };
         }
         public static class SapApiUrls
         {

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { Trash2 } from 'lucide-react'
+import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Button, Input, Modal, Select } from '@/Components/ui'
 import {
   createApprovalPolicy,
@@ -179,7 +181,12 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
                       }}
                     />
                     <div className="flex items-end">
-                      <Button size="sm" variant="outline" onClick={() => setApprovers(approvers.filter((_, i) => i !== idx))}>Remove</Button>
+                      <RowActionButton
+                        title="Remove approver"
+                        variant="danger"
+                        icon={<Trash2 className={rowActionIconClassName} />}
+                        onClick={() => setApprovers(approvers.filter((_, i) => i !== idx))}
+                      />
                     </div>
                   </div>
                 ))}
@@ -232,7 +239,12 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
                       }}
                     />
                     <div className="flex items-end">
-                      <Button size="sm" variant="outline" onClick={() => setRules(rules.filter((_, i) => i !== idx))}>Remove</Button>
+                      <RowActionButton
+                        title="Remove rule"
+                        variant="danger"
+                        icon={<Trash2 className={rowActionIconClassName} />}
+                        onClick={() => setRules(rules.filter((_, i) => i !== idx))}
+                      />
                     </div>
                   </div>
                 ))}

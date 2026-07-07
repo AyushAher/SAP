@@ -8,6 +8,9 @@ namespace SapApi.Infrastructure.Persistence;
 public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, int>(options)
 {
     public DbSet<StageWisePayment> StageWisePayments => Set<StageWisePayment>();
+    public DbSet<StageWisePaymentBatch> StageWisePaymentBatches => Set<StageWisePaymentBatch>();
+    public DbSet<StageWisePaymentBatchLine> StageWisePaymentBatchLines => Set<StageWisePaymentBatchLine>();
+    public DbSet<StageWisePaymentBatchLinePaymentTerm> StageWisePaymentBatchLinePaymentTerms => Set<StageWisePaymentBatchLinePaymentTerm>();
     public DbSet<ApprovalPolicy> ApprovalPolicies => Set<ApprovalPolicy>();
     public DbSet<ApprovalPolicyApprover> ApprovalPolicyApprovers => Set<ApprovalPolicyApprover>();
     public DbSet<ApprovalRequest> ApprovalRequests => Set<ApprovalRequest>();
@@ -92,6 +95,41 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.HasIndex(e => new { e.CompanyDb, e.DocNumber });
             entity.Property(e => e.UtrNo).HasConversion(EncryptedStringConverter.Instance);
             entity.Property(e => e.Bank).HasConversion(EncryptedStringConverter.Instance);
+            entity.HasOne<StageWisePaymentBatch>()
+                .WithOne(b => b.StageWisePayment)
+                .HasForeignKey<StageWisePaymentBatch>(b => b.StageWisePaymentId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<StageWisePaymentBatch>()
+                .WithOne(b => b.DownPaymentStageWisePayment)
+                .HasForeignKey<StageWisePaymentBatch>(b => b.DownPaymentStageWisePaymentId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<StageWisePaymentBatch>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Account).HasConversion(EncryptedStringConverter.Instance);
+            entity.HasIndex(e => new { e.CompanyDb, e.PoDocEntry });
+            entity.HasIndex(e => e.ApprovalRequestId);
+            entity.HasIndex(e => e.DownPaymentStageWisePaymentId);
+            entity.HasMany(e => e.Lines).WithOne(l => l.Batch).HasForeignKey(l => l.BatchId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StageWisePaymentBatchLine>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.Bank).HasConversion(EncryptedStringConverter.Instance);
+            entity.HasMany(e => e.PaymentTerms).WithOne(t => t.Line).HasForeignKey(t => t.LineId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StageWisePaymentBatchLinePaymentTerm>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.HasIndex(e => new { e.LineId, e.PaymentTermsType }).IsUnique();
         });
 
         modelBuilder.Entity<ApprovalPolicy>(entity =>

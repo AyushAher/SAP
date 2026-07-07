@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { FileDown, Pencil } from "lucide-react";
 import { PageHeader } from "@/Components/shared/PageHeader";
-import { Button, DataTable, type DataTableColumn } from "@/Components/ui";
+import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } from "@/Components/shared/RowActions";
+import { DataTable, type DataTableColumn } from "@/Components/ui";
 import { ROUTES } from "@/config/constants";
 import { formatCodeWithName } from "@/helpers/masterLookup";
 import { useEnrichedListFetch } from "@/hooks/useEnrichedListFetch";
@@ -84,20 +85,18 @@ export function IssueForProductionListPage() {
           if (!row.id) return null;
           const id = row.id;
           return (
-            <div className="flex gap-2">
-              <Link to={`${ROUTES.ISSUE_FOR_PRODUCTION_FORM}/${id}`}>
-                <Button size="sm" variant="outline">
-                  Edit
-                </Button>
-              </Link>
-              <Button
-                size="sm"
-                variant="outline"
+            <RowActions>
+              <RowActionLink
+                to={`${ROUTES.ISSUE_FOR_PRODUCTION_FORM}/${id}`}
+                title="Edit issue request"
+                icon={<Pencil className={rowActionIconClassName} />}
+              />
+              <RowActionButton
+                title="Download PDF"
+                icon={<FileDown className={rowActionIconClassName} />}
                 onClick={() => downloadIssueForProductionPdf(id)}
-              >
-                PDF
-              </Button>
-            </div>
+              />
+            </RowActions>
           );
         },
       },

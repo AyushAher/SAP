@@ -110,7 +110,7 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         var queries = new SapQueries
         {
             Filter = $"CardCode eq '{safeCode}'",
-            Select = "CardCode,CardName,CardType",
+            Select = "CardCode,CardName,CardType,BPWithholdingTaxCollection",
             Top = "1",
         };
         var response = await http.GetAsync<SapBusinessPartnerResponse>(

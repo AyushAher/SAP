@@ -14,7 +14,7 @@ public class StageWisePaymentService(
     ICurrentCompanyDbAccessor companyDbAccessor)
 {
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
-    public async Task<(bool IsSuccess, string Message)> CreateStageWisePayment(
+    public async Task<(bool IsSuccess, string Message, int? PaymentId)> CreateStageWisePayment(
         StageWisePayment entity,
         SapPurchaseOrdersResponse? purchaseOrder,
         PaymentTermsUdf? selectedPaymentTermsUdf,
@@ -27,13 +27,16 @@ public class StageWisePaymentService(
     {
 
         if (purchaseOrder is null)
-            return (false, "Purchase order not found!");
+            return (false, "Purchase order not found!", null);
 
         if (selectedPaymentTermsUdf is null)
-            return (false, "Payment term not selected!");
+            return (false, "Payment term not selected!", null);
+
+        if (StageWisePaymentCalculations.RequiresBatchPayment(purchaseOrder, selectedPaymentTermsUdf, entity.ApInvoiceDocEntry))
+            return (false, "AP invoice payments must be created using batch payment.", null);
 
         if (downPaymentAmount <= 0)
-            return (false, "Down payment amount cannot be less than or equal to 0!");
+            return (false, "Down payment amount cannot be less than or equal to 0!", null);
 
         var paidBasicTotal = existingRecords
             .Where(x => x.PaymentTermsType == selectedPaymentTermsUdf.Id)
@@ -44,7 +47,7 @@ public class StageWisePaymentService(
             .Sum(x => x.GstAmount);
 
         if (downPaymentAmount > (purchaseOrder.DocTotal ?? 0))
-            return (false, "Down payment amount cannot be more than total PO value");
+            return (false, "Down payment amount cannot be more than total PO value", null);
 
         var remainingGstTotal =
             (((purchaseOrder.VatSum ?? 0) * (selectedPaymentTermsUdf.Gst ?? 0)) / 100)
@@ -55,7 +58,7 @@ public class StageWisePaymentService(
             - (paidBasicTotal ?? 0);
 
         if (downPaymentAmount > payableAmount)
-            return (false, "Down payment amount cannot exceed the payable amount for the stage.");
+            return (false, "Down payment amount cannot exceed the payable amount for the stage.", null);
 
         var apEntries = new List<int>();
         var approvalRequestIds = new List<int>();
@@ -73,7 +76,7 @@ public class StageWisePaymentService(
         if (downPaymentAmount > remainingBasicTotal &&
                     (selectedPaymentTermsUdf.Gst == null || selectedPaymentTermsUdf.Gst == 0))
         {
-            return (false, "Down payment amount cannot exceed remaining basic amount when GST is 0");
+            return (false, "Down payment amount cannot exceed remaining basic amount when GST is 0", null);
         }
         else if (purchaseOrder.DocumentStatus == "bost_Close" || selectedPaymentTermsUdf.Type is "Invoice" or "Retention")
         {
@@ -86,7 +89,7 @@ public class StageWisePaymentService(
             }
             else if (sapResponse?.Error?.Message?.Value is not null)
             {
-                return (false, $"SAP Error: {sapResponse.Error.Message.Value}");
+                return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null);
             }
             else if (sapResponse?.BaseDocEntry.HasValue == true)
             {
@@ -118,7 +121,7 @@ public class StageWisePaymentService(
                 if (sapResponse?.PendingApproval == true)
                     entity2.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
                 else if (sapResponse?.Error?.Message?.Value is not null)
-                    return (false, $"SAP Error: {sapResponse.Error.Message.Value}");
+                    return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null);
                 else if (sapResponse?.BaseDocEntry.HasValue == true)
                 {
                     entity2.ApDownPaymentInvoiceEntryNumber = sapResponse.BaseDocNum?.ToString();
@@ -137,7 +140,7 @@ public class StageWisePaymentService(
                 entity1.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
             else if (sapResponse?.Error?.Message?.Value is not null)
             {
-                return (false, $"SAP Error: {sapResponse.Error.Message.Value}");
+                return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null);
             }
             else if (sapResponse?.BaseDocEntry.HasValue == true)
             {
@@ -150,7 +153,7 @@ public class StageWisePaymentService(
         else if (selectedPaymentTermsUdf.Gst != null && selectedPaymentTermsUdf.Gst != 0)
         {
             if (remainingGstTotal < downPaymentAmount)
-                return (false, "GST cannot exceed remaining GST amount");
+                return (false, "GST cannot exceed remaining GST amount", null);
             entity1.GstAmount = downPaymentAmount;
             (sapResponse, tdsAmount) = await AddToSap(purchaseOrder, selectedPaymentTermsUdf, true, downPaymentAmount, wtCode, desc, entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted);
             SapPurchaseDownPaymentResponse? sapPurchaseDownPaymentResponse = sapResponse as SapPurchaseDownPaymentResponse;
@@ -158,7 +161,7 @@ public class StageWisePaymentService(
                 entity1.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
             else if (sapResponse?.Error?.Message?.Value is not null)
             {
-                return (false, $"SAP Error: {sapResponse.Error.Message.Value}");
+                return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null);
             }
             else if (sapResponse?.BaseDocEntry.HasValue == true)
             {
@@ -175,7 +178,7 @@ public class StageWisePaymentService(
              && string.IsNullOrEmpty(entity1.ApprovalRequestId)
               && string.IsNullOrEmpty(entity2?.ApprovalRequestId))
         {
-            return (false, "No records saved in SAP!");
+            return (false, "No records saved in SAP!", null);
         }
 
         if (!string.IsNullOrEmpty(entity1.ApprovalRequestId))
@@ -229,12 +232,138 @@ public class StageWisePaymentService(
             }
         }
 
-        return (true, "Payment created successfully");
+        return (true, "Payment created successfully", entity1.Id);
         //var hasTds = double.TryParse(sapResponse?.SupportingData ?? "0", out var tdsAmount) && tdsAmount > 0;
         //entity.Tds = hasTds ? tdsAmount : 0;
     }
 
+    public async Task<(bool IsSuccess, string Message, int? PaymentId)> CreateBatchDownPaymentAsync(
+        SapPurchaseOrdersResponse purchaseOrder,
+        IReadOnlyList<StageWisePaymentBatchLineRequest> lines,
+        IReadOnlyList<PaymentTermsUdf> paymentTerms,
+        double totalBasic,
+        string? bank,
+        string? wtCode,
+        List<StageWisePayment> existingRecords)
+    {
+        if (purchaseOrder is null)
+            return (false, "Purchase order not found!", null);
 
+        if (lines.Count == 0)
+            return (false, "No down payment lines provided.", null);
+
+        var totalAmount = Math.Round(lines.Sum(l => l.Amount), 2);
+        if (totalAmount <= 0)
+            return (false, "Down payment amount cannot be less than or equal to 0!", null);
+
+        if (totalAmount > (purchaseOrder.DocTotal ?? 0))
+            return (false, "Down payment amount cannot be more than total PO value", null);
+
+        var totalGross = 0.0;
+        var totalGst = 0.0;
+        foreach (var line in lines)
+        {
+            var (gross, gst) = StageWisePaymentCalculations.SplitBatchLineAmount(
+                purchaseOrder,
+                paymentTerms,
+                line.PaymentTermsTypes,
+                line.Amount,
+                totalBasic,
+                existingRecords);
+            totalGross += gross;
+            totalGst += gst;
+        }
+
+        totalGross = Math.Round(totalGross, 2);
+        totalGst = Math.Round(totalGst, 2);
+        var isGstOnly = totalGst > 0 && totalGross <= 0;
+        const string batchDesc = "Batch down payment";
+        const bool hadTdsDeducted = false;
+
+        var entity = new StageWisePayment
+        {
+            CompanyDb = CompanyDb,
+            DocNumber = purchaseOrder.DocNum,
+            Bank = bank,
+            WtCode = wtCode,
+            GrossAmount = totalGross,
+            GstAmount = totalGst,
+            StageDesc = batchDesc,
+            Stage = StageWisePaymentStages.AfterReceiptOfMaterial,
+            CreatedOn = DateTime.UtcNow,
+            LastModifiedOn = DateTime.UtcNow,
+        };
+
+        var (sapResponse, tdsAmount) = await AddDownPayment(
+            purchaseOrder,
+            isGstOnly,
+            totalAmount,
+            wtCode,
+            batchDesc,
+            hadTdsDeducted);
+
+        if (sapResponse?.PendingApproval == true)
+        {
+            entity.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
+            entity.Status = StageWisePaymentStatus.PendingApproval;
+            entity.Tds = tdsAmount;
+        }
+        else if (sapResponse?.Error?.Message?.Value is not null)
+        {
+            return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null);
+        }
+        else if (sapResponse?.BaseDocEntry.HasValue == true)
+        {
+            entity.ApDownPaymentInvoiceEntryNumber = sapResponse.BaseDocNum?.ToString();
+            entity.ApDownPaymentInvoiceDocEntry = sapResponse.BaseDocEntry?.ToString();
+            entity.Tds = tdsAmount;
+            entity.Status = StageWisePaymentStatus.Added;
+        }
+        else
+        {
+            return (false, "No records saved in SAP!", null);
+        }
+
+        await context.StageWisePayments.AddAsync(entity);
+        await context.SaveChangesAsync();
+
+        if (purchaseOrder.DocumentStatus != "bost_Close")
+        {
+            var netOutgoing = Math.Round(totalGross + totalGst - (entity.Tds ?? 0), 2);
+            var (outgoingResponse, _) = await AddOutgoingPayment(
+                purchaseOrder,
+                bank,
+                netOutgoing,
+                entity.ApDownPaymentInvoiceDocEntry,
+                hadTdsDeducted,
+                Constants.SapVendorPaymentInvoiceType.DownPayment);
+
+            if (outgoingResponse?.PendingApproval == true)
+            {
+                entity.ApprovalRequestId = outgoingResponse.PendingApprovalRequestId?.ToString();
+                entity.Status = StageWisePaymentStatus.PendingApproval;
+                context.StageWisePayments.Update(entity);
+                await context.SaveChangesAsync();
+            }
+            else if (outgoingResponse?.Error?.Message?.Value is not null)
+            {
+                return (false, $"SAP Error: {outgoingResponse.Error.Message.Value}", null);
+            }
+            else if (outgoingResponse?.BaseDocNum is not null)
+            {
+                entity.PaymentDocEntry = outgoingResponse.BaseDocEntry?.ToString();
+                if (string.IsNullOrEmpty(entity.ApDownPaymentInvoiceEntryNumber))
+                    entity.ApDownPaymentInvoiceEntryNumber = outgoingResponse.BaseDocNum?.ToString();
+                else
+                    entity.ApDownPaymentInvoiceEntryNumber += "," + outgoingResponse.BaseDocNum;
+
+                context.StageWisePayments.Update(entity);
+                await context.SaveChangesAsync();
+            }
+        }
+
+        return (true, "Payment created successfully", entity.Id);
+    }
 
     private async Task<(SapBaseResponse? response, double tdsAmount)> AddToSap(
         SapPurchaseOrdersResponse purchaseOrder,
@@ -255,8 +384,21 @@ public class StageWisePaymentService(
         double amount, string? apInvoiceDoc, bool hadTdsDeducted, string? invoiceType = Constants.SapVendorPaymentInvoiceType.Invoice)
     {
 
-        var apInvoices = await sapVendorPaymentService.GetApInvoices(purchaseOrder?.CardCode ?? "");
-        var apInvoice = apInvoices?.Value?.Where(x => x.DocEntry.ToString() == apInvoiceDoc).FirstOrDefault();
+        SapPurchaseInvoicesResponse? apInvoice = null;
+        if (int.TryParse(apInvoiceDoc, out var apInvoiceDocEntry))
+        {
+            apInvoice = await sapVendorPaymentService.GetApInvoiceByDocEntry(
+                purchaseOrder?.CardCode ?? string.Empty,
+                apInvoiceDocEntry);
+        }
+
+        if (apInvoice is null && purchaseOrder?.DocEntry is int poDocEntry)
+        {
+            var apInvoices = await sapVendorPaymentService.GetApInvoicesForPurchaseOrder(
+                purchaseOrder.CardCode ?? string.Empty,
+                poDocEntry);
+            apInvoice = apInvoices?.Value?.FirstOrDefault(x => x.DocEntry.ToString() == apInvoiceDoc);
+        }
 
         if (invoiceType == Constants.SapVendorPaymentInvoiceType.Invoice && (apInvoice is null || apInvoice.DocEntry is null))
         {
@@ -385,6 +527,7 @@ public class StageWisePaymentService(
             record.Status = StageWisePaymentStatus.Cancelled;
             record.LastModifiedOn = DateTime.UtcNow;
             context.StageWisePayments.Update(record);
+            await SyncBatchStatusForPaymentAsync(record.Id, StageWisePaymentBatchStatus.Rejected);
         }
 
         await context.SaveChangesAsync();
@@ -419,10 +562,25 @@ public class StageWisePaymentService(
                 record.Status = StageWisePaymentStatus.Approved;
                 record.LastModifiedOn = DateTime.UtcNow;
                 context.StageWisePayments.Update(record);
+                await SyncBatchStatusForPaymentAsync(record.Id, StageWisePaymentBatchStatus.Approved);
             }
         }
 
         await context.SaveChangesAsync();
+    }
+
+    private async Task SyncBatchStatusForPaymentAsync(int stageWisePaymentId, StageWisePaymentBatchStatus status)
+    {
+        var batch = await context.StageWisePaymentBatches
+            .FirstOrDefaultAsync(b => b.CompanyDb == CompanyDb
+                && (b.StageWisePaymentId == stageWisePaymentId
+                    || b.DownPaymentStageWisePaymentId == stageWisePaymentId));
+        if (batch is null)
+            return;
+
+        batch.Status = status;
+        batch.LastModifiedOn = DateTime.UtcNow;
+        context.StageWisePaymentBatches.Update(batch);
     }
 
     static bool IsLinkedToApprovalRequest(StageWisePayment record, string approvalRequestId) =>
@@ -458,7 +616,8 @@ public class StageWisePaymentService(
     }
 
     public async Task<(bool Success, IReadOnlyList<(bool Success, string Message)> Operations)> CancelOutgoingPayment(
-        StageWisePayment record)
+        StageWisePayment record,
+        bool syncBatchStatus = true)
     {
         var operations = new List<(bool Success, string Message)>();
         var existingRecord = await context.StageWisePayments.FindAsync(record.Id);
@@ -472,20 +631,53 @@ public class StageWisePaymentService(
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(x => !string.IsNullOrEmpty(x))
             .ToList() ?? []);
-        
+
         docEntries.Reverse();
-        
-        if (docEntries is null || docEntries.Count == 0)
+
+        if (docEntries.Count == 0)
         {
+            if (existingRecord.Status == StageWisePaymentStatus.PendingApproval
+                || existingRecord.Status == StageWisePaymentStatus.Added)
+            {
+                existingRecord.GrossAmount = 0;
+                existingRecord.GstAmount = 0;
+                existingRecord.Tds = 0;
+                existingRecord.Status = StageWisePaymentStatus.Cancelled;
+                existingRecord.LastModifiedOn = DateTime.UtcNow;
+                context.StageWisePayments.Update(existingRecord);
+                if (syncBatchStatus)
+                    await SyncBatchStatusForPaymentAsync(existingRecord.Id, StageWisePaymentBatchStatus.Cancelled);
+                await context.SaveChangesAsync();
+
+                operations.Add((true, "Payment marked as cancelled (no SAP documents to cancel)."));
+                return (true, operations);
+            }
+
             operations.Add((false, "No SAP documents linked to this record. Cannot cancel in SAP."));
             return (false, operations);
         }
 
         var allCancelledInSap = true;
-        foreach (var docEntry in docEntries)
+        if (docEntries.Count > 2)
         {
-            if (!await TryCancelSapDocumentAsync(docEntry, operations))
+            operations.Add((false, "Invalid number of SAP documents linked to this record."));
+            return (false, operations);
+        }
+
+        if (docEntries.Count == 2)
+        {
+            if (!await TryCancelSapDocumentAsync(docEntries[0], operations, "vp"))
                 allCancelledInSap = false;
+            if (!await TryCancelSapDocumentAsync(docEntries[1], operations, "dp"))
+                allCancelledInSap = false;
+        }
+        else
+        {
+            foreach (var docEntry in docEntries)
+            {
+                if (!await TryCancelSapDocumentAsync(docEntry, operations))
+                    allCancelledInSap = false;
+            }
         }
 
         if (!allCancelledInSap)
@@ -500,45 +692,65 @@ public class StageWisePaymentService(
         existingRecord.Status = StageWisePaymentStatus.Cancelled;
         existingRecord.LastModifiedOn = DateTime.UtcNow;
         context.StageWisePayments.Update(existingRecord);
+        if (syncBatchStatus)
+            await SyncBatchStatusForPaymentAsync(existingRecord.Id, StageWisePaymentBatchStatus.Cancelled);
         await context.SaveChangesAsync();
 
         operations.Add((true, "Payment amounts cleared and record marked as cancelled."));
         return (true, operations);
     }
 
-    async Task<bool> TryCancelSapDocumentAsync(string docEntry, List<(bool Success, string Message)> operations)
+    async Task<bool> TryCancelSapDocumentAsync(
+        string docEntry,
+        List<(bool Success, string Message)> operations,
+        string? documentType = null)
     {
-        var vendorPayment = await sapVendorPaymentService.GetVendorPaymentByDocEntry(docEntry);
-        if (vendorPayment is not null && string.IsNullOrEmpty(vendorPayment.Error?.Message?.Value) && vendorPayment.Value != null && vendorPayment.Value.Count != 0)
+        if (documentType is null or "vp")
         {
-            var response = await sapVendorPaymentService.CancelVendorPayment(vendorPayment.Value?.FirstOrDefault()?.DocEntry.ToString() ?? "");
-            if (!string.IsNullOrEmpty(response?.Error?.Message?.Value))
+            var vendorPayment = await sapVendorPaymentService.GetVendorPaymentByDocEntry(docEntry);
+            if (vendorPayment is not null && string.IsNullOrEmpty(vendorPayment.Error?.Message?.Value) && vendorPayment.Value != null && vendorPayment.Value.Count != 0)
+            {
+                var response = await sapVendorPaymentService.CancelVendorPayment(vendorPayment.Value?.FirstOrDefault()?.DocEntry.ToString() ?? "");
+                if (!string.IsNullOrEmpty(response?.Error?.Message?.Value))
+                {
+                    operations.Add((false,
+                        $"Failed to cancel vendor payment {docEntry}. SAP Error: {response?.Error?.Message?.Value ?? "Unknown error"}"));
+                    return false;
+                }
+
+                operations.Add((true, $"Vendor payment {docEntry} cancelled in SAP."));
+                return true;
+            }
+
+            if (documentType == "vp")
+            {
+                operations.Add((false, $"No vendor payment found for document {docEntry}."));
+                return false;
+            }
+        }
+
+        if (documentType is null or "dp")
+        {
+            var downPayment = await sapPurchaseDownPaymentService.GetPurchaseDownPaymentByDocNum(docEntry);
+            if (downPayment is null || !string.IsNullOrEmpty(downPayment.Error?.Message?.Value) || downPayment.Value == null || downPayment.Value.Count == 0)
             {
                 operations.Add((false,
-                    $"Failed to cancel vendor payment {docEntry}. SAP Error: {response?.Error?.Message?.Value ?? "Unknown error"}"));
+                    $"No vendor payment or down payment found for document entry {docEntry}. SAP Error: {downPayment?.Error?.Message?.Value ?? "Unknown error"}"));
                 return false;
             }
 
-            operations.Add((true, $"Vendor payment {docEntry} cancelled in SAP."));
+            var downPaymentResponse = await sapPurchaseDownPaymentService.CancelDownPayment(downPayment.Value.FirstOrDefault()?.DocEntry.ToString() ?? "");
+            if (!string.IsNullOrEmpty(downPaymentResponse?.Error?.Message?.Value))
+            {
+                operations.Add((false,
+                    $"Failed to cancel down payment {docEntry}. SAP Error: {downPaymentResponse?.Error?.Message?.Value ?? "Unknown error"}"));
+                return false;
+            }
+
+            operations.Add((true, $"Down payment {docEntry} cancelled in SAP."));
             return true;
         }
 
-        var downPayment = await sapPurchaseDownPaymentService.GetPurchaseDownPaymentByDocNum(docEntry);
-        if(downPayment is null || !string.IsNullOrEmpty(downPayment.Error?.Message?.Value) || downPayment.Value == null || downPayment.Value.Count == 0)
-        {
-            operations.Add((false,
-                $"No vendor payment or down payment found for document entry {docEntry}. SAP Error: {downPayment?.Error?.Message?.Value ?? "Unknown error"}"));
-            return false;
-        }
-        var downPaymentResponse = await sapPurchaseDownPaymentService.CancelDownPayment(downPayment.Value.FirstOrDefault()?.DocEntry.ToString() ?? "");
-        if ( !string.IsNullOrEmpty(downPaymentResponse?.Error?.Message?.Value))
-        {
-            operations.Add((false,
-                $"Failed to cancel down payment {docEntry}. SAP Error: {downPaymentResponse?.Error?.Message?.Value ?? "Unknown error"}"));
-            return false;
-        }
-
-        operations.Add((true, $"Down payment {docEntry} cancelled in SAP."));
-        return true;
+        return false;
     }
 }

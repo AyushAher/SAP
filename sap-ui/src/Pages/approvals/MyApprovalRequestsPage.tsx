@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useState } from 'react'
+import { Eye } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
-import { Badge, Button, DataTable, type DataTableColumn } from '@/Components/ui'
+import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
+import { Badge, DataTable, type DataTableColumn } from '@/Components/ui'
 import { getCardCodeFromRequest } from '@/helpers/approvalUtils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
@@ -40,7 +42,11 @@ export function MyApprovalRequestsPage() {
       key: 'actions',
       header: 'Actions',
       render: (row) => (
-        <Button size="sm" variant="outline" onClick={() => setViewRow(row)}>View</Button>
+        <RowActionButton
+          title="View request"
+          icon={<Eye className={rowActionIconClassName} />}
+          onClick={() => setViewRow(row)}
+        />
       ),
     },
   ], [lookupMaps])

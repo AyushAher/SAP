@@ -25,7 +25,7 @@ public class HttpRequestHandler(
         var cacheKey = BuildCacheKey(url);
         try
         {
-            if (checkCache && url.StartsWith(Constants.SapServiceLayerUrl))
+            if (checkCache && url.StartsWith(Constants.SapServiceLayerUrl) && Constants.CachedEndpoints.ShouldCache(url))
             {
                 var cached = await cache.GetAsync<T>(cacheKey, cancellationToken);
                 if (cached is not null) return cached;
@@ -64,7 +64,8 @@ public class HttpRequestHandler(
         var response = await client.SendAsync(request, cancellationToken);
         var result = await HandleResponseAsync<T>(request, response, cancellationToken);
 
-        if (checkCache && Constants.CachedEndpoints.ShouldCache(url) && result is not null)
+        if (checkCache && Constants.CachedEndpoints.ShouldCache(url) && result is not null
+            && result is not SapBaseResponse { Error: not null })
             await cache.SetAsync(cacheKey, result, TimeSpan.FromHours(6), cancellationToken);
 
         return result;

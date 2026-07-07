@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/Components/ui'
 import { Spinner } from '@/Components/ui'
+import { rowActionsCellClassName, rowActionsHeaderClassName } from '@/Components/shared/RowActions'
 
 export interface SapColumn<T> {
   key: string
@@ -44,7 +45,7 @@ export function SapDataGrid<T>({
 
   return (
     <div
-      className="overflow-auto rounded-xl border border-slate-200 bg-white"
+      className={maxHeight ? 'overflow-auto rounded-xl border border-slate-200 bg-white' : 'overflow-x-auto overflow-y-visible rounded-xl border border-slate-200 bg-white'}
       style={maxHeight ? { maxHeight } : undefined}
     >
       <Table className="min-w-full">
@@ -53,7 +54,7 @@ export function SapDataGrid<T>({
             {columns.map((col) => (
               <TableHead key={col.key}>{col.header}</TableHead>
             ))}
-            {actions && <TableHead>Actions</TableHead>}
+            {actions && <TableHead className={rowActionsHeaderClassName}>Actions</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -76,7 +77,7 @@ export function SapDataGrid<T>({
                     {col.render ? col.render(row) : String(col.accessor?.(row) ?? (row as Record<string, unknown>)[col.key] ?? '')}
                   </TableCell>
                 ))}
-                {actions && <TableCell>{actions(row)}</TableCell>}
+                {actions && <TableCell className={rowActionsCellClassName}>{actions(row)}</TableCell>}
               </TableRow>
             ))
           )}

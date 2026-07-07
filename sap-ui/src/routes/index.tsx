@@ -10,6 +10,7 @@ import { DashboardPage } from '@/Pages/dashboard/DashboardPage'
 import { PurchaseOrderListPage } from '@/Pages/purchase-orders/PurchaseOrderListPage'
 import { PurchaseOrderFormPage } from '@/Pages/purchase-orders/PurchaseOrderFormPage'
 import { StageWisePaymentPage } from '@/Pages/purchase-orders/StageWisePaymentPage'
+import { StageWisePaymentBatchPage } from '@/Pages/purchase-orders/StageWisePaymentBatchPage'
 import { InventoryTransferListPage } from '@/Pages/inventory-transfers/InventoryTransferListPage'
 import { StockTransferFormPage } from '@/Pages/inventory-transfers/StockTransferFormPage'
 import { ProductionOrderListPage } from '@/Pages/production-orders/ProductionOrderListPage'
@@ -39,6 +40,10 @@ export const router = createBrowserRouter([
       { path: ROUTES.PURCHASE_ORDERS.slice(1), element: <PurchaseOrderListPage /> },
       { path: 'purchase-orders/form/:id?', element: <PurchaseOrderFormPage /> },
       { path: 'purchase-orders/:id/payments', element: <StageWisePaymentPage /> },
+      { path: 'purchase-orders/:id/payments/batch', element: <StageWisePaymentBatchPage /> },
+      { path: 'purchase-orders/:id/payments/batch/approve/:approvalRequestId', element: <StageWisePaymentBatchPage /> },
+      { path: 'purchase-orders/:id/payments/batch/payment/:stageWisePaymentId', element: <StageWisePaymentBatchPage /> },
+      { path: 'purchase-orders/:id/payments/batch/:batchId', element: <StageWisePaymentBatchPage /> },
       { path: ROUTES.INVENTORY_TRANSFERS.slice(1), element: <InventoryTransferListPage /> },
       { path: 'inventory-transfers/form/:id?', element: <StockTransferFormPage /> },
       { path: ROUTES.PRODUCTION_ORDERS.slice(1), element: <ProductionOrderListPage /> },

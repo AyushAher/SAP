@@ -45,6 +45,20 @@ namespace SapApi.Infrastructure.Services.Sap
                 Constants.SapApiUrls.GetAllSapPurchaseOrders + $"({id})" + (sapQueries?.GetQueryValue() ?? ""));
         }
 
+        public Task<SapPurchaseOrdersResponse?> GetPurchaseOrderForPaymentPage(string id, CancellationToken cancellationToken = default) =>
+            GetPurchaseOrderFreshFromSap(id, cancellationToken);
+
+        public Task<SapPurchaseOrdersResponse?> GetPurchaseOrderForPaymentOperations(string id, CancellationToken cancellationToken = default) =>
+            GetPurchaseOrderFreshFromSap(id, cancellationToken);
+
+        private Task<SapPurchaseOrdersResponse?> GetPurchaseOrderFreshFromSap(
+            string id,
+            CancellationToken cancellationToken = default) =>
+            requestHandler.GetAsync<SapPurchaseOrdersResponse>(
+                Constants.SapApiUrls.GetAllSapPurchaseOrders + $"({id})",
+                checkCache: false,
+                cancellationToken: cancellationToken);
+
         public Task<SapPurchaseOrdersResponse?> CreateGrpo(SapPurchaseOrdersResponse data)
         {
             return requestHandler.PostAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(

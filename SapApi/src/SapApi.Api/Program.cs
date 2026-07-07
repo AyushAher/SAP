@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using SapApi.Api.DevTools;
 using SapApi.Api.Middleware;
 using SapApi.Infrastructure;
 using SapApi.Infrastructure.Persistence;
@@ -9,6 +10,10 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 Console.WriteLine($"SapApi starting (env={builder.Environment.EnvironmentName})");
+
+var cliExitCode = await CancelStageWisePaymentsCommand.TryRunAsync(args, builder.Configuration);
+if (cliExitCode >= 0)
+    Environment.Exit(cliExitCode);
 
 builder.Host.UseSerilog((ctx, cfg) =>
     cfg.ReadFrom.Configuration(ctx.Configuration).WriteTo.Console());

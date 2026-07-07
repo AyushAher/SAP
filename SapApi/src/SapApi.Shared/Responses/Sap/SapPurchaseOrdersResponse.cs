@@ -74,6 +74,86 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("BPL_IDAssignedToInvoice"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? BPLId { get; set; } = 1;
 
+        [JsonPropertyName("ContactPersonCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? ContactPersonCode { get; set; }
+
+        [JsonPropertyName("ShipToCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ShipToCode { get; set; }
+
+        [JsonPropertyName("RoundingDiffAmount"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? RoundingDiffAmount { get; set; }
+
+        [JsonPropertyName("TotalDiscount"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? TotalDiscount { get; set; }
+
+        [JsonPropertyName("U_Stage"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UStage { get; set; }
+
+        [JsonPropertyName("U_Warehouse"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UWarehouse { get; set; }
+
+        [JsonPropertyName("U_Owner"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UOwner { get; set; }
+
+        [JsonPropertyName("U_DispatchTo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UDispatchTo { get; set; }
+
+        [JsonPropertyName("U_ContactPerson"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UContactPerson { get; set; }
+
+        [JsonPropertyName("U_PriceBasis"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UPriceBasis { get; set; }
+
+        [JsonPropertyName("U_ModeOfTransport"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UModeOfTransport { get; set; }
+
+        [JsonPropertyName("U_MatOutDoc"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UMatOutDoc { get; set; }
+
+        [JsonPropertyName("U_GoodsIssue"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UGoodsIssue { get; set; }
+
+        [JsonPropertyName("U_MatInDoc"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UMatInDoc { get; set; }
+
+        [JsonPropertyName("U_GoodsReceipt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UGoodsReceipt { get; set; }
+
+        [JsonPropertyName("U_DelTerms"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UDelTerms { get; set; }
+
+        [JsonPropertyName("U_InspectionBy"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UInspectionBy { get; set; }
+
+        [JsonPropertyName("U_Transportation"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UTransportation { get; set; }
+
+        [JsonPropertyName("U_Supervision"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? USupervision { get; set; }
+
+        [JsonPropertyName("U_TransitIns"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UTransitIns { get; set; }
+
+        [JsonPropertyName("U_DrawDocs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UDrawDocs { get; set; }
+
+        [JsonPropertyName("U_Loading"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ULoading { get; set; }
+
+        [JsonPropertyName("U_Warranty"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UWarranty { get; set; }
+
+        [JsonPropertyName("U_Unloading"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UUnloading { get; set; }
+
+        [JsonPropertyName("U_OtherRemark"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UOtherRemark { get; set; }
+
+        [JsonPropertyName("U_Painting"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UPainting { get; set; }
+
+        [JsonPropertyName("U_TestCerts"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UTestCerts { get; set; }
 
         [JsonPropertyName("U_B1"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? UBasic1 { get; set; }

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SapApi.Domain.Entities;
 using SapApi.Infrastructure.Services;
@@ -9,14 +10,16 @@ namespace SapApi.Api.Controllers;
 
 [ApiController]
 [Route("api/approval-policies")]
-// [Authorize(Roles = "Admin,SuperAdmin")]
+[Authorize]
 public class ApprovalPoliciesController(ApprovalPolicyService policyService) : ControllerBase
 {
     [HttpGet]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetAll() =>
         Ok(ApiResponse<object>.Ok((await policyService.GetAllAsync()).Select(Map)));
 
     [HttpGet("{id:int}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetById(int id)
     {
         var policy = await policyService.GetByIdAsync(id);
@@ -26,6 +29,7 @@ public class ApprovalPoliciesController(ApprovalPolicyService policyService) : C
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> Create([FromBody] UpsertApprovalPolicyRequest request)
     {
         var id = await policyService.CreatePolicyAsync(
@@ -35,6 +39,7 @@ public class ApprovalPoliciesController(ApprovalPolicyService policyService) : C
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> Update(int id, [FromBody] UpsertApprovalPolicyRequest request)
     {
         await policyService.UpdatePolicyAsync(
@@ -44,6 +49,7 @@ public class ApprovalPoliciesController(ApprovalPolicyService policyService) : C
     }
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> Delete(int id)
     {
         await policyService.DeletePolicyAsync(id);
@@ -51,6 +57,7 @@ public class ApprovalPoliciesController(ApprovalPolicyService policyService) : C
     }
 
     [HttpGet("metadata")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public IActionResult GetMetadata() =>
         Ok(ApiResponse<object>.Ok(new ApprovalPolicyMetadataDto
         {

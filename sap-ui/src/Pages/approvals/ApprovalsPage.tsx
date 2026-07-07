@@ -1,17 +1,22 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Eye } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
+import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Button, Badge, DataTable, Modal, Textarea, type DataTableColumn } from '@/Components/ui'
 import { getCardCodeFromRequest } from '@/helpers/approvalUtils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { bulkApprove, bulkReject, listPendingApprovals, type ApprovalRequest } from '@/Requests/approvals'
+import { getBatchByApprovalRequestId } from '@/Requests/stageWisePaymentBatches'
 
 const extractors = {
   cardCodes: (row: ApprovalRequest) => getCardCodeFromRequest(row),
 }
 
 export function ApprovalsPage() {
+  const navigate = useNavigate()
   const [selected, setSelected] = useState<number[]>([])
   const [viewRow, setViewRow] = useState<ApprovalRequest | null>(null)
   const [bulkRejectOpen, setBulkRejectOpen] = useState(false)
@@ -25,6 +30,17 @@ export function ApprovalsPage() {
   const { fetchData, lookupMaps } = useEnrichedListFetch(fetchApprovals, extractors)
 
   const reload = () => setRefreshKey((k) => k + 1)
+
+  const handleViewRequest = async (row: ApprovalRequest) => {
+    if (row.documentType === 'Payments') {
+      const batch = await getBatchByApprovalRequestId(row.id)
+      if (batch) {
+        navigate(`/purchase-orders/${batch.poDocEntry}/payments/batch/approve/${row.id}`)
+        return
+      }
+    }
+    setViewRow(row)
+  }
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
@@ -68,7 +84,14 @@ export function ApprovalsPage() {
     {
       key: 'actions',
       header: 'Action',
-      render: (row) => <Button size="sm" onClick={() => setViewRow(row)}>View Request</Button>,
+      render: (row) => (
+        <RowActionButton
+          title="View request"
+          variant="primary"
+          icon={<Eye className={rowActionIconClassName} />}
+          onClick={() => void handleViewRequest(row)}
+        />
+      ),
     },
   ], [lookupMaps, selected])
 

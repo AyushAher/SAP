@@ -4,6 +4,23 @@ namespace SapApi.Infrastructure.Sap;
 
 public static class SapPaginationProfiles
 {
+    /// <summary>
+    /// Header + payment-term UDF fields only (no DocumentLines). Used for stage-wise payment page load.
+    /// </summary>
+    public const string PurchaseOrderPaymentPageSelect =
+        "DocEntry,DocNum,DocType,CardCode,CardName,Project,DocTotal,VatSum,DocumentStatus,DocDate,BPL_IDAssignedToInvoice," +
+        "U_B1,U_B2,U_B3,U_B4,U_B5,U_B6,U_B7,U_B8,U_B9,U_B10,U_B11," +
+        "U_G1,U_G2,U_G3,U_G4,U_G5,U_G6,U_G7,U_G8,U_G9,U_G10,U_G11," +
+        "U_D1,U_D2,U_D3,U_D4,U_D5,U_D6,U_D7,U_D8,U_D9,U_D10,U_D11," +
+        "U_S1,U_S2,U_S3,U_S4,U_S5,U_S6,U_S7,U_S8,U_S9,U_S10,U_S11," +
+        "U_T1,U_T2,U_T3,U_T4,U_T5,U_T6,U_T7,U_T8,U_T9,U_T10,U_T11";
+
+    /// <summary>
+    /// Payment page fields plus document lines required for down-payment creation.
+    /// </summary>
+    public const string PurchaseOrderPaymentOperationsSelect =
+        PurchaseOrderPaymentPageSelect + ",DocumentLines";
+
     public static SapPaginationOptions PurchaseOrders => new()
     {
         BaseFilter = "DocDate ge '2026-01-01'",

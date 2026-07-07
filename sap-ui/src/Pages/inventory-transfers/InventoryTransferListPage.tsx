@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Ban, Lock, Pencil } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
-import { Button, DataTable, type DataTableColumn } from '@/Components/ui'
+import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
+import { DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
@@ -35,11 +36,24 @@ export function InventoryTransferListPage() {
       key: 'actions',
       header: 'Actions',
       render: (row) => row.DocEntry && (
-        <div className="flex gap-2">
-          <Link to={`${ROUTES.INVENTORY_TRANSFER_FORM}/${row.DocEntry}`}><Button size="sm" variant="outline">Edit</Button></Link>
-          <Button size="sm" variant="outline" onClick={() => closeInventoryTransfer(String(row.DocEntry)).then(() => window.location.reload())}>Close</Button>
-          <Button size="sm" variant="outline" onClick={() => cancelInventoryTransfer(String(row.DocEntry)).then(() => window.location.reload())}>Cancel</Button>
-        </div>
+        <RowActions>
+          <RowActionLink
+            to={`${ROUTES.INVENTORY_TRANSFER_FORM}/${row.DocEntry}`}
+            title="Edit stock transfer"
+            icon={<Pencil className={rowActionIconClassName} />}
+          />
+          <RowActionButton
+            title="Close stock transfer"
+            icon={<Lock className={rowActionIconClassName} />}
+            onClick={() => closeInventoryTransfer(String(row.DocEntry)).then(() => window.location.reload())}
+          />
+          <RowActionButton
+            title="Cancel stock transfer"
+            variant="danger"
+            icon={<Ban className={rowActionIconClassName} />}
+            onClick={() => cancelInventoryTransfer(String(row.DocEntry)).then(() => window.location.reload())}
+          />
+        </RowActions>
       ),
     },
   ], [lookupMaps])

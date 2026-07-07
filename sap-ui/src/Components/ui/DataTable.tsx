@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, X } from 'lucide-react'
+import { rowActionsCellClassName, rowActionsHeaderClassName } from '@/Components/shared/RowActions'
 import { cn } from '@/helpers/lib/utils'
 import { DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE_OPTIONS } from '@/helpers/api/pagination'
 import type { Filter, FilterOperator, PaginationRequest, PaginationResponse, Sort } from '@/types/api'
@@ -46,6 +47,10 @@ export interface DataTableProps<T> {
   className?: string
   toolbar?: React.ReactNode
   onRowClick?: (row: T) => void
+}
+
+function isActionsColumn(column: { key: string }) {
+  return column.key === 'actions'
 }
 
 function getCellValue<T>(row: T, column: DataTableColumn<T>): unknown {
@@ -142,6 +147,7 @@ export function DataTable<T>({
                   key={column.key}
                   className={cn(
                     column.sortable && 'cursor-pointer select-none',
+                    isActionsColumn(column) && rowActionsHeaderClassName,
                     column.headerClassName,
                   )}
                   onClick={() => column.sortable && toggleColumnSort(column.key)}
@@ -200,7 +206,10 @@ export function DataTable<T>({
                   className={cn(onRowClick && 'cursor-pointer')}
                 >
                   {columns.map((column) => (
-                    <TableCell key={column.key} className={column.cellClassName}>
+                    <TableCell
+                      key={column.key}
+                      className={cn(isActionsColumn(column) && rowActionsCellClassName, column.cellClassName)}
+                    >
                       {column.render
                         ? column.render(row, index)
                         : String(getCellValue(row, column) ?? '')}

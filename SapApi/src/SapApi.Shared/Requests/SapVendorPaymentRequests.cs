@@ -26,6 +26,12 @@
         [JsonPropertyName("TransferAccount")]
         public string TransferAccount { get; set; } = "0";
 
+        [JsonPropertyName("CashAccount"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CashAccount { get; set; }
+
+        [JsonPropertyName("CheckAccount"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CheckAccount { get; set; }
+
         [JsonPropertyName("JournalRemarks"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? JournalRemarks { get; set; }
         [JsonPropertyName("Remarks"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

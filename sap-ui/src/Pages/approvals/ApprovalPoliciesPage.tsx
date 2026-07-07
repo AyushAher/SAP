@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { PolicyDialog } from '@/Components/approvals/PolicyDialog'
 import { SapDataGrid } from '@/Components/shared/SapDataGrid'
-import { Button } from '@/Components/ui'
+import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { deleteApprovalPolicy, getApprovalPolicies, type ApprovalPolicy } from '@/Requests/approvalPolicies'
 
 export function ApprovalPoliciesPage() {
@@ -42,10 +43,19 @@ export function ApprovalPoliciesPage() {
           { key: 'active', header: 'Active', accessor: (r) => r.isActive ? 'Yes' : 'No' },
         ]}
         actions={(row) => (
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => setDialogPolicy(row)}>Edit</Button>
-            <Button size="sm" variant="outline" onClick={() => deleteApprovalPolicy(row.id).then(reload)}>Delete</Button>
-          </div>
+          <RowActions>
+            <RowActionButton
+              title="Edit policy"
+              icon={<Pencil className={rowActionIconClassName} />}
+              onClick={() => setDialogPolicy(row)}
+            />
+            <RowActionButton
+              title="Delete policy"
+              variant="danger"
+              icon={<Trash2 className={rowActionIconClassName} />}
+              onClick={() => deleteApprovalPolicy(row.id).then(reload)}
+            />
+          </RowActions>
         )}
       />
 

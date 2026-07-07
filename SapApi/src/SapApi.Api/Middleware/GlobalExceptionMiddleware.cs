@@ -16,6 +16,7 @@ public class GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExcep
         {
             logger.LogWarning(ex, "API error: {Code}", ex.ErrorCode);
             context.Response.StatusCode = ex.ErrorCode == BaseErrorCodes.IncorrectCredentials
+                || ex.ErrorCode == BaseErrorCodes.SapSessionUnavailable
                 ? StatusCodes.Status401Unauthorized
                 : StatusCodes.Status400BadRequest;
             await context.Response.WriteAsJsonAsync(ApiResponse<object>.Fail(ex.ErrorCode, ex.Message));

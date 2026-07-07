@@ -9,10 +9,11 @@ namespace SapApi.Infrastructure.Caching;
 
 /// <summary>
 /// Two-tier cache: L1 in-memory (fast) + L2 PostgreSQL (durable). No Redis required.
+/// Uses a DbContext factory so concurrent SAP cache reads do not share one DbContext instance.
 /// </summary>
 public class HybridCacheService(
     IMemoryCache memoryCache,
-    AppDbContext dbContext,
+    IDbContextFactory<AppDbContext> dbContextFactory,
     ICurrentCompanyDbAccessor companyDbAccessor) : ICacheService
 {
     private static readonly MemoryCacheEntryOptions MemoryOptions = new()
@@ -28,6 +29,7 @@ public class HybridCacheService(
         if (memoryCache.TryGetValue(key, out T? cached))
             return cached;
 
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         var entry = await dbContext.CacheEntries
             .AsNoTracking()
             .FirstOrDefaultAsync(e => e.Key == key && e.CompanyDb == CompanyDb, cancellationToken);
@@ -51,6 +53,7 @@ public class HybridCacheService(
         var compressed = Compress(json);
         var expiresAt = DateTime.UtcNow.Add(ttl);
 
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         var existing = await dbContext.CacheEntries.FindAsync([key], cancellationToken);
         if (existing == null)
         {
@@ -76,6 +79,8 @@ public class HybridCacheService(
     public async Task RemoveAsync(string key, CancellationToken cancellationToken = default)
     {
         memoryCache.Remove(key);
+
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         var entry = await dbContext.CacheEntries.FindAsync([key], cancellationToken);
         if (entry != null && entry.CompanyDb == CompanyDb)
         {

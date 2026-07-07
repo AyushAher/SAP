@@ -1,6 +1,12 @@
-import { useState, useRef, useEffect, useId } from 'react'
+import { useState, useRef, useId } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, X, Check } from 'lucide-react'
 import { cn } from '@/helpers/lib/utils'
+import {
+  getFloatingMenuStyle,
+  useClickOutside,
+  useFloatingMenuPortal,
+} from '@/helpers/hooks/useFloatingMenuPortal'
 import type { SelectOption } from '@/types'
 
 export interface MultiSelectProps {
@@ -15,6 +21,11 @@ export interface MultiSelectProps {
   required?: boolean
   maxDisplay?: number
   className?: string
+  triggerClassName?: string
+  menuClassName?: string
+  usePortal?: boolean
+  minHeight?: string
+  menuMinHeight?: string
 }
 
 export function MultiSelect({
@@ -29,22 +40,21 @@ export function MultiSelect({
   required = false,
   maxDisplay = 2,
   className,
+  triggerClassName,
+  menuClassName,
+  usePortal = true,
+  minHeight = 'min-h-[42px]',
+  menuMinHeight = 'min-h-48',
 }: MultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const { triggerRef, menuRef, menuPosition, updateMenuPosition } = useFloatingMenuPortal(isOpen, usePortal)
   const id = useId()
+  const listboxId = `${id}-listbox`
+
+  useClickOutside(containerRef, menuRef, () => setIsOpen(false))
 
   const selectedOptions = options.filter((opt) => value.includes(opt.value))
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
 
   const toggleOption = (optionValue: string) => {
     const newValue = value.includes(optionValue)
@@ -66,31 +76,83 @@ export function MultiSelect({
     return `${selectedOptions.length} selected`
   }
 
+  const menuContent = (
+    <ul
+      ref={menuRef as React.RefObject<HTMLUListElement>}
+      id={listboxId}
+      role="listbox"
+      aria-multiselectable
+      className={cn(
+        'overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg',
+        menuMinHeight,
+        'max-h-60',
+        usePortal ? 'fixed z-[9999]' : 'absolute z-50 mt-1 w-full',
+        menuClassName,
+      )}
+      style={getFloatingMenuStyle(usePortal, menuPosition)}
+    >
+      {options.map((option) => {
+        const isSelected = value.includes(option.value)
+        return (
+          <li
+            key={option.value}
+            role="option"
+            aria-selected={isSelected}
+            onClick={() => !option.disabled && toggleOption(option.value)}
+            className={cn(
+              'flex cursor-pointer items-center gap-3 px-3 py-2 text-sm',
+              option.disabled && 'cursor-not-allowed opacity-50',
+              isSelected ? 'bg-primary-50 text-primary-700' : 'text-slate-700 hover:bg-slate-50',
+            )}
+          >
+            <div
+              className={cn(
+                'flex h-4 w-4 items-center justify-center rounded border',
+                isSelected ? 'border-primary-600 bg-primary-600' : 'border-slate-300',
+              )}
+            >
+              {isSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+            </div>
+            {option.label}
+          </li>
+        )
+      })}
+    </ul>
+  )
+
   return (
     <div className={cn('w-full', className)} ref={containerRef}>
       {label && (
-        <label id={`${id}-label`} className="mb-1.5 block text-sm font-medium text-slate-700">
+        <label id={`${id}-label`} htmlFor={id} className="mb-1.5 block text-sm font-medium text-slate-700">
           {label}
           {required && <span className="ml-0.5 text-red-500">*</span>}
         </label>
       )}
       <div className="relative">
         <button
+          ref={triggerRef}
           type="button"
           id={id}
           role="combobox"
           aria-expanded={isOpen}
           aria-haspopup="listbox"
+          aria-controls={listboxId}
           disabled={disabled}
-          onClick={() => !disabled && setIsOpen(!isOpen)}
+          onClick={() => {
+            if (disabled) return
+            if (!isOpen && usePortal) updateMenuPosition()
+            setIsOpen(!isOpen)
+          }}
           className={cn(
             'flex w-full items-center justify-between rounded-lg border bg-white px-3 py-2 text-sm',
-            'focus:outline-none focus:ring-2 focus:ring-offset-0 min-h-[38px]',
+            'focus:outline-none focus:ring-2 focus:ring-offset-0',
+            minHeight,
             'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500',
             error
               ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
               : 'border-slate-300 focus:border-primary-500 focus:ring-primary-500',
             selectedOptions.length === 0 && 'text-slate-400',
+            triggerClassName,
           )}
         >
           <div className="flex flex-1 flex-wrap items-center gap-1">
@@ -123,40 +185,9 @@ export function MultiSelect({
           />
         </button>
 
-        {isOpen && (
-          <ul
-            role="listbox"
-            aria-multiselectable
-            className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-          >
-            {options.map((option) => {
-              const isSelected = value.includes(option.value)
-              return (
-                <li
-                  key={option.value}
-                  role="option"
-                  aria-selected={isSelected}
-                  onClick={() => !option.disabled && toggleOption(option.value)}
-                  className={cn(
-                    'flex cursor-pointer items-center gap-3 px-3 py-2 text-sm',
-                    option.disabled && 'cursor-not-allowed opacity-50',
-                    isSelected ? 'bg-primary-50 text-primary-700' : 'text-slate-700 hover:bg-slate-50',
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'flex h-4 w-4 items-center justify-center rounded border',
-                      isSelected ? 'border-primary-600 bg-primary-600' : 'border-slate-300',
-                    )}
-                  >
-                    {isSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-                  </div>
-                  {option.label}
-                </li>
-              )
-            })}
-          </ul>
-        )}
+        {isOpen && (usePortal && menuPosition
+          ? createPortal(menuContent, document.body)
+          : menuContent)}
       </div>
       {error && (
         <p className="mt-1.5 text-sm text-red-600" role="alert">

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useMemo, useRef, useState, type FormEvent } from 'react'
 import { SelectableSapDataGrid } from '@/Components/shared/SelectableSapDataGrid'
 import type { SapColumn } from '@/Components/shared/SapDataGrid'
 import { Button, Input, SearchableSelect } from '@/Components/ui'
@@ -37,7 +37,7 @@ export function DocumentLinesEditor({
   const [fromWarehouseLabel, setFromWarehouseLabel] = useState('')
   const [toWarehouseLabel, setToWarehouseLabel] = useState('')
   const [taxLabel, setTaxLabel] = useState('')
-  const [taxRates, setTaxRates] = useState<Record<string, number>>({})
+  const taxRatesRef = useRef<Record<string, number>>({})
 
   const itemCodes = useMemo(() => lines.map((line) => line.ItemCode), [lines])
   const itemMap = useItemMasterMap(itemCodes)
@@ -60,20 +60,18 @@ export function DocumentLinesEditor({
 
   const searchTaxOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
     const response = await searchTaxCodes(search)
-    const rates: Record<string, number> = { ...taxRates }
-    const options = (response.data ?? []).map((tax) => {
-      if (tax.Code) rates[tax.Code] = tax.Rate ?? 0
+    return (response.data ?? []).map((tax) => {
+      if (tax.Code) taxRatesRef.current[tax.Code] = tax.Rate ?? 0
       return {
         value: tax.Code ?? '',
         label: `${tax.Code ?? ''}${tax.Name ? ` - ${tax.Name}` : ''}`.trim(),
+        meta: { rate: tax.Rate ?? 0 },
       }
     }).filter((o) => o.value)
-    setTaxRates(rates)
-    return options
-  }, [taxRates])
+  }, [])
 
   const getTaxAmount = (taxCode?: string, lineTotal = 0) => {
-    const rate = taxCode ? taxRates[taxCode] ?? 0 : 0
+    const rate = taxCode ? taxRatesRef.current[taxCode] ?? 0 : 0
     return (lineTotal * rate) / 100
   }
 
@@ -133,8 +131,8 @@ export function DocumentLinesEditor({
             setDraft({ ...draft, ItemCode: code, ItemDescription: description })
           }}
         />
-        <Input label="Quantity" type="number" value={String(draft.Quantity ?? 0)} onChange={(e) => setDraft({ ...draft, Quantity: Number(e.target.value) })} required />
-        <Input label="Unit Price" type="number" value={String(draft.UnitPrice ?? 0)} onChange={(e) => setDraft({ ...draft, UnitPrice: Number(e.target.value) })} required />
+        <Input label="Quantity" type="number" min="0" nonNegative value={String(draft.Quantity ?? 0)} onChange={(e) => setDraft({ ...draft, Quantity: Number(e.target.value) })} required />
+        <Input label="Unit Price" type="number" step="0.01" min="0" nonNegative value={String(draft.UnitPrice ?? 0)} onChange={(e) => setDraft({ ...draft, UnitPrice: Number(e.target.value) })} required />
         {showFromWarehouse && (
           <SearchableSelect
             label="From Warehouse"
@@ -167,6 +165,8 @@ export function DocumentLinesEditor({
             placeholder="Search tax code..."
             onSearch={searchTaxOptions}
             onChange={(code, option) => {
+              const meta = option?.meta as { rate?: number } | undefined
+              if (code && meta?.rate != null) taxRatesRef.current[code] = meta.rate
               setTaxLabel(option?.label ?? code)
               setDraft({ ...draft, TaxCode: code })
             }}

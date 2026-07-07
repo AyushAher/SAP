@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { FileDown, Pencil } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
-import { Button, DataTable, type DataTableColumn } from '@/Components/ui'
+import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
+import { DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
@@ -57,10 +58,18 @@ export function ProductionOrderListPage() {
       key: 'actions',
       header: 'Actions',
       render: (row) => (
-        <div className="flex gap-2">
-          <Link to={`${ROUTES.PRODUCTION_ORDER_FORM}/${row.AbsoluteEntry}`}><Button size="sm" variant="outline">Edit</Button></Link>
-          <Button size="sm" variant="outline" onClick={() => downloadPdfTemplate('production-order-template.html')}>PDF</Button>
-        </div>
+        <RowActions>
+          <RowActionLink
+            to={`${ROUTES.PRODUCTION_ORDER_FORM}/${row.AbsoluteEntry}`}
+            title="Edit production order"
+            icon={<Pencil className={rowActionIconClassName} />}
+          />
+          <RowActionButton
+            title="Download PDF"
+            icon={<FileDown className={rowActionIconClassName} />}
+            onClick={() => downloadPdfTemplate('production-order-template.html')}
+          />
+        </RowActions>
       ),
     },
   ], [lookupMaps])

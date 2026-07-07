@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Save } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
-import { Button, Card, CardContent } from '@/Components/ui'
+import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
+import { Card, CardContent } from '@/Components/ui'
 import { getRoles, getUsersWithRoles, updateUserRoles, type UserWithRoles } from '@/Requests/userRoles'
 import { ROLES } from '@/config/constants'
 
@@ -55,7 +57,12 @@ export function UserRoleManagementPage() {
                   </label>
                 ))}
               </div>
-              <Button size="sm" onClick={() => save(user.id)}>Save</Button>
+              <RowActionButton
+                title="Save roles"
+                variant="primary"
+                icon={<Save className={rowActionIconClassName} />}
+                onClick={() => save(user.id)}
+              />
             </CardContent>
           </Card>
         ))}

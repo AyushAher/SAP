@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
-import { API_BASE_URL, STORAGE_KEYS } from '@/config/constants'
+import { API_BASE_URL, API_ERROR_CODES, ROUTES, STORAGE_KEYS } from '@/config/constants'
+import { decrementApiLoading, incrementApiLoading } from '@/helpers/api/apiLoading'
 import { getLoginRefreshToken, getLoginToken, refreshTokenApi } from '@/Requests/auth'
 import type { ApiResponse } from '@/types/api'
 
@@ -25,9 +26,21 @@ function shouldSkipLogoutOn401(url?: string): boolean {
     || url.includes('/auth/branches')
 }
 
+function isSapSessionExpired(error: AxiosError): boolean {
+  const body = error.response?.data as ApiResponse | undefined
+  return body?.errorCode === API_ERROR_CODES.SAP_SESSION_UNAVAILABLE
+}
+
 function forceSessionExpiredRedirect() {
   clearStoredAuth()
   window.dispatchEvent(new Event('auth:session-expired'))
+}
+
+function redirectToLogin() {
+  forceSessionExpiredRedirect()
+  if (!window.location.pathname.startsWith('/auth')) {
+    window.location.href = ROUTES.LOGIN
+  }
 }
 
 function readStoredBranchId(): number | null {
@@ -68,13 +81,17 @@ async function refreshAccessToken(): Promise<string | null> {
 
 axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    incrementApiLoading()
     const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`
     }
     return config
   },
-  (error: AxiosError) => Promise.reject(error),
+  (error: AxiosError) => {
+    decrementApiLoading()
+    return Promise.reject(error)
+  },
 )
 
 export function getApiErrorMessage(error: unknown): string {
@@ -90,12 +107,21 @@ export function getApiErrorMessage(error: unknown): string {
 }
 
 axiosInstance.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    decrementApiLoading()
+    return response
+  },
   async (error: AxiosError) => {
+    decrementApiLoading()
     const originalRequest = error.config as RetriableRequest | undefined
     const skipLogout = shouldSkipLogoutOn401(originalRequest?.url)
 
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !skipLogout) {
+    if (isSapSessionExpired(error) && !skipLogout) {
+      redirectToLogin()
+      return Promise.reject(error)
+    }
+
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !skipLogout && !isSapSessionExpired(error)) {
       originalRequest._retry = true
       refreshInFlight ??= refreshAccessToken().finally(() => {
         refreshInFlight = null
@@ -109,10 +135,7 @@ axiosInstance.interceptors.response.use(
     }
 
     if (error.response?.status === 401 && !skipLogout) {
-      forceSessionExpiredRedirect()
-      if (!window.location.pathname.startsWith('/auth')) {
-        window.location.href = '/auth/login'
-      }
+      redirectToLogin()
     }
 
     return Promise.reject(error)

@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Banknote, Pencil } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
-import { Button, Badge, DataTable, type DataTableColumn } from '@/Components/ui'
+import { RowActionLink, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
+import { Badge, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
@@ -52,14 +53,19 @@ export function PurchaseOrderListPage() {
       key: 'actions',
       header: 'Actions',
       render: (row) => (
-        <div className="flex gap-2">
-          <Link to={`${ROUTES.PURCHASE_ORDER_FORM}/${row.DocEntry}`}>
-            <Button size="sm" variant="outline">Edit</Button>
-          </Link>
-          <Link to={`/purchase-orders/${row.DocEntry}/payments`}>
-            <Button size="sm">Payment Stages</Button>
-          </Link>
-        </div>
+        <RowActions>
+          <RowActionLink
+            to={`${ROUTES.PURCHASE_ORDER_FORM}/${row.DocEntry}`}
+            title="Edit purchase order"
+            icon={<Pencil className={rowActionIconClassName} />}
+          />
+          <RowActionLink
+            to={`/purchase-orders/${row.DocEntry}/payments`}
+            title="Payment stages"
+            variant="primary"
+            icon={<Banknote className={rowActionIconClassName} />}
+          />
+        </RowActions>
       ),
     },
   ], [lookupMaps])

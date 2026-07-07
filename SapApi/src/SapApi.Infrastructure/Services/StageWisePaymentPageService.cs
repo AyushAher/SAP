@@ -2,6 +2,7 @@ using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
+using SapApi.Shared.Exceptions;
 using SapApi.Shared.Responses;
 using SapApi.Shared.Responses.Sap;
 
@@ -21,8 +22,10 @@ public class StageWisePaymentPageService(
     {
         await sapLogin.SapLoginAsync(cancellationToken);
 
-        var po = await purchaseOrderService.GetPurchaseOrders(poDocEntry.ToString());
-        if (po is null)
+        var po = await purchaseOrderService.GetPurchaseOrderForPaymentPage(poDocEntry.ToString(), cancellationToken);
+        if (po?.Error?.Message?.Value is { } sapError)
+            throw new ApiErrorException("SYS-01", sapError);
+        if (po is null || po.DocEntry is null)
             return null;
 
         var docNum = po.DocNum ?? poDocEntry;
@@ -78,9 +81,67 @@ public class StageWisePaymentPageService(
         SapPurchaseOrdersResponse po,
         CancellationToken cancellationToken)
     {
-        var allApInvoices = await vendorPaymentService.GetApInvoices(po.CardCode ?? string.Empty);
-        var grpos = await vendorPaymentService.GetGrpo(po.CardCode ?? string.Empty);
-        return await ResolveApInvoicesAsync(po, allApInvoices, grpos);
+        if (po.DocEntry is null)
+            return [];
+
+        var cardCode = po.CardCode ?? string.Empty;
+        var poDocEntry = po.DocEntry.Value;
+
+        var directInvoices = await vendorPaymentService.GetApInvoicesForPurchaseOrder(cardCode, poDocEntry);
+        if (directInvoices?.Error is not null)
+            return await LoadApInvoicesFallbackAsync(po, cancellationToken);
+
+        var direct = directInvoices?.Value ?? [];
+        if (direct.Count > 0)
+            return direct;
+
+        var grpos = await vendorPaymentService.GetGrposForPurchaseOrder(cardCode, poDocEntry);
+        if (grpos?.Error is not null)
+            return await LoadApInvoicesFallbackAsync(po, cancellationToken);
+
+        var grpoDocEntries = grpos?.Value?
+            .Where(x => x.DocEntry.HasValue)
+            .Select(x => x.DocEntry!.Value)
+            .Distinct()
+            .ToList() ?? [];
+
+        if (grpoDocEntries.Count == 0)
+            return [];
+
+        var grpoInvoices = await vendorPaymentService.GetApInvoicesForGrpos(cardCode, grpoDocEntries);
+        if (grpoInvoices?.Error is not null)
+            return await LoadApInvoicesFallbackAsync(po, cancellationToken);
+
+        return grpoInvoices?.Value ?? [];
+    }
+
+    private async Task<List<SapPurchaseInvoicesResponse>> LoadApInvoicesFallbackAsync(
+        SapPurchaseOrdersResponse po,
+        CancellationToken cancellationToken)
+    {
+        var allApInvoicesTask = vendorPaymentService.GetApInvoices(po.CardCode ?? string.Empty);
+        var grposTask = vendorPaymentService.GetGrpo(po.CardCode ?? string.Empty);
+        await Task.WhenAll(allApInvoicesTask, grposTask);
+
+        var apInvoices = allApInvoicesTask.Result?.Value?
+            .Where(x => x.BaseEntry == po.DocEntry && x.DocumentStatus == "bost_Open")
+            .ToList() ?? [];
+
+        if (apInvoices.Count > 0)
+            return apInvoices;
+
+        var relatedGrpos = grposTask.Result?.Value?
+            .Where(x => x.BaseType == 22 && x.BaseEntry == po.DocEntry)
+            .ToList() ?? [];
+
+        foreach (var grpo in relatedGrpos)
+        {
+            apInvoices.AddRange(allApInvoicesTask.Result?.Value?
+                .Where(x => x.BaseType == 20 && x.BaseEntry == grpo.DocEntry)
+                .ToList() ?? []);
+        }
+
+        return apInvoices;
     }
 
     private async Task<List<StageWisePaymentWtCodeOption>> LoadWithholdingTaxCodesAsync(
@@ -136,30 +197,4 @@ public class StageWisePaymentPageService(
         StageWisePaymentStatus.Cancelled => "Cancelled",
         _ => status.ToString(),
     };
-
-    private static Task<List<SapPurchaseInvoicesResponse>> ResolveApInvoicesAsync(
-        SapPurchaseOrdersResponse po,
-        GetAllSapPurchaseInvoicesResponse? allApInvoices,
-        GetAllSapPurchaseInvoicesResponse? grpos)
-    {
-        var apInvoices = allApInvoices?.Value?
-            .Where(x => x.BaseEntry == po.DocEntry && x.DocumentStatus == "bost_Open")
-            .ToList() ?? [];
-
-        if (apInvoices.Count == 0)
-        {
-            var relatedGrpos = grpos?.Value?
-                .Where(x => x.BaseType == 22 && x.BaseEntry == po.DocEntry)
-                .ToList() ?? [];
-
-            foreach (var grpo in relatedGrpos)
-            {
-                apInvoices.AddRange(allApInvoices?.Value?
-                    .Where(x => x.BaseType == 20 && x.BaseEntry == grpo.DocEntry)
-                    .ToList() ?? []);
-            }
-        }
-
-        return Task.FromResult(apInvoices);
-    }
 }

@@ -48,3 +48,8 @@ export const ROLES = {
   ADMIN: 'Admin',
   STANDARD: 'Standard',
 } as const
+
+export const API_ERROR_CODES = {
+  INCORRECT_CREDENTIALS: 'AUTH-01',
+  SAP_SESSION_UNAVAILABLE: 'AUTH-02',
+} as const

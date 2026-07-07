@@ -18,6 +18,7 @@ public class StageWisePaymentsController(
     AppDbContext db,
     StageWisePaymentService service,
     StageWisePaymentPageService pageService,
+    StageWisePaymentPdfBuilder pdfBuilder,
     SapPurchaseOrderService purchaseOrderService,
     IPdfService pdfService,
     ICurrentCompanyDbAccessor companyDbAccessor) : ControllerBase
@@ -35,7 +36,7 @@ public class StageWisePaymentsController(
     [HttpGet]
     public async Task<IActionResult> GetByPo([FromQuery] int poDocEntry, CancellationToken cancellationToken)
     {
-        var po = await purchaseOrderService.GetPurchaseOrders(poDocEntry.ToString());
+        var po = await purchaseOrderService.GetPurchaseOrderForPaymentPage(poDocEntry.ToString(), cancellationToken);
         var docNum = po?.DocNum ?? poDocEntry;
         var records = await db.StageWisePayments
             .AsNoTracking()
@@ -48,7 +49,7 @@ public class StageWisePaymentsController(
     [HttpGet("payment-terms/{poDocEntry:int}")]
     public async Task<IActionResult> GetPaymentTerms(int poDocEntry, CancellationToken cancellationToken)
     {
-        var po = await purchaseOrderService.GetPurchaseOrders(poDocEntry.ToString());
+        var po = await purchaseOrderService.GetPurchaseOrderForPaymentPage(poDocEntry.ToString(), cancellationToken);
         if (po == null) return NotFound(ApiResponse<object>.Fail("SYS-02", "Purchase order not found"));
         return Ok(ApiResponse<object>.Ok(po.CreateUdfList()));
     }
@@ -56,8 +57,11 @@ public class StageWisePaymentsController(
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateStageWisePaymentApiRequest request, CancellationToken cancellationToken)
     {
-        var po = await purchaseOrderService.GetPurchaseOrders(request.PoDocEntry.ToString());
+        var po = await purchaseOrderService.GetPurchaseOrderForPaymentOperations(request.PoDocEntry.ToString(), cancellationToken);
         if (po == null) return BadRequest(ApiResponse<object>.Fail("SYS-02", "Purchase order not found"));
+
+        if (StageWisePaymentCalculations.RequiresBatchPayment(po, request.SelectedPaymentTermsUdf, request.ApInvoiceDocEntry))
+            return BadRequest(ApiResponse<object>.Fail("SYS-01", "AP invoice payments must be created using batch payment."));
 
         var totalBasic = (po.DocTotal ?? 0) - (po.VatSum ?? 0);
         var existing = await db.StageWisePayments
@@ -88,7 +92,7 @@ public class StageWisePaymentsController(
             Stage = MapStage(request.SelectedPaymentTermsUdf.Type)
         };
 
-        var (success, message) = await service.CreateStageWisePayment(
+        var (success, message, _) = await service.CreateStageWisePayment(
             entity, po, request.SelectedPaymentTermsUdf, request.DownPaymentAmount,
             totalBasic, payable, request.WtCode, request.Desc, existing);
 
@@ -108,53 +112,11 @@ public class StageWisePaymentsController(
         if (pageData?.PurchaseOrder is null)
             return NotFound(ApiResponse<object>.Fail("SYS-02", "Purchase order not found"));
 
-        var po = pageData.PurchaseOrder;
-        var recordApInvoice = pageData.ApInvoices.FirstOrDefault(x => x.DocEntry.ToString() == record.ApInvoiceDocEntry);
-        var paymentTerm = pageData.PaymentTerms.FirstOrDefault(x => x.Id == record.PaymentTermsType);
-        var grossOutgoing = (record.GrossAmount ?? 0) + (record.GstAmount ?? 0) - (record.Tds ?? 0);
-
-        var placeholders = new Dictionary<string, string>
-        {
-            ["gstTotal"] = (po.VatSum ?? 0).ToString("N2"),
-            ["basicTotal"] = pageData.TotalBasic.ToString("N2"),
-            ["grossAmount"] = ((record.GrossAmount ?? 0) + (record.GstAmount ?? 0)).ToString("N2"),
-            ["grossTotal"] = (po.DocTotal ?? 0).ToString("N2"),
-            ["outgoingPaymentValue"] = grossOutgoing.ToString("N2"),
-            ["outgoingPaymentValueInWords"] = grossOutgoing.ToString("N2"),
-            ["paymentTerm"] = record.StageDesc ?? paymentTerm?.Desc ?? string.Empty,
-            ["vendor"] = $"{po.CardCode} - {po.CardName}",
-            ["documentNo"] = po.DocNum?.ToString() ?? string.Empty,
-            ["documentDate"] = po.DocDate?.ToString("dd/MM/yyyy") ?? string.Empty,
-            ["projectName"] = pageData.ProjectName ?? string.Empty,
-            ["projectNo"] = po.Project ?? string.Empty,
-            ["reqId"] = record.ApprovalRequestId ?? string.Empty,
-            ["reqDate"] = record.ApprovalRequestId is not null ? record.CreatedOn.ToString("dd/MM/yyyy") : string.Empty,
-            ["totalQty"] = "0.00",
-            ["totalLineGrandTotal"] = "0.00",
-            ["journalRemarks"] = "Auto generated from system",
-            ["bank"] = pageData.BankLabels.GetValueOrDefault(record.Bank ?? string.Empty, record.Bank ?? string.Empty),
-            ["paymentType"] = paymentTerm?.Type is "Invoice" or "Retention" ? "Outgoing Payment Request" : "Downpayment Request",
-            ["apInvoiceDocEntry"] = recordApInvoice?.NumAtCard ?? string.Empty,
-            ["apBalanceDue"] = ((recordApInvoice?.DocTotal ?? 0) - (recordApInvoice?.PaidToDate ?? 0)).ToString("N2"),
-            ["bplName"] = string.Empty,
-            ["bplAddr"] = string.Empty,
-            ["bplGst"] = string.Empty,
-            ["bplPan"] = string.Empty,
-            ["userName"] = User.Identity?.Name ?? string.Empty,
-            ["wtCode"] = record.WtCode ?? "-",
-            ["wtName"] = "-",
-            ["wtAmount"] = (record.Tds ?? 0).ToString("N2"),
-            ["wtRate"] = "-",
-        };
-
-        if (recordApInvoice?.WithholdingTaxDataCollection is { Count: > 0 } wtCollection)
-        {
-            var wt = wtCollection.FirstOrDefault();
-            placeholders["wtCode"] = wt?.WtCode ?? "-";
-            placeholders["wtName"] = wt?.WtName ?? "-";
-            placeholders["wtAmount"] = (recordApInvoice.WTAmount ?? 0).ToString("N2");
-            placeholders["wtRate"] = $"{wt?.Rate ?? 0:N2}%";
-        }
+        var placeholders = await pdfBuilder.BuildPlaceholdersAsync(
+            record,
+            pageData,
+            User.Identity?.Name,
+            cancellationToken);
 
         var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
             "outgoing-payment-template.html", placeholders, cancellationToken);

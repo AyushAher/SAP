@@ -542,6 +542,9 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Property<int?>("DocNumber")
                         .HasColumnType("integer");
 
+                    b.Property<string>("DownPaymentDocEntry")
+                        .HasColumnType("text");
+
                     b.Property<double?>("GrossAmount")
                         .HasColumnType("double precision");
 
@@ -550,6 +553,9 @@ namespace SapApi.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime>("LastModifiedOn")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentDocEntry")
+                        .HasColumnType("text");
 
                     b.Property<int?>("PaymentTermsType")
                         .HasColumnType("integer");
@@ -580,6 +586,146 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.HasIndex("CompanyDb", "DocNumber");
 
                     b.ToTable("StageWisePayments");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatch", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Account")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ApprovalRequestId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CompanyDb")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DocNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("DownPaymentStageWisePaymentId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("JournalRemark")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("LastModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ModeOfPayment")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PaymentDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PoDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("PostingDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReferenceNo")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("StageWisePaymentId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WtCode")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalRequestId");
+
+                    b.HasIndex("DownPaymentStageWisePaymentId")
+                        .IsUnique();
+
+                    b.HasIndex("StageWisePaymentId")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyDb", "PoDocEntry");
+
+                    b.ToTable("StageWisePaymentBatches");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatchLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<double>("Amount")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("ApInvoiceDocEntry")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("BalanceDue")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Bank")
+                        .HasColumnType("text");
+
+                    b.Property<int>("BatchId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LineOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("Payable")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("WtCode")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BatchId");
+
+                    b.ToTable("StageWisePaymentBatchLines");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatchLinePaymentTerm", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("LineId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PaymentTermDesc")
+                        .HasColumnType("text");
+
+                    b.Property<int>("PaymentTermsType")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LineId", "PaymentTermsType")
+                        .IsUnique();
+
+                    b.ToTable("StageWisePaymentBatchLinePaymentTerms");
                 });
 
             modelBuilder.Entity("SapApi.Domain.Entities.UserApproval", b =>
@@ -736,6 +882,45 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Navigation("RequesterUser");
                 });
 
+            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatch", b =>
+                {
+                    b.HasOne("SapApi.Domain.Entities.StageWisePayment", "DownPaymentStageWisePayment")
+                        .WithOne()
+                        .HasForeignKey("SapApi.Domain.Entities.StageWisePaymentBatch", "DownPaymentStageWisePaymentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("SapApi.Domain.Entities.StageWisePayment", "StageWisePayment")
+                        .WithOne()
+                        .HasForeignKey("SapApi.Domain.Entities.StageWisePaymentBatch", "StageWisePaymentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("DownPaymentStageWisePayment");
+
+                    b.Navigation("StageWisePayment");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatchLine", b =>
+                {
+                    b.HasOne("SapApi.Domain.Entities.StageWisePaymentBatch", "Batch")
+                        .WithMany("Lines")
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Batch");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatchLinePaymentTerm", b =>
+                {
+                    b.HasOne("SapApi.Domain.Entities.StageWisePaymentBatchLine", "Line")
+                        .WithMany("PaymentTerms")
+                        .HasForeignKey("LineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Line");
+                });
+
             modelBuilder.Entity("SapApi.Domain.Entities.UserApproval", b =>
                 {
                     b.HasOne("SapApi.Domain.Entities.ApprovalRequest", "ApprovalRequest")
@@ -774,6 +959,16 @@ namespace SapApi.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("SapApi.Domain.Entities.ApprovalRequest", b =>
                 {
                     b.Navigation("UserApprovals");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatch", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatchLine", b =>
+                {
+                    b.Navigation("PaymentTerms");
                 });
 #pragma warning restore 612, 618
         }

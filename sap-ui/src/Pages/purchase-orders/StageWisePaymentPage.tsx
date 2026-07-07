@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { Ban, Download, Layers, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
+import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
-import { Button, Card, CardContent, Input, Badge, SearchableSelect } from '@/Components/ui'
+import { Button, Card, CardContent, Input, Badge } from '@/Components/ui'
 import { getApprovalRequest, type ApprovalRequest } from '@/Requests/approvals'
-import type { SelectOption } from '@/types'
 import { ROUTES } from '@/config/constants'
 import {
   cancelStageWisePayment,
@@ -16,13 +17,17 @@ import {
   type StageWisePayment,
   type StageWisePaymentPageData,
 } from '@/Requests/stageWisePayments'
+import { getBatchByStageWisePaymentId, cancelStageWisePaymentBatch, deleteStageWisePaymentBatch } from '@/Requests/stageWisePaymentBatches'
 import {
+  filterSinglePaymentTerms,
   formatAmount,
+  isBatchPaymentAvailable,
   isPaymentTermSelectable,
+  isPoClosed,
   normalizeStatus,
   paymentTermLabel,
+  requiresBatchPayment,
   resolveDisplayPayable,
-  getApInvoiceBalanceDue,
 } from '@/helpers/stageWisePaymentCalculations'
 
 function triggerDownload(blob: Blob, fileName: string) {
@@ -36,6 +41,7 @@ function triggerDownload(blob: Blob, fileName: string) {
 
 export function StageWisePaymentPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const poDocEntry = Number(id)
   const [pageData, setPageData] = useState<StageWisePaymentPageData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -48,7 +54,6 @@ export function StageWisePaymentPage() {
     amount: '',
     bank: '',
     wtCode: '',
-    apInvoiceDocEntry: '',
   })
 
   const reload = useCallback(async () => {
@@ -73,29 +78,65 @@ export function StageWisePaymentPage() {
     [paymentTerms],
   )
 
-  const selectedTerm = selectableTerms.find((t) => String(t.id) === form.paymentTermId)
-  const selectedApInvoice = pageData?.apInvoices.find(
-    (inv) => String(inv.DocEntry) === form.apInvoiceDocEntry,
+  const singlePaymentTerms = useMemo(
+    () => filterSinglePaymentTerms(po, selectableTerms),
+    [po, selectableTerms],
   )
 
-  const showApInvoices = po?.DocumentStatus === 'bost_Close'
+  const singlePaymentAvailable = singlePaymentTerms.length > 0
 
-  const searchApInvoiceOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const term = search.trim().toLowerCase()
-    const invoices = pageData?.apInvoices ?? []
-    const filtered = term
-      ? invoices.filter((inv) =>
-          String(inv.DocNum ?? '').toLowerCase().includes(term)
-          || String(inv.NumAtCard ?? '').toLowerCase().includes(term)
-          || String(inv.DocEntry ?? '').includes(term))
-      : invoices.slice(0, 20)
-    return filtered.map((inv) => ({
-      value: String(inv.DocEntry ?? ''),
-      label: `${inv.DocNum ?? ''}:${inv.NumAtCard ?? ''}`,
-    })).filter((o) => o.value)
-  }, [pageData?.apInvoices])
-    || selectedTerm?.type === 'Invoice'
-    || selectedTerm?.type === 'Retention'
+  const selectedTerm = singlePaymentTerms.find((t) => String(t.id) === form.paymentTermId)
+
+  const batchPaymentEnabled = isBatchPaymentAvailable(po, selectableTerms, pageData?.apInvoices) && !loading
+  const poClosed = isPoClosed(po)
+
+  const isBatchPayment = (record: StageWisePayment) =>
+    record.stageDesc === 'Batch AP payment'
+    || record.stageDesc === 'Batch down payment'
+    || (record.apInvoiceDocEntry?.includes(',') ?? false)
+
+  const handleCancelPayment = async (record: StageWisePayment) => {
+    if (!window.confirm('Cancel this payment in SAP?')) return
+    try {
+      if (isBatchPayment(record)) {
+        const batch = await getBatchByStageWisePaymentId(record.id)
+        const result = await cancelStageWisePaymentBatch(batch.id)
+        if (!result.success) {
+          const failed = result.operations?.filter((op) => !op.success).map((op) => op.message).join(' ')
+          throw new Error(failed || 'Batch cancellation failed')
+        }
+      } else {
+        await cancelStageWisePayment(record.id)
+      }
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Cancel failed')
+    }
+  }
+
+  const handleDeletePayment = async (record: StageWisePayment) => {
+    if (!window.confirm('Delete this payment request?')) return
+    try {
+      if (isBatchPayment(record)) {
+        const batch = await getBatchByStageWisePaymentId(record.id)
+        await deleteStageWisePaymentBatch(batch.id)
+      } else {
+        await deleteStageWisePayment(record.id)
+      }
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed')
+    }
+  }
+
+  const handleViewBatch = async (record: StageWisePayment) => {
+    try {
+      const batch = await getBatchByStageWisePaymentId(record.id)
+      navigate(`/purchase-orders/${poDocEntry}/payments/batch/${batch.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load batch payment')
+    }
+  }
 
   const payable = po && selectedTerm
     ? resolveDisplayPayable(
@@ -103,38 +144,29 @@ export function StageWisePaymentPage() {
       paymentTerms,
       activeRecords,
       selectedTerm,
-      form.apInvoiceDocEntry,
-      selectedApInvoice,
+      '',
+      undefined,
       totalBasic,
     )
     : 0
 
-  const apInvoiceBalance = po && selectedTerm
-    ? getApInvoiceBalanceDue(po, selectedTerm, selectedApInvoice, activeRecords, form.apInvoiceDocEntry)
-    : 0
-
   const handleTermChange = (paymentTermId: string) => {
-    const term = selectableTerms.find((t) => String(t.id) === paymentTermId)
-    const keepApInvoice = term?.type === 'Invoice' || term?.type === 'Retention'
-    setForm((prev) => ({
-      ...prev,
-      paymentTermId,
-      apInvoiceDocEntry: keepApInvoice ? prev.apInvoiceDocEntry : '',
-    }))
+    setForm((prev) => ({ ...prev, paymentTermId }))
   }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!selectedTerm || !po) return
 
-    if ((selectedTerm.type === 'Invoice' || selectedTerm.type === 'Retention') && !form.apInvoiceDocEntry) {
-      setError('AP Invoice is mandatory for selected payment term')
+    if (requiresBatchPayment(po, selectedTerm)) {
+      setError('AP invoice payments must be created using batch payment.')
+      navigate(`/purchase-orders/${poDocEntry}/payments/batch`)
       return
     }
 
     const amount = Number(form.amount)
-    if ((selectedTerm.type === 'Invoice' || selectedTerm.type === 'Retention') && amount > apInvoiceBalance) {
-      setError(`Payable must not exceed AP Invoice Balance Due of ${formatAmount(apInvoiceBalance)}`)
+    if (amount > payable) {
+      setError(`Amount cannot exceed payable of ${formatAmount(payable)}`)
       return
     }
 
@@ -152,7 +184,6 @@ export function StageWisePaymentPage() {
         paymentTermsType: selectedTerm.id,
         stageDesc: selectedTerm.desc,
         bank: form.bank,
-        apInvoiceDocEntry: form.apInvoiceDocEntry || undefined,
         selectedPaymentTermsUdf: selectedTerm,
         downPaymentAmount: amount,
         wtCode: form.wtCode || undefined,
@@ -160,7 +191,7 @@ export function StageWisePaymentPage() {
       }) as { message?: string }
       await reload()
       setSuccessMessage(result?.message ?? 'Payment request created.')
-      setForm({ paymentTermId: '', amount: '', bank: '', wtCode: '', apInvoiceDocEntry: '' })
+      setForm({ paymentTermId: '', amount: '', bank: '', wtCode: '' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create payment request')
     } finally {
@@ -242,10 +273,23 @@ export function StageWisePaymentPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={po ? `Payment Request (${po.DocNum})` : 'Payment Request'}
+        title={po ? `Payment Request (${po.DocNum ?? po.DocEntry ?? id})` : 'Payment Request'}
         description={po ? `${po.CardName ?? ''}` : ''}
-        actionLabel="Back to PO List"
-        actionTo={ROUTES.PURCHASE_ORDERS}
+        action={(
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={!batchPaymentEnabled}
+              title={batchPaymentEnabled ? undefined : 'Batch payment requires AP invoices linked to this purchase order'}
+              onClick={() => navigate(`/purchase-orders/${poDocEntry}/payments/batch`)}
+            >
+              Batch Payment
+            </Button>
+            <Link to={ROUTES.PURCHASE_ORDERS}>
+              <Button variant="outline">Back to PO List</Button>
+            </Link>
+          </div>
+        )}
       />
 
       {error && (
@@ -315,107 +359,149 @@ export function StageWisePaymentPage() {
           getRowKey={(r) => r.id}
           columns={columns}
           actions={(row) => (
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => handleDownload(row)}>Download</Button>
-              <Button size="sm" variant="outline" onClick={() => deleteStageWisePayment(row.id).then(reload).catch((e) => setError(e.message))}>Delete</Button>
-              <Button size="sm" variant="outline" onClick={() => cancelStageWisePayment(row.id).then(reload).catch((e) => setError(e.message))}>Cancel</Button>
-            </div>
+            <RowActions>
+              {isBatchPayment(row) && (
+                <RowActionButton
+                  title="View batch"
+                  icon={<Layers className={rowActionIconClassName} />}
+                  onClick={() => void handleViewBatch(row)}
+                />
+              )}
+              <RowActionButton
+                title="Download PDF"
+                icon={<Download className={rowActionIconClassName} />}
+                onClick={() => handleDownload(row)}
+              />
+              <RowActionButton
+                title="Delete payment"
+                variant="danger"
+                icon={<Trash2 className={rowActionIconClassName} />}
+                onClick={() => void handleDeletePayment(row)}
+              />
+              <RowActionButton
+                title="Cancel payment"
+                icon={<Ban className={rowActionIconClassName} />}
+                onClick={() => void handleCancelPayment(row)}
+              />
+            </RowActions>
           )}
         />
       </div>
 
       <Card>
-        <CardContent className="pt-6">
-          <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Payment Type</label>
-              <select
-                className="w-full rounded-lg border px-3 py-2"
-                value={form.paymentTermId}
-                onChange={(e) => handleTermChange(e.target.value)}
-                required
-              >
-                <option value="">Select payment type</option>
-                {selectableTerms.map((t) => (
-                  <option key={t.id} value={t.id}>{paymentTermLabel(t)}</option>
-                ))}
-              </select>
-            </div>
-
-            <SearchableSelect
-              label="AP Invoice"
-              value={form.apInvoiceDocEntry}
-              selectedLabel={
-                selectedApInvoice
-                  ? `${selectedApInvoice.DocNum ?? ''}:${selectedApInvoice.NumAtCard ?? ''}`
-                  : undefined
-              }
-              placeholder="Search AP invoice..."
-              searchPlaceholder="Search by doc num or reference"
-              disabled={!showApInvoices}
-              required={selectedTerm?.type === 'Invoice' || selectedTerm?.type === 'Retention'}
-              onSearch={searchApInvoiceOptions}
-              onChange={(docEntry) => setForm({ ...form, apInvoiceDocEntry: docEntry })}
-            />
-
-            <Input
-              label="AP Invoice Balance"
-              value={formatAmount(showApInvoices ? apInvoiceBalance : 0)}
-              readOnly
-              disabled
-            />
-
-            <Input label="Payable" value={formatAmount(payable)} readOnly disabled />
-
-            <div>
-              <label className="mb-1 block text-sm font-medium">WT Code</label>
-              <select
-                className="w-full rounded-lg border px-3 py-2"
-                value={form.wtCode}
-                onChange={(e) => setForm({ ...form, wtCode: e.target.value })}
-              >
-                <option value="">Select WT code</option>
-                {pageData?.withholdingTaxCodes.map((wt) => (
-                  <option key={wt.wtCode} value={wt.wtCode}>
-                    {wt.wtName ?? wt.wtCode}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium">Bank A/C</label>
-              <select
-                className="w-full rounded-lg border px-3 py-2"
-                value={form.bank}
-                onChange={(e) => setForm({ ...form, bank: e.target.value })}
-                required
-              >
-                <option value="">Select bank</option>
-                {pageData?.banks.map((b) => (
-                  <option key={b.key} value={b.key}>{b.value}</option>
-                ))}
-              </select>
-            </div>
-
-            <Input
-              label="DownPayment Amount"
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
-              required
-            />
-
-            <div className="flex items-end">
-              <Button type="submit" disabled={submitting || loading}>
-                {submitting ? 'Creating…' : 'Create'}
-              </Button>
-            </div>
-          </form>
+        <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Batch Payment</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Create AP invoice payments (vendor outgoing) or down payments (advance/stage) in one batch.
+              Invoice and Retention terms require an AP invoice; other terms on an open PO do not.
+            </p>
+            {poClosed && (
+              <p className="mt-2 text-sm text-slate-600">
+                This purchase order is closed. AP invoice payments require a linked AP invoice.
+              </p>
+            )}
+            {!batchPaymentEnabled && po && (
+              <p className="mt-2 text-sm text-amber-700">
+                Batch payment is available when payment types are configured for this purchase order.
+              </p>
+            )}
+          </div>
+          <Button
+            disabled={!batchPaymentEnabled}
+            onClick={() => navigate(`/purchase-orders/${poDocEntry}/payments/batch`)}
+          >
+            Open Batch Payment
+          </Button>
         </CardContent>
       </Card>
+
+      {singlePaymentAvailable ? (
+        <Card>
+          <CardContent className="pt-6">
+            <h2 className="mb-1 text-lg font-semibold">Down Payment Request</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              For advance / stage down payments only. AP invoice payments must use batch above.
+            </p>
+            <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Payment Type</label>
+                <select
+                  className="w-full rounded-lg border px-3 py-2"
+                  value={form.paymentTermId}
+                  onChange={(e) => handleTermChange(e.target.value)}
+                  required
+                >
+                  <option value="">Select payment type</option>
+                  {singlePaymentTerms.map((t) => (
+                    <option key={t.id} value={t.id}>{paymentTermLabel(t)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <Input label="Payable" value={formatAmount(payable)} readOnly disabled />
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">WT Code</label>
+                <select
+                  className="w-full rounded-lg border px-3 py-2"
+                  value={form.wtCode}
+                  onChange={(e) => setForm({ ...form, wtCode: e.target.value })}
+                >
+                  <option value="">Select WT code</option>
+                  {pageData?.withholdingTaxCodes.map((wt) => (
+                    <option key={wt.wtCode} value={wt.wtCode}>
+                      {wt.wtName ?? wt.wtCode}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">Bank A/C</label>
+                <select
+                  className="w-full rounded-lg border px-3 py-2"
+                  value={form.bank}
+                  onChange={(e) => setForm({ ...form, bank: e.target.value })}
+                  required
+                >
+                  <option value="">Select bank</option>
+                  {pageData?.banks.map((b) => (
+                    <option key={b.key} value={b.key}>{b.value}</option>
+                  ))}
+                </select>
+              </div>
+
+              <Input
+                label="Down Payment Amount"
+                type="number"
+                step="0.01"
+                min="0"
+                nonNegative
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                required
+              />
+
+              <div className="flex items-end">
+                <Button type="submit" disabled={submitting || loading}>
+                  {submitting ? 'Creating…' : 'Create'}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      ) : po && (
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-slate-600">
+              {poClosed
+                ? 'This purchase order is closed. All payments must be created via AP Invoice Payment (Batch) above.'
+                : 'Invoice and retention payment types are only available through batch payment.'}
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <RequestViewDialog
         request={viewApprovalRequest}
