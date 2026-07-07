@@ -73,15 +73,19 @@ jobs:
       - name: Prepare API RSA keys
         run: |
           KEYS_DIR="SapApi/src/SapApi.Api/Keys"
-          mkdir -p "${KEYS_DIR}"
+          HOST_KEYS_DIR="${DEPLOY_DIR}/keys"
+          mkdir -p "${KEYS_DIR}" sap-ui/src/config/keys
 
           if [ -n "${{ secrets.RSA_PRIVATE_KEY }}" ]; then
             printf '%s\n' "${{ secrets.RSA_PRIVATE_KEY }}" > "${KEYS_DIR}/private.pem"
-          elif [ -f "${DEPLOY_DIR}/keys/private.pem" ]; then
-            cp "${DEPLOY_DIR}/keys/private.pem" "${KEYS_DIR}/private.pem"
+          elif [ -f "${HOST_KEYS_DIR}/private.pem" ]; then
+            cp "${HOST_KEYS_DIR}/private.pem" "${KEYS_DIR}/private.pem"
           else
-            echo "::error::RSA private key not found. Set GitHub environment secret RSA_PRIVATE_KEY or place ${DEPLOY_DIR}/keys/private.pem on the deploy host."
-            exit 1
+            echo "No RSA private key configured; generating a new 4096-bit key pair and persisting to ${HOST_KEYS_DIR}/private.pem"
+            sudo mkdir -p "${HOST_KEYS_DIR}"
+            openssl genpkey -algorithm RSA -out "${KEYS_DIR}/private.pem" -pkeyopt rsa_keygen_bits:4096
+            sudo cp "${KEYS_DIR}/private.pem" "${HOST_KEYS_DIR}/private.pem"
+            sudo chmod 600 "${HOST_KEYS_DIR}/private.pem"
           fi
           chmod 600 "${KEYS_DIR}/private.pem"
 
