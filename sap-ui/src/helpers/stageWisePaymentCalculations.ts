@@ -46,6 +46,8 @@ export interface PurchaseOrderSummary {
   VatSum?: number
   DocumentStatus?: string
   BPLId?: number
+  DocDate?: string
+  PostingDate?: string
 }
 
 export function isPoClosed(po?: PurchaseOrderSummary | null): boolean {
@@ -269,13 +271,10 @@ export function resolveDisplayPayable(
   paymentTerms: PaymentTermUdf[],
   activeRecords: StageWisePayment[],
   selectedTerm: PaymentTermUdf | undefined,
-  apInvoiceDocEntry: string,
-  selectedApInvoice: ApInvoice | undefined,
+  _apInvoiceDocEntry: string,
+  _selectedApInvoice: ApInvoice | undefined,
   totalBasic: number,
 ): number {
-  if (shouldUseApInvoicePayable(po, selectedTerm, apInvoiceDocEntry)) {
-    return getApInvoiceBalanceDue(po, selectedTerm, selectedApInvoice, activeRecords, apInvoiceDocEntry)
-  }
   return getAlreadyPaidAmountForPaymentTerms(
     po,
     paymentTerms,
@@ -310,24 +309,21 @@ export function resolveBatchRowPayable(
   }
 
   const representativeTerm = resolveRepresentativePaymentTerm(paymentTerms, selectedTermIds)
-  const balanceDue = getApInvoiceBalanceDue(
-    po,
-    representativeTerm,
-    apInvoice,
-    activeRecords,
-    apInvoiceDocEntry,
-  )
-
-  const usesApInvoicePayable = shouldUseApInvoiceBalanceForBatchRow(
+  const showApBalance = shouldUseApInvoiceBalanceForBatchRow(
     po,
     paymentTerms,
     selectedTermIds,
     apInvoiceDocEntry,
   )
-
-  if (usesApInvoicePayable) {
-    return { balanceDue, payable: balanceDue }
-  }
+  const balanceDue = showApBalance
+    ? getApInvoiceBalanceDue(
+      po,
+      representativeTerm,
+      apInvoice,
+      activeRecords,
+      apInvoiceDocEntry,
+    )
+    : 0
 
   const payable = round2(
     [...new Set(selectedTermIds)].reduce((sum, termId) => {
@@ -515,6 +511,13 @@ export function validateBatchPaymentAmounts<T extends BatchRowAmountFields>(
       const rowContext = formatBatchRowContextLabel(row, context)
       return `Net amount cannot exceed payable (${formatAmount(row.payable)}) for row ${index + 1} (${rowContext}).`
     }
+
+    const termIds = (row.paymentTermsTypes ?? []).map(Number)
+    const requiresAp = batchRowRequiresApInvoice(context.po, context.paymentTerms, termIds)
+    if (requiresAp && amount > (row.balanceDue ?? 0) + 0.001) {
+      const rowContext = formatBatchRowContextLabel(row, context)
+      return `Net amount cannot exceed AP invoice balance due (${formatAmount(row.balanceDue)}) for row ${index + 1} (${rowContext}).`
+    }
   }
 
   const allocatedByTerm = getTotalAllocatedAmountByPaymentTerm(rows, context)
@@ -576,12 +579,16 @@ export function applySequentialBatchRowAdjustments<T extends BatchRowAmountField
 
     if (row.apInvoiceDocEntry) {
       const priorApplied = getPriorBatchRowAppliedAmount(rows, index, row.apInvoiceDocEntry)
+      const balanceDue = round2(Math.max(0, baseBalanceDue - priorApplied))
+      const payable = context && (row.paymentTermsTypes?.length ?? 0) > 0
+        ? computeSequentialStageRowPayable(row, index, rows, context)
+        : round2(Math.max(0, basePayable - priorApplied))
       return {
         ...row,
         baseBalanceDue,
         basePayable,
-        balanceDue: round2(Math.max(0, baseBalanceDue - priorApplied)),
-        payable: round2(Math.max(0, basePayable - priorApplied)),
+        balanceDue,
+        payable,
       }
     }
 

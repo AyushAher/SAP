@@ -11,6 +11,7 @@ public class StageWisePaymentService(
     SapPurchaseDownPaymentService sapPurchaseDownPaymentService,
     SapVendorPaymentService sapVendorPaymentService,
     AppDbContext context,
+    IUnitOfWork unitOfWork,
     ICurrentCompanyDbAccessor companyDbAccessor)
 {
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
@@ -80,8 +81,11 @@ public class StageWisePaymentService(
         }
         else if (purchaseOrder.DocumentStatus == "bost_Close" || selectedPaymentTermsUdf.Type is "Invoice" or "Retention")
         {
-            entity1.GrossAmount = downPaymentAmount;
-            (sapResponse, tdsAmount) = await AddToSap(purchaseOrder, selectedPaymentTermsUdf, false, entity1.GrossAmount ?? 0, wtCode, desc, entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted);
+            var (gross, gst) = StageWisePaymentCalculations.SplitAmountForPaymentTerm(
+                purchaseOrder, selectedPaymentTermsUdf, downPaymentAmount, totalBasic, existingRecords);
+            entity1.GrossAmount = gross;
+            entity1.GstAmount = gst;
+            (sapResponse, tdsAmount) = await AddToSap(purchaseOrder, selectedPaymentTermsUdf, false, downPaymentAmount, wtCode, desc, entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted);
             if (sapResponse is not null && sapResponse.PendingApproval)
             {
                 entity1.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
@@ -195,7 +199,6 @@ public class StageWisePaymentService(
             entity2.CreatedOn = DateTime.UtcNow;
             entity2.PaymentTermsType = selectedPaymentTermsUdf.Id;
             entity2.LastModifiedOn = DateTime.UtcNow;
-            await context.StageWisePayments.AddAsync(entity2);
         }
 
         entity1.StageDesc = desc;
@@ -204,8 +207,19 @@ public class StageWisePaymentService(
         entity1.PaymentTermsType = selectedPaymentTermsUdf.Id;
         entity1.LastModifiedOn = DateTime.UtcNow;
 
-        await context.StageWisePayments.AddAsync(entity1);
-        await context.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.ExecuteInTransactionAsync(async ct =>
+            {
+                if (entity2 is not null)
+                    await context.StageWisePayments.AddAsync(entity2, ct);
+                await context.StageWisePayments.AddAsync(entity1, ct);
+            });
+        }
+        catch (Exception ex)
+        {
+            return (false, $"SAP payment succeeded but failed to save locally: {ex.Message}", null);
+        }
 
         var recordsArray = new[] {
                 entity1,
@@ -226,8 +240,18 @@ public class StageWisePaymentService(
                     else record.ApprovalRequestId = record.ApprovalRequestId + "," + createOutgoingPaymentForDownPayment.PendingApprovalRequestId?.ToString();
 
                     record.Status = StageWisePaymentStatus.PendingApproval;
-                    context.StageWisePayments.Update(record);
-                    await context.SaveChangesAsync();
+                    try
+                    {
+                        await unitOfWork.ExecuteInTransactionAsync(_ =>
+                        {
+                            context.StageWisePayments.Update(record);
+                            return Task.CompletedTask;
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        return (false, $"SAP outgoing payment approval noted but failed to save locally: {ex.Message}", null);
+                    }
                 }
             }
         }
@@ -237,14 +261,16 @@ public class StageWisePaymentService(
         //entity.Tds = hasTds ? tdsAmount : 0;
     }
 
-    public async Task<(bool IsSuccess, string Message, int? PaymentId)> CreateBatchDownPaymentAsync(
+    public async Task<(bool IsSuccess, string Message, StageWisePayment? Payment)> CreateBatchDownPaymentAsync(
         SapPurchaseOrdersResponse purchaseOrder,
         IReadOnlyList<StageWisePaymentBatchLineRequest> lines,
         IReadOnlyList<PaymentTermsUdf> paymentTerms,
         double totalBasic,
         string? bank,
         string? wtCode,
-        List<StageWisePayment> existingRecords)
+        List<StageWisePayment> existingRecords,
+        bool persist = true,
+        CancellationToken cancellationToken = default)
     {
         if (purchaseOrder is null)
             return (false, "Purchase order not found!", null);
@@ -294,6 +320,7 @@ public class StageWisePaymentService(
             LastModifiedOn = DateTime.UtcNow,
         };
 
+        // SAP first — do not hold a DB transaction across Service Layer calls.
         var (sapResponse, tdsAmount) = await AddDownPayment(
             purchaseOrder,
             isGstOnly,
@@ -324,9 +351,6 @@ public class StageWisePaymentService(
             return (false, "No records saved in SAP!", null);
         }
 
-        await context.StageWisePayments.AddAsync(entity);
-        await context.SaveChangesAsync();
-
         if (purchaseOrder.DocumentStatus != "bost_Close")
         {
             var netOutgoing = Math.Round(totalGross + totalGst - (entity.Tds ?? 0), 2);
@@ -342,8 +366,6 @@ public class StageWisePaymentService(
             {
                 entity.ApprovalRequestId = outgoingResponse.PendingApprovalRequestId?.ToString();
                 entity.Status = StageWisePaymentStatus.PendingApproval;
-                context.StageWisePayments.Update(entity);
-                await context.SaveChangesAsync();
             }
             else if (outgoingResponse?.Error?.Message?.Value is not null)
             {
@@ -356,13 +378,25 @@ public class StageWisePaymentService(
                     entity.ApDownPaymentInvoiceEntryNumber = outgoingResponse.BaseDocNum?.ToString();
                 else
                     entity.ApDownPaymentInvoiceEntryNumber += "," + outgoingResponse.BaseDocNum;
-
-                context.StageWisePayments.Update(entity);
-                await context.SaveChangesAsync();
             }
         }
 
-        return (true, "Payment created successfully", entity.Id);
+        if (!persist)
+            return (true, "Payment prepared successfully", entity);
+
+        try
+        {
+            await unitOfWork.ExecuteInTransactionAsync(async ct =>
+            {
+                await context.StageWisePayments.AddAsync(entity, ct);
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"SAP payment succeeded but failed to save locally: {ex.Message}", null);
+        }
+
+        return (true, "Payment created successfully", entity);
     }
 
     private async Task<(SapBaseResponse? response, double tdsAmount)> AddToSap(
@@ -530,7 +564,7 @@ public class StageWisePaymentService(
             await SyncBatchStatusForPaymentAsync(record.Id, StageWisePaymentBatchStatus.Rejected);
         }
 
-        await context.SaveChangesAsync();
+        await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask);
     }
 
     public async Task MarkApprovedWhenAllRequestsCompleteAsync(int approvalRequestId)
@@ -566,7 +600,7 @@ public class StageWisePaymentService(
             }
         }
 
-        await context.SaveChangesAsync();
+        await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask);
     }
 
     private async Task SyncBatchStatusForPaymentAsync(int stageWisePaymentId, StageWisePaymentBatchStatus status)
@@ -605,13 +639,24 @@ public class StageWisePaymentService(
         if (docEntries is not null && docEntries.Count > 0)
             return (false, "Cant delete record with existing SAP entries. Please contact admin.");
 
-        context.StageWisePayments.Remove(record);
+        try
+        {
+            await unitOfWork.ExecuteInTransactionAsync(async _ =>
+            {
+                context.StageWisePayments.Remove(record);
 
-        var recordApprovalRequests = record.ApprovalRequestId?.Split(",").ToList() ?? [];
-        var approvalRequests = context.ApprovalRequests.Where(x => x.CompanyDb == CompanyDb && record.ApprovalRequestId != null
-            && recordApprovalRequests.Contains(x.Id.ToString())).ToList();
-        context.ApprovalRequests.RemoveRange(approvalRequests);
-        await context.SaveChangesAsync();
+                var recordApprovalRequests = record.ApprovalRequestId?.Split(",").ToList() ?? [];
+                var approvalRequests = context.ApprovalRequests.Where(x => x.CompanyDb == CompanyDb && record.ApprovalRequestId != null
+                    && recordApprovalRequests.Contains(x.Id.ToString())).ToList();
+                context.ApprovalRequests.RemoveRange(approvalRequests);
+                await Task.CompletedTask;
+            });
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Failed to delete payment record: {ex.Message}");
+        }
+
         return (true, "Stage wise payment record deleted successfully.");
     }
 
@@ -639,15 +684,25 @@ public class StageWisePaymentService(
             if (existingRecord.Status == StageWisePaymentStatus.PendingApproval
                 || existingRecord.Status == StageWisePaymentStatus.Added)
             {
-                existingRecord.GrossAmount = 0;
-                existingRecord.GstAmount = 0;
-                existingRecord.Tds = 0;
-                existingRecord.Status = StageWisePaymentStatus.Cancelled;
-                existingRecord.LastModifiedOn = DateTime.UtcNow;
-                context.StageWisePayments.Update(existingRecord);
-                if (syncBatchStatus)
-                    await SyncBatchStatusForPaymentAsync(existingRecord.Id, StageWisePaymentBatchStatus.Cancelled);
-                await context.SaveChangesAsync();
+                try
+                {
+                    await unitOfWork.ExecuteInTransactionAsync(async _ =>
+                    {
+                        existingRecord.GrossAmount = 0;
+                        existingRecord.GstAmount = 0;
+                        existingRecord.Tds = 0;
+                        existingRecord.Status = StageWisePaymentStatus.Cancelled;
+                        existingRecord.LastModifiedOn = DateTime.UtcNow;
+                        context.StageWisePayments.Update(existingRecord);
+                        if (syncBatchStatus)
+                            await SyncBatchStatusForPaymentAsync(existingRecord.Id, StageWisePaymentBatchStatus.Cancelled);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    operations.Add((false, $"Failed to update cancellation status: {ex.Message}"));
+                    return (false, operations);
+                }
 
                 operations.Add((true, "Payment marked as cancelled (no SAP documents to cancel)."));
                 return (true, operations);
@@ -686,15 +741,25 @@ public class StageWisePaymentService(
             return (false, operations);
         }
 
-        existingRecord.GrossAmount = 0;
-        existingRecord.GstAmount = 0;
-        existingRecord.Tds = 0;
-        existingRecord.Status = StageWisePaymentStatus.Cancelled;
-        existingRecord.LastModifiedOn = DateTime.UtcNow;
-        context.StageWisePayments.Update(existingRecord);
-        if (syncBatchStatus)
-            await SyncBatchStatusForPaymentAsync(existingRecord.Id, StageWisePaymentBatchStatus.Cancelled);
-        await context.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.ExecuteInTransactionAsync(async _ =>
+            {
+                existingRecord.GrossAmount = 0;
+                existingRecord.GstAmount = 0;
+                existingRecord.Tds = 0;
+                existingRecord.Status = StageWisePaymentStatus.Cancelled;
+                existingRecord.LastModifiedOn = DateTime.UtcNow;
+                context.StageWisePayments.Update(existingRecord);
+                if (syncBatchStatus)
+                    await SyncBatchStatusForPaymentAsync(existingRecord.Id, StageWisePaymentBatchStatus.Cancelled);
+            });
+        }
+        catch (Exception ex)
+        {
+            operations.Add((false, $"SAP cancel succeeded but failed to update database: {ex.Message}"));
+            return (false, operations);
+        }
 
         operations.Add((true, "Payment amounts cleared and record marked as cancelled."));
         return (true, operations);

@@ -1,6 +1,9 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
+using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.Sap;
+using SapApi.Shared;
 using SapApi.Shared.Enums;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
@@ -9,6 +12,7 @@ namespace SapApi.Infrastructure.Services;
 
 public class ApprovalExecutionService(
     AppDbContext context,
+    IUnitOfWork unitOfWork,
     InventoryItemsTransferService inventoryItemsTransferService,
     SapInventoryGenExitsService sapInventoryGenExitsService,
     SapProductionOrdersService sapProductionOrdersService,
@@ -100,7 +104,7 @@ public class ApprovalExecutionService(
                                 item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNum;
                             context.StageWisePayments.Update(item);
                         }
-                        await context.SaveChangesAsync(cancellationToken);
+                        await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask, cancellationToken);
                     }
 
                     if (sapBaseResponse is not null)
@@ -117,14 +121,55 @@ public class ApprovalExecutionService(
                 var record = await FindStageWisePaymentForApprovalAsync(request);
                 if (body is not null && record is not null)
                 {
-                    body.TransferReference = utrNo ?? "";
-                    body.CounterReference = utrNo ?? "";
-                    body.TransferDate = utrDate ?? DateTime.Now;
-                    body.DocDueDate = utrDate ?? DateTime.Now;
-                    body.DocDate = utrDate ?? DateTime.Now;
-                    body.PostingDate = utrDate ?? DateTime.Now;
+                    var batch = await context.StageWisePaymentBatches
+                        .FirstOrDefaultAsync(b =>
+                            b.ApprovalRequestId == request.Id.ToString()
+                            || b.StageWisePaymentId == record.Id
+                            || b.DownPaymentStageWisePaymentId == record.Id,
+                            cancellationToken);
+
+                    var paymentDate = batch?.PaymentDate ?? utrDate ?? DateTime.Now;
+                    var postingDate = batch?.PostingDate ?? utrDate ?? paymentDate;
+                    var reference = !string.IsNullOrWhiteSpace(utrNo)
+                        ? utrNo
+                        : (batch?.ReferenceNo ?? string.Empty);
+                    var journalRemark = !string.IsNullOrWhiteSpace(batch?.JournalRemark)
+                        ? batch.JournalRemark
+                        : comment;
+
+                    body.TransferReference = reference ?? "";
+                    body.CounterReference = reference ?? "";
+                    body.TransferDate = paymentDate;
+                    body.DocDueDate = paymentDate;
+                    body.DocDate = paymentDate;
+                    body.PostingDate = postingDate;
                     body.Remarks = comment;
-                    body.JournalRemarks = comment;
+                    body.JournalRemarks = journalRemark;
+
+                    if (!string.IsNullOrWhiteSpace(batch?.Account))
+                    {
+                        var mode = batch.ModeOfPayment ?? Constants.SapPaymentMeansType.BankTransfer;
+                        switch (mode)
+                        {
+                            case Constants.SapPaymentMeansType.Cash:
+                                body.CashAccount = batch.Account;
+                                break;
+                            case Constants.SapPaymentMeansType.Check:
+                                body.CheckAccount = batch.Account;
+                                break;
+                            default:
+                                body.TransferAccount = batch.Account;
+                                break;
+                        }
+
+                        if (body.CashFlowAssignments.Count > 0)
+                        {
+                            body.CashFlowAssignments[0].PaymentMeans = mode;
+                            // Never leave CashFlowLineItemID as 0 — SAP rejects it (3741-3).
+                            if (body.CashFlowAssignments[0].CashFlowLineItemID == 0)
+                                body.CashFlowAssignments.Clear();
+                        }
+                    }
                 }
 
                 if (body == null) return sapBaseResponse;
@@ -152,7 +197,7 @@ public class ApprovalExecutionService(
                                 item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNumber;
                             context.StageWisePayments.Update(item);
                         }
-                        await context.SaveChangesAsync(cancellationToken);
+                        await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask, cancellationToken);
                     }
 
                     if (sapBaseResponse is not null)
@@ -178,22 +223,24 @@ public class ApprovalExecutionService(
             result.SapResponseDocEntry = sapResponse.ApprovalDocEntry;
             result.SapResponseDocNum = sapResponse.ApprovalDocNumber;
 
-            if (result.DocumentType == ApprovalDocumentType.Payments)
+            await unitOfWork.ExecuteInTransactionAsync(async _ =>
             {
-                var record = await FindStageWisePaymentForApprovalAsync(result);
-                if (record != null)
+                if (result.DocumentType == ApprovalDocumentType.Payments)
                 {
-                    record.UtrDate = data?.UtrDate;
-                    record.UtrNo = data?.UtrNo;
-                    context.StageWisePayments.Update(record);
+                    var record = await FindStageWisePaymentForApprovalAsync(result);
+                    if (record != null)
+                    {
+                        record.UtrDate = data?.UtrDate;
+                        record.UtrNo = data?.UtrNo;
+                        context.StageWisePayments.Update(record);
+                    }
                 }
-            }
 
-            if (result.DocumentType is ApprovalDocumentType.Payments or ApprovalDocumentType.StagewisePayments_DP)
-                await stageWisePaymentService.MarkApprovedWhenAllRequestsCompleteAsync(result.Id);
+                if (result.DocumentType is ApprovalDocumentType.Payments or ApprovalDocumentType.StagewisePayments_DP)
+                    await stageWisePaymentService.MarkApprovedWhenAllRequestsCompleteAsync(result.Id);
 
-            context.ApprovalRequests.Update(result);
-            await context.SaveChangesAsync(cancellationToken);
+                context.ApprovalRequests.Update(result);
+            }, cancellationToken);
         }
     }
 

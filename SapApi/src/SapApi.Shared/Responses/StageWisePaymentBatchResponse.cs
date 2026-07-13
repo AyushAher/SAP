@@ -12,6 +12,9 @@ public class StageWisePaymentBatchResponse
     public bool ReadOnly { get; set; }
     public bool CanCancel { get; set; }
     public bool CanDelete { get; set; }
+    public bool CanWithdraw { get; set; }
+    public bool CanSubmit { get; set; }
+    public bool CanEditAdditionalDetails { get; set; }
     public bool CanApprove { get; set; }
     public bool CanReject { get; set; }
     public bool IsLastApproval { get; set; }

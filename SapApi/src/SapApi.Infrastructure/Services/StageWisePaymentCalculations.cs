@@ -35,6 +35,129 @@ public static class StageWisePaymentCalculations
     public static double GetBalancePayment(SapPurchaseOrdersResponse po, IReadOnlyList<StageWisePayment> activeRecords) =>
         (po.DocTotal ?? 0) - activeRecords.Sum(x => (x.Tds ?? 0) + (x.GrossAmount ?? 0));
 
+    public static bool IsBatchPaymentRecord(StageWisePayment record) =>
+        string.Equals(record.StageDesc, "Batch AP payment", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(record.StageDesc, "Batch down payment", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Batch payments store combined Gross/Gst with PaymentTermsType unset.
+    /// Expand them into per-term records so stage payable subtracts prior batch pays
+    /// (Gross → terms with Basic%, Gst → terms with GST%), using terms present on the batch.
+    /// </summary>
+    public static List<StageWisePayment> ExpandActiveRecordsForTermCalculations(
+        IReadOnlyList<StageWisePayment> activeRecords,
+        IReadOnlyDictionary<int, IReadOnlyList<int>> paymentIdToBatchTermIds,
+        IReadOnlyList<PaymentTermsUdf> paymentTerms)
+    {
+        var result = new List<StageWisePayment>(activeRecords.Count);
+        foreach (var record in activeRecords)
+        {
+            if (record.PaymentTermsType is not null || !IsBatchPaymentRecord(record))
+            {
+                result.Add(record);
+                continue;
+            }
+
+            if (!paymentIdToBatchTermIds.TryGetValue(record.Id, out var termIds) || termIds.Count == 0)
+            {
+                // Fallback when batch lines are missing: map Gross→any unknown as gross-only,
+                // so at least summary-aligned amounts are not lost entirely for mixed lookups.
+                result.Add(record);
+                continue;
+            }
+
+            var attributed = AttributeBatchAmountsToTerms(
+                record.GrossAmount ?? 0,
+                record.GstAmount ?? 0,
+                termIds,
+                paymentTerms);
+
+            if (attributed.Count == 0)
+            {
+                result.Add(record);
+                continue;
+            }
+
+            foreach (var (termId, amount) in attributed)
+            {
+                result.Add(new StageWisePayment
+                {
+                    Id = record.Id,
+                    CompanyDb = record.CompanyDb,
+                    PaymentTermsType = termId,
+                    Stage = record.Stage,
+                    StageDesc = record.StageDesc,
+                    Bank = record.Bank,
+                    ApprovalRequestId = record.ApprovalRequestId,
+                    ApInvoiceDocEntry = record.ApInvoiceDocEntry,
+                    ApDownPaymentInvoiceEntryNumber = record.ApDownPaymentInvoiceEntryNumber,
+                    WtCode = record.WtCode,
+                    GrossAmount = amount,
+                    GstAmount = 0,
+                    Tds = null,
+                    Status = record.Status,
+                    DocNumber = record.DocNumber,
+                    CreatedOn = record.CreatedOn,
+                    LastModifiedOn = record.LastModifiedOn,
+                });
+            }
+        }
+
+        return result;
+    }
+
+    public static Dictionary<int, double> AttributeBatchAmountsToTerms(
+        double grossAmount,
+        double gstAmount,
+        IReadOnlyList<int> batchTermIds,
+        IReadOnlyList<PaymentTermsUdf> paymentTerms)
+    {
+        var terms = batchTermIds
+            .Distinct()
+            .Select(id => paymentTerms.FirstOrDefault(t => t.Id == id))
+            .Where(t => t is not null)
+            .Select(t => t!)
+            .ToList();
+
+        if (terms.Count == 0)
+            return [];
+
+        var basicTerms = terms.Where(t => (t.Basic ?? 0) > 0).ToList();
+        var gstTerms = terms.Where(t => (t.Gst ?? 0) > 0).ToList();
+        var totalBasicPct = basicTerms.Sum(t => t.Basic ?? 0);
+        var totalGstPct = gstTerms.Sum(t => t.Gst ?? 0);
+
+        var attributed = new Dictionary<int, double>();
+        void Add(int termId, double amount)
+        {
+            if (amount == 0 || termId == 0)
+                return;
+            attributed[termId] = Math.Round(attributed.GetValueOrDefault(termId) + amount, 2);
+        }
+
+        if (totalBasicPct > 0 && grossAmount != 0)
+        {
+            foreach (var term in basicTerms)
+            {
+                if (term.Id is null)
+                    continue;
+                Add(term.Id.Value, grossAmount * (term.Basic ?? 0) / totalBasicPct);
+            }
+        }
+
+        if (totalGstPct > 0 && gstAmount != 0)
+        {
+            foreach (var term in gstTerms)
+            {
+                if (term.Id is null)
+                    continue;
+                Add(term.Id.Value, gstAmount * (term.Gst ?? 0) / totalGstPct);
+            }
+        }
+
+        return attributed;
+    }
+
     public static double GetPayableAmount(
         SapPurchaseOrdersResponse po,
         IReadOnlyList<PaymentTermsUdf> paymentTerms,
@@ -123,11 +246,6 @@ public static class StageWisePaymentCalculations
         string? apInvoiceDocEntry,
         double totalBasic)
     {
-        if (po.DocumentStatus == "bost_Close" && selectedTerm.Type is "Invoice" or "Retention")
-        {
-            return GetApInvoiceBalanceDue(po, selectedTerm, selectedApInvoice, activeRecords, apInvoiceDocEntry);
-        }
-
         return GetAlreadyPaidAmountForPaymentTerms(
             po, po.CreateUdfList(), activeRecords, selectedTerm, selectedTerm.Id, totalBasic);
     }
@@ -144,16 +262,6 @@ public static class StageWisePaymentCalculations
         if (selectedTermIds.Count == 0)
             return 0;
 
-        if (ShouldUseApInvoiceBalanceForPayable(po, paymentTerms, selectedTermIds, apInvoiceDocEntry))
-        {
-            var representativeTerm = selectedTermIds
-                .Select(id => paymentTerms.FirstOrDefault(t => t.Id == id))
-                .FirstOrDefault(t => t?.Type is "Invoice" or "Retention")
-                ?? selectedTermIds.Select(id => paymentTerms.FirstOrDefault(t => t.Id == id)).FirstOrDefault(t => t is not null);
-
-            return GetApInvoiceBalanceDue(po, representativeTerm, apInvoice, activeRecords, apInvoiceDocEntry);
-        }
-
         var sum = selectedTermIds.Distinct().Sum(termId =>
         {
             var term = paymentTerms.FirstOrDefault(t => t.Id == termId);
@@ -165,7 +273,7 @@ public static class StageWisePaymentCalculations
         return Math.Round(sum, 2);
     }
 
-    private static bool ShouldUseApInvoiceBalanceForPayable(
+    public static bool ShouldUseApInvoiceBalanceDue(
         SapPurchaseOrdersResponse po,
         IReadOnlyList<PaymentTermsUdf> paymentTerms,
         IReadOnlyList<int> selectedTermIds,
@@ -233,17 +341,14 @@ public static class StageWisePaymentCalculations
             .FirstOrDefault(t => t?.Type is "Invoice" or "Retention")
             ?? selectedTermIds.Select(id => paymentTerms.FirstOrDefault(t => t.Id == id)).FirstOrDefault(t => t is not null);
 
-        var balanceDue = ShouldUseApInvoiceBalanceForPayable(po, paymentTerms, selectedTermIds, apInvoiceDocEntry)
+        var balanceDue = ShouldUseApInvoiceBalanceDue(po, paymentTerms, selectedTermIds, apInvoiceDocEntry)
             ? GetApInvoiceBalanceDue(po, representativeTerm, apInvoice, activeRecords, apInvoiceDocEntry)
             : 0;
-
-        if (ShouldUseApInvoiceBalanceForPayable(po, paymentTerms, selectedTermIds, apInvoiceDocEntry))
-            return (balanceDue, balanceDue);
 
         var payable = ResolveBatchRowPayable(
             po, paymentTerms, activeRecords, selectedTermIds, apInvoice, apInvoiceDocEntry, totalBasic);
 
-        return (0, payable);
+        return (balanceDue, payable);
     }
 
     public static double GetPaymentTermPayable(
@@ -391,6 +496,7 @@ public static class StageWisePaymentCalculations
 
             var requiresAp = BatchRowRequiresApInvoice(po, paymentTerms, line.PaymentTermsTypes);
             double adjustedPayable;
+            double? adjustedApBalanceDue = null;
 
             if (requiresAp)
             {
@@ -400,13 +506,20 @@ public static class StageWisePaymentCalculations
                 if (!apInvoicesByDocEntry.TryGetValue(line.ApInvoiceDocEntry, out var apInvoice) || apInvoice.DocEntry is null)
                     return (false, $"AP invoice {line.ApInvoiceDocEntry} not found.");
 
-                var (_, payable) = ResolveBatchRowAmounts(
+                var (balanceDue, _) = ResolveBatchRowAmounts(
                     po, paymentTerms, activeRecords, line.PaymentTermsTypes, apInvoice,
                     line.ApInvoiceDocEntry, totalBasic);
 
                 var priorInBatch = appliedByApInvoice.GetValueOrDefault(line.ApInvoiceDocEntry, 0);
-                adjustedPayable = Math.Round(Math.Max(0, payable - priorInBatch), 2);
+                adjustedApBalanceDue = Math.Round(Math.Max(0, balanceDue - priorInBatch), 2);
+                adjustedPayable = ComputeSequentialStageRowPayable(
+                    line, priorLines, po, paymentTerms, activeRecords, totalBasic);
                 appliedByApInvoice[line.ApInvoiceDocEntry] = priorInBatch + line.Amount;
+
+                var allocations = AllocateRowAmountByPaymentTerm(
+                    line.Amount, line.PaymentTermsTypes, po, paymentTerms, activeRecords, totalBasic);
+                foreach (var (termId, allocated) in allocations)
+                    allocatedByTerm[termId] = allocatedByTerm.GetValueOrDefault(termId, 0) + allocated;
             }
             else
             {
@@ -423,6 +536,12 @@ public static class StageWisePaymentCalculations
             {
                 var rowContext = FormatBatchLineContextLabel(line, paymentTerms, apInvoicesByDocEntry);
                 return (false, $"Net amount cannot exceed payable ({adjustedPayable:N2}) for row {lineIndex + 1} ({rowContext}).");
+            }
+
+            if (adjustedApBalanceDue is not null && line.Amount > adjustedApBalanceDue.Value)
+            {
+                var rowContext = FormatBatchLineContextLabel(line, paymentTerms, apInvoicesByDocEntry);
+                return (false, $"Net amount cannot exceed AP invoice balance due ({adjustedApBalanceDue.Value:N2}) for row {lineIndex + 1} ({rowContext}).");
             }
 
             priorLines.Add(line);
@@ -480,9 +599,6 @@ public static class StageWisePaymentCalculations
         if (amount <= 0)
             return (0, 0);
 
-        if (po.DocumentStatus == "bost_Close" || term.Type is "Invoice" or "Retention")
-            return (Math.Round(amount, 2), 0);
-
         var paidBasic = activeRecords
             .Where(x => x.PaymentTermsType == term.Id)
             .Sum(x => x.GrossAmount ?? 0);
@@ -513,9 +629,6 @@ public static class StageWisePaymentCalculations
         var distinctTermIds = termIds.Distinct().ToList();
         if (distinctTermIds.Count == 0 || amount <= 0)
             return (0, 0);
-
-        if (BatchRowRequiresApInvoice(po, paymentTerms, distinctTermIds))
-            return (Math.Round(amount, 2), 0);
 
         if (distinctTermIds.Count == 1)
         {

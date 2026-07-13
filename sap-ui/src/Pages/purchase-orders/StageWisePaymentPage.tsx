@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Ban, Download, Layers, Trash2 } from 'lucide-react'
+import { Ban, Download, Layers, Plus, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
-import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
 import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
-import { Button, Card, CardContent, Input, Badge } from '@/Components/ui'
+import { Button, Card, CardContent, Badge } from '@/Components/ui'
 import { getApprovalRequest, type ApprovalRequest } from '@/Requests/approvals'
 import { ROUTES } from '@/config/constants'
 import {
   cancelStageWisePayment,
-  createStageWisePayment,
   deleteStageWisePayment,
   downloadStageWisePaymentPdf,
   getStageWisePaymentPageData,
@@ -19,15 +17,11 @@ import {
 } from '@/Requests/stageWisePayments'
 import { getBatchByStageWisePaymentId, cancelStageWisePaymentBatch, deleteStageWisePaymentBatch } from '@/Requests/stageWisePaymentBatches'
 import {
-  filterSinglePaymentTerms,
   formatAmount,
   isBatchPaymentAvailable,
   isPaymentTermSelectable,
-  isPoClosed,
   normalizeStatus,
   paymentTermLabel,
-  requiresBatchPayment,
-  resolveDisplayPayable,
 } from '@/helpers/stageWisePaymentCalculations'
 
 function triggerDownload(blob: Blob, fileName: string) {
@@ -39,6 +33,26 @@ function triggerDownload(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url)
 }
 
+function formatPoDate(value?: string) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function recordGrossAmount(record: StageWisePayment) {
+  return (record.grossAmount ?? 0) + (record.gstAmount ?? 0)
+}
+
+function summaryLabel(label: string) {
+  if (label === 'Tax') return 'Taxes'
+  return label
+}
+
 export function StageWisePaymentPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -46,15 +60,9 @@ export function StageWisePaymentPage() {
   const [pageData, setPageData] = useState<StageWisePaymentPageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [viewApprovalRequest, setViewApprovalRequest] = useState<ApprovalRequest | null>(null)
-  const [form, setForm] = useState({
-    paymentTermId: '',
-    amount: '',
-    bank: '',
-    wtCode: '',
-  })
+  const [actingId, setActingId] = useState<number | null>(null)
 
   const reload = useCallback(async () => {
     const data = await getStageWisePaymentPageData(poDocEntry)
@@ -69,7 +77,6 @@ export function StageWisePaymentPage() {
 
   const po = pageData?.purchaseOrder
   const paymentTerms = pageData?.paymentTerms ?? []
-  const activeRecords = pageData?.activeRecords ?? []
   const tableRecords = pageData?.tableRecords ?? []
   const totalBasic = pageData?.totalBasic ?? 0
 
@@ -78,25 +85,30 @@ export function StageWisePaymentPage() {
     [paymentTerms],
   )
 
-  const singlePaymentTerms = useMemo(
-    () => filterSinglePaymentTerms(po, selectableTerms),
-    [po, selectableTerms],
-  )
-
-  const singlePaymentAvailable = singlePaymentTerms.length > 0
-
-  const selectedTerm = singlePaymentTerms.find((t) => String(t.id) === form.paymentTermId)
-
   const batchPaymentEnabled = isBatchPaymentAvailable(po, selectableTerms, pageData?.apInvoices) && !loading
-  const poClosed = isPoClosed(po)
+
+  const totalGross = useMemo(
+    () => tableRecords.reduce((sum, record) => sum + recordGrossAmount(record), 0),
+    [tableRecords],
+  )
 
   const isBatchPayment = (record: StageWisePayment) =>
     record.stageDesc === 'Batch AP payment'
     || record.stageDesc === 'Batch down payment'
     || (record.apInvoiceDocEntry?.includes(',') ?? false)
 
+  const paymentTermForRecord = (record: StageWisePayment) => {
+    if (record.stageDesc === 'Batch AP payment' || record.stageDesc === 'Batch down payment') {
+      return record.stageDesc
+    }
+    const term = paymentTerms.find((t) => t.id === record.paymentTermsType)
+    return term ? paymentTermLabel(term) : (record.stageDesc || '—')
+  }
+
   const handleCancelPayment = async (record: StageWisePayment) => {
     if (!window.confirm('Cancel this payment in SAP?')) return
+    setActingId(record.id)
+    setError(null)
     try {
       if (isBatchPayment(record)) {
         const batch = await getBatchByStageWisePaymentId(record.id)
@@ -108,14 +120,19 @@ export function StageWisePaymentPage() {
       } else {
         await cancelStageWisePayment(record.id)
       }
+      setSuccessMessage('Payment cancelled.')
       await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Cancel failed')
+    } finally {
+      setActingId(null)
     }
   }
 
   const handleDeletePayment = async (record: StageWisePayment) => {
     if (!window.confirm('Delete this payment request?')) return
+    setActingId(record.id)
+    setError(null)
     try {
       if (isBatchPayment(record)) {
         const batch = await getBatchByStageWisePaymentId(record.id)
@@ -123,83 +140,31 @@ export function StageWisePaymentPage() {
       } else {
         await deleteStageWisePayment(record.id)
       }
+      setSuccessMessage('Payment request deleted.')
       await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Delete failed')
+    } finally {
+      setActingId(null)
     }
   }
 
   const handleViewBatch = async (record: StageWisePayment) => {
+    setActingId(record.id)
+    setError(null)
     try {
       const batch = await getBatchByStageWisePaymentId(record.id)
       navigate(`/purchase-orders/${poDocEntry}/payments/batch/${batch.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load batch payment')
-    }
-  }
-
-  const payable = po && selectedTerm
-    ? resolveDisplayPayable(
-      po,
-      paymentTerms,
-      activeRecords,
-      selectedTerm,
-      '',
-      undefined,
-      totalBasic,
-    )
-    : 0
-
-  const handleTermChange = (paymentTermId: string) => {
-    setForm((prev) => ({ ...prev, paymentTermId }))
-  }
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!selectedTerm || !po) return
-
-    if (requiresBatchPayment(po, selectedTerm)) {
-      setError('AP invoice payments must be created using batch payment.')
-      navigate(`/purchase-orders/${poDocEntry}/payments/batch`)
-      return
-    }
-
-    const amount = Number(form.amount)
-    if (amount > payable) {
-      setError(`Amount cannot exceed payable of ${formatAmount(payable)}`)
-      return
-    }
-
-    if (!form.bank) {
-      setError('Please select bank')
-      return
-    }
-
-    setSubmitting(true)
-    setError(null)
-    try {
-      const result = await createStageWisePayment({
-        poDocEntry,
-        docNumber: po.DocNum,
-        paymentTermsType: selectedTerm.id,
-        stageDesc: selectedTerm.desc,
-        bank: form.bank,
-        selectedPaymentTermsUdf: selectedTerm,
-        downPaymentAmount: amount,
-        wtCode: form.wtCode || undefined,
-        desc: selectedTerm.desc,
-      }) as { message?: string }
-      await reload()
-      setSuccessMessage(result?.message ?? 'Payment request created.')
-      setForm({ paymentTermId: '', amount: '', bank: '', wtCode: '' })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create payment request')
     } finally {
-      setSubmitting(false)
+      setActingId(null)
     }
   }
 
   const handleDownload = async (record: StageWisePayment) => {
+    setActingId(record.id)
+    setError(null)
     try {
       const blob = await downloadStageWisePaymentPdf(record.id, poDocEntry)
       triggerDownload(
@@ -208,87 +173,30 @@ export function StageWisePaymentPage() {
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to download PDF')
+    } finally {
+      setActingId(null)
     }
   }
 
-  const bankLabel = (key?: string) => {
-    if (!key) return ''
-    return pageData?.bankLabels[key] ?? key
+  const openApprovalRequest = async (requestId: string) => {
+    try {
+      setViewApprovalRequest(await getApprovalRequest(Number(requestId)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load approval request')
+    }
   }
 
-  const columns: SapColumn<StageWisePayment>[] = [
-    { key: 'id', header: 'ID', accessor: (r) => r.id },
-    {
-      key: 'approvalRequestId',
-      header: 'Request ID',
-      render: (r) => {
-        const ids = (r.approvalRequestId ?? '').split(',').map((x) => x.trim()).filter(Boolean)
-        if (ids.length === 0) return '—'
-        return (
-          <div className="flex flex-wrap gap-1">
-            {ids.map((requestId) => (
-              <button
-                key={requestId}
-                type="button"
-                className="text-primary-600 underline"
-                onClick={async () => {
-                  try {
-                    setViewApprovalRequest(await getApprovalRequest(Number(requestId)))
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed to load approval request')
-                  }
-                }}
-              >
-                {requestId}
-              </button>
-            ))}
-          </div>
-        )
-      },
-    },
-    { key: 'apDownPaymentInvoiceEntryNumber', header: 'Outgoing Payment', accessor: (r) => r.apDownPaymentInvoiceEntryNumber },
-    { key: 'status', header: 'Status', render: (r) => <Badge>{normalizeStatus(r.status)}</Badge> },
-    { key: 'apInvoiceDocEntry', header: 'AP Invoice Doc Entry', accessor: (r) => r.apInvoiceDocEntry },
-    { key: 'bank', header: 'Bank', accessor: (r) => bankLabel(r.bank) },
-    {
-      key: 'paymentTerms',
-      header: 'Payment Terms',
-      accessor: (r) => paymentTermLabel(paymentTerms.find((t) => t.id === r.paymentTermsType) ?? {}),
-    },
-    {
-      key: 'grossTotal',
-      header: 'Gross Amount',
-      accessor: (r) => formatAmount((r.grossAmount ?? 0) + (r.gstAmount ?? 0)),
-    },
-    { key: 'grossAmount', header: 'Basic Amount', accessor: (r) => formatAmount(r.grossAmount) },
-    { key: 'tds', header: 'TDS', accessor: (r) => formatAmount(r.tds) },
-    { key: 'gstAmount', header: 'GST', accessor: (r) => formatAmount(r.gstAmount) },
-    {
-      key: 'netAmount',
-      header: 'Net Amount',
-      accessor: (r) => formatAmount((r.grossAmount ?? 0) - (r.tds ?? 0)),
-    },
-  ]
+  const poDate = po?.PostingDate ?? po?.DocDate
 
   return (
     <div className="space-y-6">
       <PageHeader
         title={po ? `Payment Request (${po.DocNum ?? po.DocEntry ?? id})` : 'Payment Request'}
-        description={po ? `${po.CardName ?? ''}` : ''}
+        description="Stage-wise payments for this purchase order"
         action={(
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={!batchPaymentEnabled}
-              title={batchPaymentEnabled ? undefined : 'Batch payment requires AP invoices linked to this purchase order'}
-              onClick={() => navigate(`/purchase-orders/${poDocEntry}/payments/batch`)}
-            >
-              Batch Payment
-            </Button>
-            <Link to={ROUTES.PURCHASE_ORDERS}>
-              <Button variant="outline">Back to PO List</Button>
-            </Link>
-          </div>
+          <Link to={ROUTES.PURCHASE_ORDERS}>
+            <Button variant="outline">Back to PO List</Button>
+          </Link>
         )}
       />
 
@@ -299,209 +207,216 @@ export function StageWisePaymentPage() {
         <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{successMessage}</div>
       )}
 
-      {po && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <div className="space-y-2 text-sm">
-                <div><span className="text-slate-500">Vendor Name:</span> <strong>{po.CardName}</strong></div>
-                <div>
-                  <span className="text-slate-500">Project Details:</span>{' '}
-                  <strong>{po.Project}{pageData?.projectName ? ` - ${pageData.projectName}` : ''}</strong>
-                </div>
-                <div><span className="text-slate-500">Basic Amount:</span> <strong>{formatAmount(totalBasic)}</strong></div>
-                <div><span className="text-slate-500">Tax Amount:</span> <strong>{formatAmount(po.VatSum)}</strong></div>
-                <div><span className="text-slate-500">Gross Total:</span> <strong>{formatAmount(po.DocTotal)}</strong></div>
-                <div><span className="text-slate-500">Balance Payment:</span> <strong>{formatAmount(pageData?.balancePayment)}</strong></div>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <h3 className="mb-3 text-base font-semibold text-primary-700">Payment Summary</h3>
-                {(pageData?.paymentSummary.length ?? 0) > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-left text-slate-500">
-                          <th className="py-2 pr-3">Type</th>
-                          <th className="py-2 pr-3 text-right">PO Value</th>
-                          <th className="py-2 pr-3 text-right">Requested</th>
-                          <th className="py-2 pr-3 text-right">Paid</th>
-                          <th className="py-2 text-right">Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pageData?.paymentSummary.map((row) => (
-                          <tr key={row.label} className="border-b border-slate-100">
-                            <td className="py-2 pr-3 font-medium">{row.label}</td>
-                            <td className="py-2 pr-3 text-right">{formatAmount(row.poValue)}</td>
-                            <td className="py-2 pr-3 text-right">{formatAmount(row.requested - row.paid)}</td>
-                            <td className="py-2 pr-3 text-right">{formatAmount(row.paid)}</td>
-                            <td className="py-2 text-right">{formatAmount(row.balance)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-500">No payments summary available.</p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div>
-        <h2 className="mb-3 text-lg font-semibold">Payment Requests</h2>
-        <SapDataGrid
-          loading={loading}
-          data={tableRecords}
-          getRowKey={(r) => r.id}
-          columns={columns}
-          actions={(row) => (
-            <RowActions>
-              {isBatchPayment(row) && (
-                <RowActionButton
-                  title="View batch"
-                  icon={<Layers className={rowActionIconClassName} />}
-                  onClick={() => void handleViewBatch(row)}
-                />
-              )}
-              <RowActionButton
-                title="Download PDF"
-                icon={<Download className={rowActionIconClassName} />}
-                onClick={() => handleDownload(row)}
-              />
-              <RowActionButton
-                title="Delete payment"
-                variant="danger"
-                icon={<Trash2 className={rowActionIconClassName} />}
-                onClick={() => void handleDeletePayment(row)}
-              />
-              <RowActionButton
-                title="Cancel payment"
-                icon={<Ban className={rowActionIconClassName} />}
-                onClick={() => void handleCancelPayment(row)}
-              />
-            </RowActions>
-          )}
-        />
-      </div>
-
       <Card>
-        <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Batch Payment</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Create AP invoice payments (vendor outgoing) or down payments (advance/stage) in one batch.
-              Invoice and Retention terms require an AP invoice; other terms on an open PO do not.
-            </p>
-            {poClosed && (
-              <p className="mt-2 text-sm text-slate-600">
-                This purchase order is closed. AP invoice payments require a linked AP invoice.
-              </p>
-            )}
-            {!batchPaymentEnabled && po && (
-              <p className="mt-2 text-sm text-amber-700">
-                Batch payment is available when payment types are configured for this purchase order.
-              </p>
-            )}
+        <CardContent className="space-y-6 pt-6">
+          <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <span className="text-slate-500">Vendor Details:</span>{' '}
+              <strong>
+                {po ? `${po.CardCode ?? '—'} - ${po.CardName ?? '—'}` : (loading ? 'Loading…' : '—')}
+              </strong>
+            </div>
+            <div>
+              <span className="text-slate-500">PO Details:</span>{' '}
+              <strong>
+                {po ? `${po.DocNum ?? po.DocEntry ?? '—'}` : '—'}
+              </strong>
+              <span className="ml-3 text-slate-500">PO Date:</span>{' '}
+              <strong>{formatPoDate(poDate)}</strong>
+            </div>
+            <div>
+              <span className="text-slate-500">Project Details:</span>{' '}
+              <strong>
+                {po
+                  ? `${po.Project ?? '—'}${pageData?.projectName ? ` - ${pageData.projectName}` : ''}`
+                  : '—'}
+              </strong>
+            </div>
           </div>
-          <Button
-            disabled={!batchPaymentEnabled}
-            onClick={() => navigate(`/purchase-orders/${poDocEntry}/payments/batch`)}
-          >
-            Open Batch Payment
-          </Button>
+
+          <div>
+            <h2 className="mb-3 text-base font-semibold text-slate-900">PO Summary</h2>
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
+                    <th className="px-4 py-3 font-medium" />
+                    <th className="px-4 py-3 text-right font-medium">P.O. Value</th>
+                    <th className="px-4 py-3 text-right font-medium">Requested</th>
+                    <th className="px-4 py-3 text-right font-medium">Paid</th>
+                    <th className="px-4 py-3 text-right font-medium">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(pageData?.paymentSummary.length ?? 0) > 0 ? (
+                    pageData?.paymentSummary.map((row) => (
+                      <tr
+                        key={row.label}
+                        className={`border-b border-slate-100 ${row.label === 'Total' ? 'bg-slate-50 font-semibold' : ''}`}
+                      >
+                        <td className="px-4 py-3 font-medium text-slate-800">{summaryLabel(row.label)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(row.poValue)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(row.requested)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(row.paid)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(row.balance)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <>
+                      <tr className="border-b border-slate-100">
+                        <td className="px-4 py-3 font-medium">Basic</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(totalBasic)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(0)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(0)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(totalBasic)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="px-4 py-3 font-medium">Taxes</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(po?.VatSum)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(0)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(0)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(po?.VatSum)}</td>
+                      </tr>
+                      <tr className="bg-slate-50 font-semibold">
+                        <td className="px-4 py-3">Total</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(po?.DocTotal)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(0)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(0)}</td>
+                        <td className="px-4 py-3 text-right">{formatAmount(po?.DocTotal)}</td>
+                      </tr>
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
-      {singlePaymentAvailable ? (
-        <Card>
-          <CardContent className="pt-6">
-            <h2 className="mb-1 text-lg font-semibold">Down Payment Request</h2>
-            <p className="mb-4 text-sm text-slate-500">
-              For advance / stage down payments only. AP invoice payments must use batch above.
-            </p>
-            <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium">Payment Type</label>
-                <select
-                  className="w-full rounded-lg border px-3 py-2"
-                  value={form.paymentTermId}
-                  onChange={(e) => handleTermChange(e.target.value)}
-                  required
-                >
-                  <option value="">Select payment type</option>
-                  {singlePaymentTerms.map((t) => (
-                    <option key={t.id} value={t.id}>{paymentTermLabel(t)}</option>
-                  ))}
-                </select>
-              </div>
+      <Card>
+        <CardContent className="pt-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-slate-900">Detailed</h2>
+            <span className="text-sm text-slate-500">List of Request</span>
+          </div>
 
-              <Input label="Payable" value={formatAmount(payable)} readOnly disabled />
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-[900px] w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
+                  <th className="px-4 py-3 font-medium">Request ID</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">SAP Document No.</th>
+                  <th className="px-4 py-3 font-medium">Payment Term</th>
+                  <th className="px-4 py-3 text-right font-medium">Gross Amount</th>
+                  <th className="px-4 py-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">Loading payment requests…</td>
+                  </tr>
+                ) : tableRecords.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">No payment requests yet.</td>
+                  </tr>
+                ) : (
+                  tableRecords.map((record) => {
+                    const requestIds = (record.approvalRequestId ?? '')
+                      .split(',')
+                      .map((x) => x.trim())
+                      .filter(Boolean)
+                    const busy = actingId === record.id
+                    return (
+                      <tr key={record.id} className="border-b border-slate-100 align-middle">
+                        <td className="px-4 py-3">
+                          {requestIds.length === 0 ? (
+                            <span className="text-slate-400">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {requestIds.map((requestId) => (
+                                <button
+                                  key={requestId}
+                                  type="button"
+                                  className="text-primary-600 underline"
+                                  onClick={() => void openApprovalRequest(requestId)}
+                                >
+                                  {requestId}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge>{normalizeStatus(record.status)}</Badge>
+                        </td>
+                        <td className="px-4 py-3">{record.apDownPaymentInvoiceEntryNumber || '—'}</td>
+                        <td className="px-4 py-3">{paymentTermForRecord(record)}</td>
+                        <td className="px-4 py-3 text-right font-medium">{formatAmount(recordGrossAmount(record))}</td>
+                        <td className="px-4 py-3">
+                          <RowActions>
+                            {isBatchPayment(record) && (
+                              <RowActionButton
+                                title="Open batch"
+                                disabled={busy}
+                                icon={<Layers className={rowActionIconClassName} />}
+                                onClick={() => void handleViewBatch(record)}
+                              />
+                            )}
+                            <RowActionButton
+                              title="Download PDF"
+                              disabled={busy}
+                              icon={<Download className={rowActionIconClassName} />}
+                              onClick={() => void handleDownload(record)}
+                            />
+                            <RowActionButton
+                              title="Delete payment"
+                              variant="danger"
+                              disabled={busy}
+                              icon={<Trash2 className={rowActionIconClassName} />}
+                              onClick={() => void handleDeletePayment(record)}
+                            />
+                            <RowActionButton
+                              title="Cancel payment"
+                              disabled={busy}
+                              icon={<Ban className={rowActionIconClassName} />}
+                              onClick={() => void handleCancelPayment(record)}
+                            />
+                          </RowActions>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-50 font-semibold">
+                  <td className="px-4 py-3" colSpan={4}>Total Gross</td>
+                  <td className="px-4 py-3 text-right">{formatAmount(totalGross)}</td>
+                  <td className="px-4 py-3" />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
 
-              <div>
-                <label className="mb-1 block text-sm font-medium">WT Code</label>
-                <select
-                  className="w-full rounded-lg border px-3 py-2"
-                  value={form.wtCode}
-                  onChange={(e) => setForm({ ...form, wtCode: e.target.value })}
-                >
-                  <option value="">Select WT code</option>
-                  {pageData?.withholdingTaxCodes.map((wt) => (
-                    <option key={wt.wtCode} value={wt.wtCode}>
-                      {wt.wtName ?? wt.wtCode}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">Bank A/C</label>
-                <select
-                  className="w-full rounded-lg border px-3 py-2"
-                  value={form.bank}
-                  onChange={(e) => setForm({ ...form, bank: e.target.value })}
-                  required
-                >
-                  <option value="">Select bank</option>
-                  {pageData?.banks.map((b) => (
-                    <option key={b.key} value={b.key}>{b.value}</option>
-                  ))}
-                </select>
-              </div>
-
-              <Input
-                label="Down Payment Amount"
-                type="number"
-                step="0.01"
-                min="0"
-                nonNegative
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                required
-              />
-
-              <div className="flex items-end">
-                <Button type="submit" disabled={submitting || loading}>
-                  {submitting ? 'Creating…' : 'Create'}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      ) : po && (
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-slate-600">
-              {poClosed
-                ? 'This purchase order is closed. All payments must be created via AP Invoice Payment (Batch) above.'
-                : 'Invoice and retention payment types are only available through batch payment.'}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <Button
+              disabled={!batchPaymentEnabled}
+              title={batchPaymentEnabled ? undefined : 'Configure payment types for this purchase order to create payments'}
+              onClick={() => navigate(`/purchase-orders/${poDocEntry}/payments/batch`)}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Create New
+            </Button>
+            {!batchPaymentEnabled && po && (
+              <p className="text-sm text-amber-700">
+                Payment creation is unavailable until payment types are configured for this purchase order.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <RequestViewDialog
         request={viewApprovalRequest}

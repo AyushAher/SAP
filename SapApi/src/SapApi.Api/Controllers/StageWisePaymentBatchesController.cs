@@ -43,6 +43,45 @@ public class StageWisePaymentBatchesController(
             : BadRequest(ApiResponse<object>.Fail("SYS-01", message));
     }
 
+    [HttpPut("{batchId:int}")]
+    public async Task<IActionResult> Update(int batchId, [FromBody] CreateStageWisePaymentBatchRequest request, CancellationToken cancellationToken)
+    {
+        var (success, message, data) = await batchService.UpdateBatchAsync(batchId, request, cancellationToken);
+        return success
+            ? Ok(ApiResponse<object>.Ok(data, message))
+            : BadRequest(ApiResponse<object>.Fail("SYS-01", message));
+    }
+
+    [HttpPost("{batchId:int}/submit")]
+    public async Task<IActionResult> Submit(int batchId, [FromBody] CreateStageWisePaymentBatchRequest request, CancellationToken cancellationToken)
+    {
+        var (success, message, data) = await batchService.SubmitBatchAsync(batchId, request, cancellationToken);
+        return success
+            ? Ok(ApiResponse<object>.Ok(data, message))
+            : BadRequest(ApiResponse<object>.Fail("SYS-01", message));
+    }
+
+    [HttpPost("{batchId:int}/withdraw")]
+    public async Task<IActionResult> Withdraw(int batchId, CancellationToken cancellationToken)
+    {
+        var (success, message, data) = await batchService.WithdrawBatchApprovalAsync(batchId, cancellationToken);
+        return success
+            ? Ok(ApiResponse<object>.Ok(data, message))
+            : BadRequest(ApiResponse<object>.Fail("SYS-01", message));
+    }
+
+    [HttpPut("{batchId:int}/additional-details")]
+    public async Task<IActionResult> UpdateAdditionalDetails(
+        int batchId,
+        [FromBody] UpdateBatchAdditionalDetailsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (success, message, data) = await batchService.UpdateAdditionalDetailsAsync(batchId, request, cancellationToken);
+        return success
+            ? Ok(ApiResponse<object>.Ok(data, message))
+            : BadRequest(ApiResponse<object>.Fail("SYS-01", message));
+    }
+
     [HttpGet("{batchId:int}")]
     public async Task<IActionResult> GetById(int batchId, CancellationToken cancellationToken)
     {

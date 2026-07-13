@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Trash2, Ban, Download } from 'lucide-react'
+import { Trash2, Ban, Download, Undo2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionButton, rowActionIconClassName, rowActionsCellClassName } from '@/Components/shared/RowActions'
 import {
@@ -23,6 +23,10 @@ import {
 } from '@/Requests/approvals'
 import {
   createStageWisePaymentBatch,
+  updateStageWisePaymentBatch,
+  submitStageWisePaymentBatch,
+  withdrawStageWisePaymentBatch,
+  updateBatchAdditionalDetails,
   getBatchByApprovalRequestId,
   getBatchByStageWisePaymentId,
   getBatchPageData,
@@ -30,6 +34,7 @@ import {
   deleteStageWisePaymentBatch,
   downloadStageWisePaymentBatchPdf,
   getStageWisePaymentBatch,
+  type BatchPayload,
   type StageWisePaymentBatch,
 } from '@/Requests/stageWisePaymentBatches'
 import type { StageWisePaymentPageData } from '@/Requests/stageWisePayments'
@@ -163,10 +168,18 @@ export function StageWisePaymentBatchPage() {
   const [postingDate, setPostingDate] = useState(todayIsoDate)
   const [paymentDate, setPaymentDate] = useState(todayIsoDate)
 
-  const readOnly = mode !== 'create' || (batch?.readOnly ?? false)
   const isApproval = mode === 'approval'
+  const readOnly = isApproval || (batch ? Boolean(batch.readOnly) : mode !== 'create')
   const canAct = batch?.canApprove ?? false
   const needsUtr = isApproval && (batch?.isLastApproval ?? false)
+  const canWithdraw = !isApproval && Boolean(batch?.canWithdraw)
+  const canSubmitExisting = !isApproval && Boolean(batch?.canSubmit)
+  const isEditingExisting = Boolean(batch?.id) && !readOnly
+  const canEditAdditionalDetails = !batch
+    ? !readOnly
+    : Boolean(batch.canEditAdditionalDetails)
+  const additionalDetailsReadOnly = !canEditAdditionalDetails || loading
+  const showAdditionalDetailsSave = Boolean(batch?.id) && canEditAdditionalDetails && readOnly
 
   const paymentTerms = pageData?.paymentTerms ?? []
   const selectableTerms = useMemo(
@@ -392,40 +405,37 @@ export function StageWisePaymentBatchPage() {
 
   const totalAmount = displayRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
-    if (readOnly) return
-
+  const buildPayload = (): BatchPayload | null => {
     if (!sharedBank) {
       setError('Please select a bank account.')
-      return
+      return null
     }
 
     if (!account) {
       setError('Please select an account in Additional Details.')
-      return
+      return null
     }
 
     if (!postingDate || !paymentDate) {
       setError('Posting date and payment date are required.')
-      return
+      return null
     }
 
     if (!adjustmentContext) {
       setError('Payment data is not loaded.')
-      return
+      return null
     }
 
     const compositionError = validateBatchComposition(displayRows, adjustmentContext)
     if (compositionError) {
       setError(compositionError)
-      return
+      return null
     }
 
     const validationError = validateBatchPaymentAmounts(displayRows, adjustmentContext)
     if (validationError) {
       setError(validationError)
-      return
+      return null
     }
 
     for (const row of displayRows) {
@@ -433,39 +443,141 @@ export function StageWisePaymentBatchPage() {
       const requiresAp = po && batchRowRequiresApInvoice(po, paymentTerms, termIds)
       if (requiresAp && !row.apInvoiceDocEntry) {
         setError('AP invoice is required for Invoice, Retention, or closed PO payment rows.')
-        return
+        return null
       }
       if (row.paymentTermsTypes.length === 0) {
         setError('Each row must have at least one payment type selected.')
-        return
+        return null
       }
     }
 
+    return {
+      poDocEntry,
+      docNumber: po?.DocNum,
+      wtCode: sharedWtCode || undefined,
+      modeOfPayment,
+      account,
+      journalRemark: journalRemark || undefined,
+      referenceNo: referenceNo || undefined,
+      postingDate,
+      paymentDate,
+      lines: rows.map((row) => ({
+        apInvoiceDocEntry: row.apInvoiceDocEntry || undefined,
+        paymentTermsTypes: row.paymentTermsTypes.map(Number),
+        bank: sharedBank,
+        amount: Number(row.amount),
+        notes: row.notes || undefined,
+      })),
+    }
+  }
+
+  const applyLoadedBatch = (batchData: StageWisePaymentBatch) => {
+    setBatch(batchData)
+    setRows(batchToRows(batchData))
+    setSharedBank(batchData.lines[0]?.bank ?? '')
+    setSharedWtCode(batchData.wtCode ?? '')
+    applyBatchAdditionalDetails(batchData)
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (readOnly) return
+
+    const payload = buildPayload()
+    if (!payload) return
+
     setSubmitting(true)
     setError(null)
+    setSuccessMessage(null)
     try {
-      const result = await createStageWisePaymentBatch({
-        poDocEntry,
-        docNumber: po?.DocNum,
-        wtCode: sharedWtCode || undefined,
-        modeOfPayment,
-        account,
-        journalRemark: journalRemark || undefined,
-        referenceNo: referenceNo || undefined,
-        postingDate,
-        paymentDate,
-        lines: rows.map((row) => ({
-          apInvoiceDocEntry: row.apInvoiceDocEntry || undefined,
-          paymentTermsTypes: row.paymentTermsTypes.map(Number),
-          bank: sharedBank,
-          amount: Number(row.amount),
-          notes: row.notes || undefined,
-        })),
-      })
-      setSuccessMessage('Batch payment request created.')
-      navigate(`/purchase-orders/${poDocEntry}/payments/batch/${result.id}`, { replace: true })
+      if (isEditingExisting && batch?.id) {
+        const result = await submitStageWisePaymentBatch(batch.id, payload)
+        applyLoadedBatch(result)
+        setSuccessMessage('Batch payment submitted for approval.')
+        navigate(`/purchase-orders/${poDocEntry}/payments/batch/${result.id}`, { replace: true })
+      } else {
+        const result = await createStageWisePaymentBatch(payload)
+        applyLoadedBatch(result)
+        setSuccessMessage('Batch payment request created.')
+        navigate(`/purchase-orders/${poDocEntry}/payments/batch/${result.id}`, { replace: true })
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create batch payment')
+      setError(err instanceof Error ? err.message : 'Failed to submit batch payment')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleSaveDraft = async () => {
+    if (readOnly || !batch?.id || !canSubmitExisting) return
+
+    const payload = buildPayload()
+    if (!payload) return
+
+    setSubmitting(true)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const result = await updateStageWisePaymentBatch(batch.id, payload)
+      applyLoadedBatch(result)
+      setSuccessMessage('Draft batch payment saved.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save batch payment')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleWithdraw = async () => {
+    if (!batch?.id || !canWithdraw) return
+    if (!window.confirm('Withdraw this approval request? You can edit the batch and submit again.')) return
+    setSubmitting(true)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const result = await withdrawStageWisePaymentBatch(batch.id)
+      applyLoadedBatch(result)
+      setSuccessMessage('Approval request withdrawn. Edit the batch and submit again.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to withdraw approval request')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const buildAdditionalDetailsPayload = () => {
+    if (!account) {
+      setError('Please select an account in Additional Details.')
+      return null
+    }
+    if (!postingDate || !paymentDate) {
+      setError('Posting date and payment date are required.')
+      return null
+    }
+    return {
+      modeOfPayment,
+      account,
+      journalRemark: journalRemark || undefined,
+      referenceNo: referenceNo || undefined,
+      postingDate,
+      paymentDate,
+    }
+  }
+
+  const handleSaveAdditionalDetails = async () => {
+    if (!batch?.id || !canEditAdditionalDetails) return
+    const payload = buildAdditionalDetailsPayload()
+    if (!payload) return
+
+    setSubmitting(true)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const result = await updateBatchAdditionalDetails(batch.id, payload)
+      applyLoadedBatch(result)
+      setSuccessMessage('Additional details saved.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save additional details')
     } finally {
       setSubmitting(false)
     }
@@ -473,8 +585,23 @@ export function StageWisePaymentBatchPage() {
 
   const handleApprove = async () => {
     if (!approvalRequestId) return
-    setSubmitting(true)
-    setError(null)
+    if (batch?.id && canEditAdditionalDetails) {
+      const details = buildAdditionalDetailsPayload()
+      if (!details) return
+      setSubmitting(true)
+      setError(null)
+      try {
+        const updated = await updateBatchAdditionalDetails(batch.id, details)
+        applyLoadedBatch(updated)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save additional details')
+        setSubmitting(false)
+        return
+      }
+    } else {
+      setSubmitting(true)
+      setError(null)
+    }
     try {
       await approveRequest(Number(approvalRequestId), {
         comment: comment || 'Approved',
@@ -568,9 +695,11 @@ export function StageWisePaymentBatchPage() {
   const titleSuffix = po?.DocNum ?? po?.DocEntry ?? id
   const pageTitle = isApproval
     ? `Approve Batch Payment (${titleSuffix})`
-    : readOnly
-      ? `Batch Payment (${titleSuffix})`
-      : `New Batch Payment (${titleSuffix})`
+    : isEditingExisting
+      ? `Edit Batch Payment (${titleSuffix})`
+      : readOnly
+        ? `Batch Payment (${titleSuffix})`
+        : `New Batch Payment (${titleSuffix})`
 
   return (
     <div className="space-y-6">
@@ -593,6 +722,17 @@ export function StageWisePaymentBatchPage() {
           <Badge>{batch.status}</Badge>
           {batch.approvalRequestId && (
             <span className="text-slate-600">Approval Request: {batch.approvalRequestId}</span>
+          )}
+          {canWithdraw && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submitting}
+              onClick={() => void handleWithdraw()}
+            >
+              <Undo2 className="mr-2 h-4 w-4" />
+              Withdraw & Edit
+            </Button>
           )}
           {batch.canCancel && !isApproval && (
             <Button
@@ -679,7 +819,7 @@ export function StageWisePaymentBatchPage() {
                   <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
                     <th className="px-3 py-2">Payment Type</th>
                     <th className="px-3 py-2">AP Invoice</th>
-                    <th className="px-3 py-2 text-right">Balance Due</th>
+                    <th className="px-3 py-2 text-right">AP Invoice Balance Due</th>
                     <th className="px-3 py-2 text-right">Payable</th>
                     <th className="px-3 py-2 text-right">Net Amt</th>
                     {!readOnly && <th className="px-3 py-2 w-px whitespace-nowrap" />}
@@ -778,11 +918,99 @@ export function StageWisePaymentBatchPage() {
               </table>
             </div>
 
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-800">Additional Details</h3>
+                {canEditAdditionalDetails && readOnly && (
+                  <span className="text-xs text-slate-500">Editable — no pending approval required for you</span>
+                )}
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Select
+                  label="Mode of Payment"
+                  options={PAYMENT_MODE_OPTIONS}
+                  value={modeOfPayment}
+                  onChange={setModeOfPayment}
+                  disabled={additionalDetailsReadOnly}
+                  required={canEditAdditionalDetails}
+                  usePortal
+                  minHeight="min-h-[44px]"
+                  menuMinHeight="min-h-52"
+                />
+                <Select
+                  label="Account"
+                  options={accountOptions}
+                  value={account}
+                  onChange={setAccount}
+                  placeholder="Select account"
+                  disabled={additionalDetailsReadOnly}
+                  required={canEditAdditionalDetails}
+                  usePortal
+                  minHeight="min-h-[44px]"
+                  menuMinHeight="min-h-52"
+                />
+                <Input
+                  label="Journal Remark"
+                  value={journalRemark}
+                  onChange={(e) => setJournalRemark(e.target.value)}
+                  disabled={additionalDetailsReadOnly}
+                />
+                <Input
+                  label="Reference No."
+                  value={referenceNo}
+                  onChange={(e) => setReferenceNo(e.target.value)}
+                  disabled={additionalDetailsReadOnly}
+                />
+                <Input
+                  label="Posting Date"
+                  type="date"
+                  value={postingDate}
+                  onChange={(e) => setPostingDate(e.target.value)}
+                  disabled={additionalDetailsReadOnly}
+                  required={canEditAdditionalDetails}
+                />
+                <Input
+                  label="Payment Date"
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  disabled={additionalDetailsReadOnly}
+                  required={canEditAdditionalDetails}
+                />
+              </div>
+              {showAdditionalDetailsSave && (
+                <div className="mt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={submitting || loading}
+                    onClick={() => void handleSaveAdditionalDetails()}
+                  >
+                    {submitting ? 'Saving…' : 'Save Additional Details'}
+                  </Button>
+                </div>
+              )}
+            </div>
+
             {!readOnly && (
               <div className="flex flex-wrap gap-3">
                 <Button type="button" variant="outline" onClick={addRow}>Add Row</Button>
+                {canSubmitExisting && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={submitting || loading || !batchPaymentEnabled}
+                    onClick={() => void handleSaveDraft()}
+                  >
+                    {submitting ? 'Saving…' : 'Save Draft'}
+                  </Button>
+                )}
                 <Button type="submit" disabled={submitting || loading || !batchPaymentEnabled}>
-                  {submitting ? 'Submitting…' : 'Submit Batch Payment'}
+                  {submitting
+                    ? 'Submitting…'
+                    : isEditingExisting
+                      ? 'Submit Again'
+                      : 'Submit Batch Payment'}
                 </Button>
               </div>
             )}
@@ -798,66 +1026,6 @@ export function StageWisePaymentBatchPage() {
               </div>
             )}
           </form>
-        </CardContent>
-      </Card>
-
-      {/* Additional Details */}
-      <Card>
-        <CardContent className="pt-6">
-          <h3 className="mb-4 text-sm font-semibold text-slate-700">Additional Details</h3>
-          <div className="grid max-w-4xl gap-4 md:grid-cols-2">
-            <Select
-              label="Mode of Payment"
-              options={PAYMENT_MODE_OPTIONS}
-              value={modeOfPayment}
-              onChange={setModeOfPayment}
-              disabled={readOnly || loading}
-              required={!readOnly}
-              usePortal
-              minHeight="min-h-[44px]"
-              menuMinHeight="min-h-52"
-            />
-            <Select
-              label="Account"
-              options={accountOptions}
-              value={account}
-              onChange={setAccount}
-              placeholder="Select account"
-              disabled={readOnly || loading}
-              required={!readOnly}
-              usePortal
-              minHeight="min-h-[44px]"
-              menuMinHeight="min-h-52"
-            />
-            <Input
-              label="Journal Remark"
-              value={journalRemark}
-              onChange={(e) => setJournalRemark(e.target.value)}
-              disabled={readOnly || loading}
-            />
-            <Input
-              label="Reference No."
-              value={referenceNo}
-              onChange={(e) => setReferenceNo(e.target.value)}
-              disabled={readOnly || loading}
-            />
-            <Input
-              label="Posting Date"
-              type="date"
-              value={postingDate}
-              onChange={(e) => setPostingDate(e.target.value)}
-              disabled={readOnly || loading}
-              required={!readOnly}
-            />
-            <Input
-              label="Payment Date"
-              type="date"
-              value={paymentDate}
-              onChange={(e) => setPaymentDate(e.target.value)}
-              disabled={readOnly || loading}
-              required={!readOnly}
-            />
-          </div>
         </CardContent>
       </Card>
 

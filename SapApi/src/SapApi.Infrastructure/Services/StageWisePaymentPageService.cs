@@ -36,6 +36,10 @@ public class StageWisePaymentPageService(
             .ToListAsync(cancellationToken);
 
         var activeRecords = tableRecords.Where(x => x.Status != StageWisePaymentStatus.Cancelled).ToList();
+        var paymentTerms = po.CreateUdfList();
+        var batchTermMap = await LoadBatchTermMapAsync(activeRecords, cancellationToken);
+        var calcActiveRecords = StageWisePaymentCalculations.ExpandActiveRecordsForTermCalculations(
+            activeRecords, batchTermMap, paymentTerms);
         var totalBasic = (po.DocTotal ?? 0) - (po.VatSum ?? 0);
 
         var projectNameTask = masterDataService.GetProjectNameAsync(po.Project, cancellationToken);
@@ -54,15 +58,61 @@ public class StageWisePaymentPageService(
             ProjectName = await projectNameTask,
             TotalBasic = totalBasic,
             BalancePayment = StageWisePaymentCalculations.GetBalancePayment(po, activeRecords),
-            PaymentTerms = po.CreateUdfList(),
+            PaymentTerms = paymentTerms,
             TableRecords = tableRecords.Select(MapRecord).ToList(),
-            ActiveRecords = activeRecords.Select(MapRecord).ToList(),
+            // Expanded so FE stage payable subtracts prior batch Gross/Gst by payment term.
+            ActiveRecords = calcActiveRecords.Select(MapRecord).ToList(),
             Banks = banks,
             BankLabels = Constants.BankAccounts.Banks,
             ApInvoices = await apInvoicesTask,
             WithholdingTaxCodes = await wtCodesTask,
             PaymentSummary = StageWisePaymentCalculations.BuildPaymentSummary(po, activeRecords),
         };
+    }
+
+    private async Task<Dictionary<int, IReadOnlyList<int>>> LoadBatchTermMapAsync(
+        IReadOnlyList<StageWisePayment> activeRecords,
+        CancellationToken cancellationToken)
+    {
+        var batchPaymentIds = activeRecords
+            .Where(StageWisePaymentCalculations.IsBatchPaymentRecord)
+            .Where(x => x.PaymentTermsType is null)
+            .Select(x => x.Id)
+            .Distinct()
+            .ToList();
+
+        if (batchPaymentIds.Count == 0)
+            return new Dictionary<int, IReadOnlyList<int>>();
+
+        var batches = await db.StageWisePaymentBatches
+            .AsNoTracking()
+            .Include(b => b.Lines).ThenInclude(l => l.PaymentTerms)
+            .Where(b => b.CompanyDb == CompanyDb
+                && ((b.StageWisePaymentId != null && batchPaymentIds.Contains(b.StageWisePaymentId.Value))
+                    || (b.DownPaymentStageWisePaymentId != null
+                        && batchPaymentIds.Contains(b.DownPaymentStageWisePaymentId.Value))))
+            .ToListAsync(cancellationToken);
+
+        var map = new Dictionary<int, IReadOnlyList<int>>();
+        foreach (var batch in batches)
+        {
+            var termIds = batch.Lines
+                .SelectMany(l => l.PaymentTerms)
+                .Select(t => t.PaymentTermsType)
+                .Distinct()
+                .ToList();
+
+            if (batch.StageWisePaymentId is int primaryId && batchPaymentIds.Contains(primaryId))
+                map[primaryId] = termIds;
+            if (batch.DownPaymentStageWisePaymentId is int dpId
+                && batchPaymentIds.Contains(dpId)
+                && (!map.ContainsKey(dpId) || termIds.Count > 0))
+            {
+                map[dpId] = termIds;
+            }
+        }
+
+        return map;
     }
 
     public async Task<SapPurchaseInvoicesResponse?> ResolveApInvoiceAsync(

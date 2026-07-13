@@ -53,17 +53,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 
             foreach (var property in entry.Properties)
             {
-                if (property.CurrentValue is null)
-                    continue;
-
-                if (property.Metadata.ClrType == typeof(DateTime))
-                {
-                    property.CurrentValue = DateTimeUtcConverter.ToUtc((DateTime)property.CurrentValue);
-                }
-                else if (property.Metadata.ClrType == typeof(DateTime?))
-                {
-                    property.CurrentValue = DateTimeUtcConverter.ToUtc((DateTime?)property.CurrentValue);
-                }
+                // Pattern-match covers both DateTime and boxed DateTime from DateTime?
+                // (ClrType checks alone can miss nullable properties depending on EF version).
+                if (property.CurrentValue is DateTime dateTime)
+                    property.CurrentValue = DateTimeUtcConverter.ToUtc(dateTime);
             }
         }
     }

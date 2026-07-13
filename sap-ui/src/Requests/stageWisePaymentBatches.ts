@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiDelete, apiDownloadGet } from '@/helpers/api/client'
+import { apiGet, apiPost, apiPut, apiDelete, apiDownloadGet } from '@/helpers/api/client'
 import type { StageWisePaymentPageData } from '@/Requests/stageWisePayments'
 
 export interface StageWisePaymentBatchLine {
@@ -27,6 +27,9 @@ export interface StageWisePaymentBatch {
   readOnly: boolean
   canCancel: boolean
   canDelete: boolean
+  canWithdraw: boolean
+  canSubmit: boolean
+  canEditAdditionalDetails: boolean
   canApprove: boolean
   canReject: boolean
   isLastApproval: boolean
@@ -56,6 +59,19 @@ export interface CreateBatchLinePayload {
   notes?: string
 }
 
+export interface BatchPayload {
+  poDocEntry: number
+  docNumber?: number
+  wtCode?: string
+  modeOfPayment?: string
+  account?: string
+  journalRemark?: string
+  referenceNo?: string
+  postingDate?: string
+  paymentDate?: string
+  lines: CreateBatchLinePayload[]
+}
+
 export async function getBatchPageData(poDocEntry: number): Promise<StageWisePaymentPageData> {
   return apiGet<StageWisePaymentPageData>(`/stage-wise-payment-batches/page-data/${poDocEntry}`)
 }
@@ -69,19 +85,31 @@ export async function calculateBatchLine(payload: {
   return apiPost<CalculateBatchLineResult>('/stage-wise-payment-batches/calculate-line', payload)
 }
 
-export async function createStageWisePaymentBatch(payload: {
-  poDocEntry: number
-  docNumber?: number
-  wtCode?: string
+export async function createStageWisePaymentBatch(payload: BatchPayload): Promise<StageWisePaymentBatch> {
+  return apiPost<StageWisePaymentBatch>('/stage-wise-payment-batches', payload)
+}
+
+export async function updateStageWisePaymentBatch(batchId: number, payload: BatchPayload): Promise<StageWisePaymentBatch> {
+  return apiPut<StageWisePaymentBatch>(`/stage-wise-payment-batches/${batchId}`, payload)
+}
+
+export async function submitStageWisePaymentBatch(batchId: number, payload: BatchPayload): Promise<StageWisePaymentBatch> {
+  return apiPost<StageWisePaymentBatch>(`/stage-wise-payment-batches/${batchId}/submit`, payload)
+}
+
+export async function withdrawStageWisePaymentBatch(batchId: number): Promise<StageWisePaymentBatch> {
+  return apiPost<StageWisePaymentBatch>(`/stage-wise-payment-batches/${batchId}/withdraw`)
+}
+
+export async function updateBatchAdditionalDetails(batchId: number, payload: {
   modeOfPayment?: string
   account?: string
   journalRemark?: string
   referenceNo?: string
   postingDate?: string
   paymentDate?: string
-  lines: CreateBatchLinePayload[]
 }): Promise<StageWisePaymentBatch> {
-  return apiPost<StageWisePaymentBatch>('/stage-wise-payment-batches', payload)
+  return apiPut<StageWisePaymentBatch>(`/stage-wise-payment-batches/${batchId}/additional-details`, payload)
 }
 
 export async function getStageWisePaymentBatch(batchId: number): Promise<StageWisePaymentBatch> {

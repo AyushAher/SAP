@@ -55,9 +55,9 @@ describe('stageWisePaymentCalculations', () => {
     expect(payable).toBe(236)
   })
 
-  it('resolveDisplayPayable uses AP invoice balance for invoice terms', () => {
+  it('resolveDisplayPayable uses stage percentages for invoice terms, not AP balance', () => {
     const closedPo = { ...po, DocumentStatus: 'bost_Close' as const }
-    const invoiceTerm = { id: 3, type: 'Invoice', desc: 'Invoice' }
+    const invoiceTerm = { id: 3, type: 'Invoice', desc: 'Invoice', basic: 0, gst: 100 }
     const payable = resolveDisplayPayable(
       closedPo,
       [invoiceTerm],
@@ -67,12 +67,13 @@ describe('stageWisePaymentCalculations', () => {
       { DocTotal: 500, PaidToDate: 100, WTAmount: 10 },
       1000,
     )
-    expect(payable).toBe(410)
+    // VatSum 180 * 100% = 180
+    expect(payable).toBe(180)
   })
 
-  it('resolveDisplayPayable uses AP invoice balance for invoice terms on open PO when AP invoice selected', () => {
+  it('resolveDisplayPayable uses GST stage payable on open PO even when AP invoice selected', () => {
     const openPo = { DocTotal: 118, VatSum: 18, DocumentStatus: 'bost_Open' as const }
-    const invoiceTerm = { id: 11, type: 'Invoice', gst: 100, basic: null as unknown as number | undefined }
+    const invoiceTerm = { id: 11, type: 'Invoice', gst: 100, basic: 0 }
     const payable = resolveDisplayPayable(
       openPo,
       [invoiceTerm],
@@ -82,10 +83,10 @@ describe('stageWisePaymentCalculations', () => {
       { DocTotal: 500, PaidToDate: 100, WTAmount: 10 },
       100,
     )
-    expect(payable).toBe(410)
+    expect(payable).toBe(18)
   })
 
-  it('resolveDisplayPayable returns zero for invoice terms on open PO without AP invoice', () => {
+  it('resolveDisplayPayable returns GST stage payable for invoice terms on open PO without AP invoice', () => {
     const openPo = { DocTotal: 118, VatSum: 18, DocumentStatus: 'bost_Open' as const }
     const invoiceTerm = { id: 11, type: 'Invoice', gst: 100, basic: null as unknown as number | undefined }
     const payable = resolveDisplayPayable(
@@ -128,20 +129,34 @@ describe('stageWisePaymentCalculations', () => {
     expect(requiresBatchPayment(openPo, advanceTerm, '123')).toBe(true)
   })
 
-  it('resolveBatchRowPayable uses AP invoice balance for closed PO rows', () => {
-    const closedPo = { DocTotal: 1000, VatSum: 180, DocumentStatus: 'bost_Close' as const }
-    const invoiceTerm = { id: 3, type: 'Invoice', desc: 'Invoice' }
+  it('resolveBatchRowPayable subtracts prior batch basic payments from basic stage payable', () => {
+    const closedPo = { DocTotal: 118000, VatSum: 18000, DocumentStatus: 'bost_Close' as const }
+    const basicTerm = { id: 2, type: 'Invoice', desc: 'Basic 100% & GST 0%', basic: 100, gst: 0 }
+    const gstTerm = { id: 3, type: 'Invoice', desc: 'Basic 0% & GST 100%', basic: 0, gst: 100 }
+    // Page API expands batch records into per-term attributions (Gross → basic term).
+    const activeRecords = [
+      {
+        id: 10,
+        paymentTermsType: 2,
+        stageDesc: 'Batch AP payment',
+        grossAmount: 22000,
+        gstAmount: 0,
+        status: 0,
+        apDownPaymentInvoiceEntryNumber: '100',
+        apInvoiceDocEntry: '99',
+      },
+    ]
     const result = resolveBatchRowPayable(
       closedPo,
-      [invoiceTerm],
-      [],
-      [3],
-      { DocTotal: 500, PaidToDate: 100, WTAmount: 10 },
+      [basicTerm, gstTerm],
+      activeRecords,
+      [2],
+      { DocTotal: 118000, PaidToDate: 22000, WTAmount: 0 },
       '99',
-      820,
+      100000,
     )
-    expect(result.balanceDue).toBe(410)
-    expect(result.payable).toBe(410)
+    expect(result.balanceDue).toBe(96000)
+    expect(result.payable).toBe(78000)
   })
 
   it('resolveBatchRowPayable uses term percentages for advance rows without AP invoice', () => {

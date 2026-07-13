@@ -65,6 +65,7 @@
         public string PaymentMeans { get; set; } = Constants.SapPaymentMeansType.BankTransfer;
 
         [JsonPropertyName("CashFlowLineItemID")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public int CashFlowLineItemID { get; set; }
     }
 
