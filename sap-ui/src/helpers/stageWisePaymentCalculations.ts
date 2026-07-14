@@ -19,6 +19,7 @@ export interface StageWisePayment {
   docNumber?: number
   approvalRequestId?: string
   apDownPaymentInvoiceEntryNumber?: string
+  outgoingPaymentNumber?: string
   apInvoiceDocEntry?: string
   wtCode?: string
   utrNo?: string

@@ -351,7 +351,7 @@ export function StageWisePaymentPage() {
                         <td className="px-4 py-3">
                           <Badge>{normalizeStatus(record.status)}</Badge>
                         </td>
-                        <td className="px-4 py-3">{record.apDownPaymentInvoiceEntryNumber || '—'}</td>
+                        <td className="px-4 py-3">{record.outgoingPaymentNumber || '—'}</td>
                         <td className="px-4 py-3">{paymentTermForRecord(record)}</td>
                         <td className="px-4 py-3 text-right font-medium">{formatAmount(recordGrossAmount(record))}</td>
                         <td className="px-4 py-3">

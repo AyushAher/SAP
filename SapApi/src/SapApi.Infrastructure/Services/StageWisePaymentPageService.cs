@@ -229,6 +229,7 @@ public class StageWisePaymentPageService(
         ApprovalRequestId = record.ApprovalRequestId,
         ApInvoiceDocEntry = record.ApInvoiceDocEntry,
         ApDownPaymentInvoiceEntryNumber = record.ApDownPaymentInvoiceEntryNumber,
+        OutgoingPaymentNumber = ResolveOutgoingPaymentNumber(record),
         WtCode = record.WtCode,
         GrossAmount = record.GrossAmount,
         GstAmount = record.GstAmount,
@@ -238,6 +239,23 @@ public class StageWisePaymentPageService(
         CreatedOn = record.CreatedOn,
         LastModifiedOn = record.LastModifiedOn,
     };
+
+    private static string? ResolveOutgoingPaymentNumber(StageWisePayment record)
+    {
+        var documentNumbers = record.ApDownPaymentInvoiceEntryNumber?
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (documentNumbers is not { Length: > 0 })
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(record.PaymentDocEntry)
+            || record.StageDesc == "Batch AP payment"
+            || documentNumbers.Length > 1)
+        {
+            return documentNumbers[^1];
+        }
+
+        return null;
+    }
 
     private static string MapStatus(StageWisePaymentStatus status) => status switch
     {

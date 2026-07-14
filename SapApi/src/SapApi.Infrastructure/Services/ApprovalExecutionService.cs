@@ -133,7 +133,7 @@ public class ApprovalExecutionService(
                     var reference = !string.IsNullOrWhiteSpace(utrNo)
                         ? utrNo
                         : (batch?.ReferenceNo ?? string.Empty);
-                    var journalRemark = !string.IsNullOrWhiteSpace(batch?.JournalRemark)
+                    var userRemark = !string.IsNullOrWhiteSpace(batch?.JournalRemark)
                         ? batch.JournalRemark
                         : comment;
 
@@ -143,8 +143,9 @@ public class ApprovalExecutionService(
                     body.DocDueDate = paymentDate;
                     body.DocDate = paymentDate;
                     body.PostingDate = postingDate;
-                    body.Remarks = comment;
-                    body.JournalRemarks = journalRemark;
+                    body.Remarks = Constants.PaymentRemarks.Build(
+                        userRemark, body.BPLId, body.PoNumber);
+                    body.JournalRemarks = null;
 
                     if (!string.IsNullOrWhiteSpace(batch?.Account))
                     {
@@ -195,6 +196,7 @@ public class ApprovalExecutionService(
                                 item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNumber?.ToString();
                             else
                                 item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNumber;
+                            item.PaymentDocEntry = dpResponse?.DocEntry?.ToString();
                             context.StageWisePayments.Update(item);
                         }
                         await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask, cancellationToken);

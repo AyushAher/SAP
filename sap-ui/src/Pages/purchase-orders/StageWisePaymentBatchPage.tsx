@@ -178,6 +178,7 @@ export function StageWisePaymentBatchPage() {
     ? !readOnly
     : Boolean(batch.canEditAdditionalDetails)
   const additionalDetailsReadOnly = !canEditAdditionalDetails || loading
+  const sapPaymentDetailsReadOnly = additionalDetailsReadOnly || Boolean(batch?.hasSapOutgoingPayment)
   const showAdditionalDetailsSave = Boolean(batch?.id) && canEditAdditionalDetails && readOnly
 
   const paymentTerms = pageData?.paymentTerms ?? []
@@ -923,7 +924,11 @@ export function StageWisePaymentBatchPage() {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-800">Additional Details</h3>
                 {canEditAdditionalDetails && readOnly && (
-                  <span className="text-xs text-slate-500">Editable — no pending approval required for you</span>
+                  <span className="text-xs text-slate-500">
+                    {batch?.hasSapOutgoingPayment
+                      ? 'Payment details are locked after SAP posting'
+                      : 'Editable — no pending approval required for you'}
+                  </span>
                 )}
               </div>
               <div className="grid gap-4 md:grid-cols-2">
@@ -932,7 +937,7 @@ export function StageWisePaymentBatchPage() {
                   options={PAYMENT_MODE_OPTIONS}
                   value={modeOfPayment}
                   onChange={setModeOfPayment}
-                  disabled={additionalDetailsReadOnly}
+                  disabled={sapPaymentDetailsReadOnly}
                   required={canEditAdditionalDetails}
                   usePortal
                   minHeight="min-h-[44px]"
@@ -944,14 +949,14 @@ export function StageWisePaymentBatchPage() {
                   value={account}
                   onChange={setAccount}
                   placeholder="Select account"
-                  disabled={additionalDetailsReadOnly}
+                  disabled={sapPaymentDetailsReadOnly}
                   required={canEditAdditionalDetails}
                   usePortal
                   minHeight="min-h-[44px]"
                   menuMinHeight="min-h-52"
                 />
                 <Input
-                  label="Journal Remark"
+                  label="User Remark"
                   value={journalRemark}
                   onChange={(e) => setJournalRemark(e.target.value)}
                   disabled={additionalDetailsReadOnly}
@@ -960,7 +965,7 @@ export function StageWisePaymentBatchPage() {
                   label="Reference No."
                   value={referenceNo}
                   onChange={(e) => setReferenceNo(e.target.value)}
-                  disabled={additionalDetailsReadOnly}
+                  disabled={sapPaymentDetailsReadOnly}
                 />
                 <Input
                   label="Posting Date"
@@ -975,7 +980,7 @@ export function StageWisePaymentBatchPage() {
                   type="date"
                   value={paymentDate}
                   onChange={(e) => setPaymentDate(e.target.value)}
-                  disabled={additionalDetailsReadOnly}
+                  disabled={sapPaymentDetailsReadOnly}
                   required={canEditAdditionalDetails}
                 />
               </div>

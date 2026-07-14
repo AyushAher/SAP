@@ -30,6 +30,7 @@ export interface StageWisePaymentBatch {
   canWithdraw: boolean
   canSubmit: boolean
   canEditAdditionalDetails: boolean
+  hasSapOutgoingPayment: boolean
   canApprove: boolean
   canReject: boolean
   isLastApproval: boolean

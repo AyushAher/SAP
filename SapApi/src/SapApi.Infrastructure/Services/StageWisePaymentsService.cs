@@ -269,6 +269,7 @@ public class StageWisePaymentService(
         string? bank,
         string? wtCode,
         List<StageWisePayment> existingRecords,
+        string? userRemark = null,
         bool persist = true,
         CancellationToken cancellationToken = default)
     {
@@ -360,7 +361,8 @@ public class StageWisePaymentService(
                 netOutgoing,
                 entity.ApDownPaymentInvoiceDocEntry,
                 hadTdsDeducted,
-                Constants.SapVendorPaymentInvoiceType.DownPayment);
+                Constants.SapVendorPaymentInvoiceType.DownPayment,
+                userRemark);
 
             if (outgoingResponse?.PendingApproval == true)
             {
@@ -415,7 +417,11 @@ public class StageWisePaymentService(
     private async Task<(SapBaseResponse? response, double tds)> AddOutgoingPayment(
         SapPurchaseOrdersResponse purchaseOrder,
         string? bank,
-        double amount, string? apInvoiceDoc, bool hadTdsDeducted, string? invoiceType = Constants.SapVendorPaymentInvoiceType.Invoice)
+        double amount,
+        string? apInvoiceDoc,
+        bool hadTdsDeducted,
+        string? invoiceType = Constants.SapVendorPaymentInvoiceType.Invoice,
+        string? userRemark = null)
     {
 
         SapPurchaseInvoicesResponse? apInvoice = null;
@@ -474,6 +480,8 @@ public class StageWisePaymentService(
             TransferSum = net.ToString(),
             ProjectCode = purchaseOrder?.Project,
             PoNumber = purchaseOrder?.DocNum?.ToString() ?? "",
+            Remarks = Constants.PaymentRemarks.Build(
+                userRemark, purchaseOrder?.BPLId, purchaseOrder?.DocNum?.ToString()),
             PaymentInvoices = [
                 new PaymentInvoice  {
                     DocEntry = apInvoice?.DocEntry ?? int.Parse(apInvoiceDoc ?? "0"),

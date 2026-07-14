@@ -45,6 +45,32 @@ namespace SapApi.Shared
             }
         }
 
+        public static class PaymentRemarks
+        {
+            private static readonly IReadOnlyDictionary<int, string> BranchCodes =
+                new Dictionary<int, string>
+                {
+                    [1] = "PB", // Privilege Biksons
+                    [3] = "SM", // S M Projects
+                    [4] = "DE", // De Design Architects
+                    [5] = "PE", // Privilege Energex
+                };
+
+            public static string Build(string? userRemark, int? bplId, string? poNumber)
+            {
+                var branchCode = bplId.HasValue
+                    ? BranchCodes.GetValueOrDefault(bplId.Value, bplId.Value.ToString())
+                    : string.Empty;
+                var poReference = string.IsNullOrWhiteSpace(branchCode)
+                    ? $"Based on Purchase Order PO/{poNumber}"
+                    : $"Based on Purchase Order {branchCode}/PO/{poNumber}";
+
+                return string.IsNullOrWhiteSpace(userRemark)
+                    ? poReference
+                    : $"{userRemark.Trim()}{Environment.NewLine}{poReference}";
+            }
+        }
+
         public static class Roles
         {
             public const string SuperAdmin = "SuperAdmin";

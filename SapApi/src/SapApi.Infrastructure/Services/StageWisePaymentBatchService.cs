@@ -194,7 +194,8 @@ public class StageWisePaymentBatchService(
                 BPLId = po.BPLId ?? 1,
                 PaymentInvoices = paymentInvoices,
             };
-            ApplyAdditionalDetailsToVendorPayment(vendorRequest, request, banks[0]!);
+            ApplyAdditionalDetailsToVendorPayment(
+                vendorRequest, request, banks[0]!, po.BPLId, po.DocNum?.ToString());
 
             var sapResponse = await vendorPaymentService.CreateVendorPayments(
                 vendorRequest, supportingData: po.DocEntry?.ToString());
@@ -287,6 +288,7 @@ public class StageWisePaymentBatchService(
                 banks[0],
                 request.WtCode,
                 activeRecords,
+                userRemark: request.JournalRemark,
                 persist: false,
                 cancellationToken);
 
@@ -458,18 +460,35 @@ public class StageWisePaymentBatchService(
                 return (false, "Only the current approver can edit additional details while approval is pending.", null);
         }
 
-        if (string.IsNullOrWhiteSpace(request.Account))
+        var linkedPaymentIds = await CollectLinkedPaymentIdsAsync(batch, cancellationToken);
+        var hasSapOutgoingPayment = linkedPaymentIds.Count > 0
+            && await db.StageWisePayments
+                .AsNoTracking()
+                .Where(x => x.CompanyDb == CompanyDb && linkedPaymentIds.Contains(x.Id))
+                .AnyAsync(x =>
+                    !string.IsNullOrWhiteSpace(x.PaymentDocEntry)
+                    || (x.StageDesc == "Batch AP payment"
+                        && !string.IsNullOrWhiteSpace(x.ApDownPaymentInvoiceEntryNumber))
+                    || (x.ApDownPaymentInvoiceEntryNumber != null
+                        && x.ApDownPaymentInvoiceEntryNumber.Contains(',')),
+                    cancellationToken);
+
+        if (!hasSapOutgoingPayment && string.IsNullOrWhiteSpace(request.Account))
             return (false, "Please select an account.", null);
 
-        if (request.PostingDate is null || request.PaymentDate is null)
+        if (request.PostingDate is null || (!hasSapOutgoingPayment && request.PaymentDate is null))
             return (false, "Posting date and payment date are required.", null);
 
-        batch.ModeOfPayment = request.ModeOfPayment ?? Constants.SapPaymentMeansType.BankTransfer;
-        batch.Account = request.Account;
+        if (!hasSapOutgoingPayment)
+        {
+            batch.ModeOfPayment = request.ModeOfPayment ?? Constants.SapPaymentMeansType.BankTransfer;
+            batch.Account = request.Account;
+            batch.ReferenceNo = request.ReferenceNo;
+            batch.PaymentDate = DateTimeUtcConverter.ToUtc(request.PaymentDate);
+        }
+
         batch.JournalRemark = request.JournalRemark;
-        batch.ReferenceNo = request.ReferenceNo;
         batch.PostingDate = DateTimeUtcConverter.ToUtc(request.PostingDate);
-        batch.PaymentDate = DateTimeUtcConverter.ToUtc(request.PaymentDate);
         batch.LastModifiedOn = DateTime.UtcNow;
 
         try
@@ -878,6 +897,11 @@ public class StageWisePaymentBatchService(
             && batch.Status is StageWisePaymentBatchStatus.PendingApproval or StageWisePaymentBatchStatus.Rejected;
         var canSubmit = batch.Status == StageWisePaymentBatchStatus.Draft
             && linkedPayments.All(p => p.Status == StageWisePaymentStatus.Cancelled);
+        var hasSapOutgoingPayment = linkedPayments.Any(p =>
+            !string.IsNullOrWhiteSpace(p.PaymentDocEntry)
+            || (p.StageDesc == "Batch AP payment"
+                && !string.IsNullOrWhiteSpace(p.ApDownPaymentInvoiceEntryNumber))
+            || (p.ApDownPaymentInvoiceEntryNumber?.Contains(',') == true));
 
         if (approvalRequestId.HasValue)
         {
@@ -919,6 +943,7 @@ public class StageWisePaymentBatchService(
             CanWithdraw = canWithdraw,
             CanSubmit = canSubmit,
             CanEditAdditionalDetails = canEditAdditionalDetails,
+            HasSapOutgoingPayment = hasSapOutgoingPayment,
             CanApprove = canAct,
             CanReject = canAct,
             IsLastApproval = isLast,
@@ -1214,7 +1239,8 @@ public class StageWisePaymentBatchService(
                 BPLId = po.BPLId ?? 1,
                 PaymentInvoices = paymentInvoices,
             };
-            ApplyAdditionalDetailsToVendorPayment(vendorRequest, request, bank);
+            ApplyAdditionalDetailsToVendorPayment(
+                vendorRequest, request, bank, po.BPLId, po.DocNum?.ToString());
 
             var sapResponse = await vendorPaymentService.CreateVendorPayments(
                 vendorRequest, supportingData: po.DocEntry?.ToString());
@@ -1308,6 +1334,7 @@ public class StageWisePaymentBatchService(
                 bank,
                 request.WtCode,
                 activeRecords,
+                userRemark: request.JournalRemark,
                 persist: false,
                 cancellationToken);
 
@@ -1384,7 +1411,9 @@ public class StageWisePaymentBatchService(
     private static void ApplyAdditionalDetailsToVendorPayment(
         SapVendorPaymentRequests request,
         CreateStageWisePaymentBatchRequest batchRequest,
-        string fallbackAccount)
+        string fallbackAccount,
+        int? bplId,
+        string? poNumber)
     {
         var account = batchRequest.Account ?? fallbackAccount;
         var mode = batchRequest.ModeOfPayment ?? Constants.SapPaymentMeansType.BankTransfer;
@@ -1397,7 +1426,8 @@ public class StageWisePaymentBatchService(
         request.PostingDate = postingDate;
         request.TransferReference = batchRequest.ReferenceNo ?? string.Empty;
         request.CounterReference = batchRequest.ReferenceNo ?? string.Empty;
-        request.JournalRemarks = batchRequest.JournalRemark;
+        request.Remarks = Constants.PaymentRemarks.Build(batchRequest.JournalRemark, bplId, poNumber);
+        request.JournalRemarks = null;
 
         switch (mode)
         {

@@ -29,6 +29,7 @@ public class StageWisePaymentRecordDto
     public string? ApprovalRequestId { get; set; }
     public string? ApInvoiceDocEntry { get; set; }
     public string? ApDownPaymentInvoiceEntryNumber { get; set; }
+    public string? OutgoingPaymentNumber { get; set; }
     public string? WtCode { get; set; }
     public double? GrossAmount { get; set; }
     public double? GstAmount { get; set; }

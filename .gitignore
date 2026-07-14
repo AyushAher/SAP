@@ -368,3 +368,5 @@ FodyWeavers.xsd
 keys/
 !sap-ui/src/config/keys/public.pem
 *.csproj.lscache
+
+.idea/
