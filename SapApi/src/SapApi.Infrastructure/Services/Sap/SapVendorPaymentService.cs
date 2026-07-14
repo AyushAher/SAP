@@ -82,8 +82,7 @@ namespace SapApi.Infrastructure.Services.Sap
         {
             var sapQueries = new SapQueries { Select = ApInvoiceListSelect };
             return httpRequestHandler.GetAsync<SapPurchaseInvoicesResponse>(
-                Constants.SapApiUrls.GetAllPurchaseInvoices + $"({docEntry})" + sapQueries.GetQueryValue(),
-                checkCache: false);
+                Constants.SapApiUrls.GetAllPurchaseInvoices + $"({docEntry})" + sapQueries.GetQueryValue());
         }
 
         public Task<GetAllSapPurchaseInvoicesResponse?> GetGrpo(string cardCode)
@@ -109,8 +108,7 @@ namespace SapApi.Infrastructure.Services.Sap
             };
 
             var response = await httpRequestHandler.GetAsync<GetAllSapPurchaseInvoicesResponse>(
-                Constants.SapApiUrls.GetAllPurchaseDeliveryNotes + sapQueries.GetQueryValue(),
-                checkCache: false);
+                Constants.SapApiUrls.GetAllPurchaseDeliveryNotes + sapQueries.GetQueryValue());
 
             return FilterInvoicesByBase(response, PurchaseOrderBaseType, poDocEntry);
         }

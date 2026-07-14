@@ -26,8 +26,7 @@ namespace SapApi.Infrastructure.Services.Sap
         {
             var sapQueries = SapPaginationBuilder.ToSapQueries(request, SapPaginationProfiles.InventoryGenExits);
             var response = await httpRequestHandler.GetAsync<GetAllSapIssueForProductionResponse>(
-                Constants.SapApiUrls.CreateInventoryGenExits + sapQueries.GetQueryValue(),
-                checkCache: true);
+                Constants.SapApiUrls.CreateInventoryGenExits + sapQueries.GetQueryValue());
             var items = response?.Value ?? [];
             var totalCount = response is null
                 ? 0

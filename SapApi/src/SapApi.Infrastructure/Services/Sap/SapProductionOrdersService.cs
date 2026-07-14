@@ -36,8 +36,7 @@ namespace SapApi.Infrastructure.Services.Sap
 
         private Task<GetAllSapProductionOrdersResponse?> GetAllProductionOrdersInternal(SapQueries sapQueries) =>
             httpRequestHandler.GetAsync<GetAllSapProductionOrdersResponse>(
-                Constants.SapApiUrls.GetAllProductionOrders + sapQueries.GetQueryValue(),
-                checkCache: true);
+                Constants.SapApiUrls.GetAllProductionOrders + sapQueries.GetQueryValue());
 
 
         public async Task<GetAllSapProductionOrderLinesResponse?> GetProductionOrderLines(string docEntry)
@@ -51,8 +50,9 @@ namespace SapApi.Infrastructure.Services.Sap
 
         public async Task<SapProductionOrdersResponse?> GetProductionOrders(string id, bool checkCache = false)
         {
+            _ = checkCache;
             return await httpRequestHandler.GetAsync<SapProductionOrdersResponse>(Constants.SapApiUrls
-                .GetProductionOrders(id), false, checkCache);
+                .GetProductionOrders(id));
         }
 
         public async Task<SapProductionOrdersResponse?> UpdateProductionOrderAsync(SapProductionOrdersResponse addedLines, int? policyRequestId = null)
@@ -64,15 +64,8 @@ namespace SapApi.Infrastructure.Services.Sap
             }
 
             var payload = PrepareProductionOrderForSapPut(addedLines);
-            var response = await httpRequestHandler.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+            return await httpRequestHandler.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 Constants.SapApiUrls.GetProductionOrders(payload.AbsoluteEntry?.ToString() ?? "0"), payload);
-
-            if (response?.AbsoluteEntry is not null || payload.AbsoluteEntry is not null)
-            {
-                var value = response?.AbsoluteEntry ?? payload.AbsoluteEntry;
-                await httpRequestHandler.PatchCachedEntityAsync<SapProductionOrdersResponse>("ProductionOrders", value.Value, "AbsoluteEntry");
-            }
-            return response;
         }
 
         static SapProductionOrdersResponse PrepareProductionOrderForSapPut(SapProductionOrdersResponse order)
@@ -105,14 +98,8 @@ namespace SapApi.Infrastructure.Services.Sap
             {
                 return policyApproval as SapProductionOrdersResponse;
             }
-            var response = await httpRequestHandler.PostAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+            return await httpRequestHandler.PostAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 Constants.SapApiUrls.CreateProductionOrder, addedLines);
-            if (response?.AbsoluteEntry is not null)
-            {
-                await httpRequestHandler.PatchCachedEntityAsync<SapProductionOrdersResponse>("ProductionOrders", response.AbsoluteEntry.Value, "AbsoluteEntry");
-            }
-
-            return response;
         }
     }
 }

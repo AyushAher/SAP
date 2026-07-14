@@ -63,7 +63,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         };
         var response = await http.GetAsync<SapGetAllBranchesResponse>(
             Constants.SapApiUrls.BusinessPlacesCollection + queries.GetQueryValue(),
-            checkCache: false,
             cancellationToken: cancellationToken);
 
         return response?.Value?
@@ -115,7 +114,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         };
         var response = await http.GetAsync<SapBusinessPartnerResponse>(
             Constants.SapApiUrls.BusinessPartnersCollection + queries.GetQueryValue(),
-            checkCache: true,
             cancellationToken: cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
@@ -135,7 +133,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         };
         var response = await http.GetAsync<SapItemsResponse>(
             Constants.SapApiUrls.ItemsCollection + queries.GetQueryValue(),
-            checkCache: true,
             cancellationToken: cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
@@ -155,7 +152,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         };
         var response = await http.GetAsync<SapWarehousesResponse>(
             Constants.SapApiUrls.WarehousesCollection + queries.GetQueryValue(),
-            checkCache: true,
             cancellationToken: cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
@@ -175,7 +171,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         };
         var response = await http.GetAsync<SapGetAllProjectDetailsResponse>(
             Constants.SapApiUrls.ProjectsCollection + queries.GetQueryValue(),
-            checkCache: true,
             cancellationToken: cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
@@ -194,7 +189,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         };
         var response = await http.GetAsync<SapGetAllBranchesResponse>(
             Constants.SapApiUrls.BusinessPlacesCollection + queries.GetQueryValue(),
-            checkCache: true,
             cancellationToken: cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
@@ -247,7 +241,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         };
         var response = await http.GetAsync<GetAllWithholdingTaxDataCollectionResponse>(
             Constants.SapApiUrls.WithholdingTaxCodesCollection + queries.GetQueryValue(),
-            checkCache: true,
             cancellationToken: cancellationToken);
         return response?.Value ?? [];
     }
@@ -271,7 +264,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
             };
             var response = await http.GetAsync<SapItemsResponse>(
                 Constants.SapApiUrls.ItemsCollection + queries.GetQueryValue(),
-                checkCache: true,
                 cancellationToken: cancellationToken);
             foreach (var item in response?.Value ?? [])
             {
@@ -302,7 +294,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
             };
             var response = await http.GetAsync<SapGetAllProjectDetailsResponse>(
                 Constants.SapApiUrls.ProjectsCollection + queries.GetQueryValue(),
-                checkCache: true,
                 cancellationToken: cancellationToken);
             foreach (var project in response?.Value ?? [])
             {
@@ -333,7 +324,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
             };
             var response = await http.GetAsync<SapBusinessPartnerResponse>(
                 Constants.SapApiUrls.BusinessPartnersCollection + queries.GetQueryValue(),
-                checkCache: true,
                 cancellationToken: cancellationToken);
             foreach (var partner in response?.Value ?? [])
             {
@@ -358,7 +348,6 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         var queries = SapPaginationBuilder.ToSapQueries(normalized, profile);
         var response = await http.GetAsync<TResponse>(
             collectionUrl + queries.GetQueryValue(),
-            checkCache: true,
             cancellationToken: cancellationToken);
         var items = getItems(response) ?? [];
         var totalCount = response is SapBaseResponse sapResponse

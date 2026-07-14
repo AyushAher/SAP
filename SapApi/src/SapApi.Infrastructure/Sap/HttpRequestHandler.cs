@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using SapApi.Domain.Interfaces;
 using SapApi.Shared;
 using SapApi.Shared.Exceptions;
@@ -12,42 +11,48 @@ namespace SapApi.Infrastructure.Sap;
 
 public class HttpRequestHandler(
     HttpClient client,
-    ICacheService cache,
     ISapLoginService sapLoginService,
     ICurrentCompanyDbAccessor companyDbAccessor) : IHttpRequestHandler
 {
+    /// <summary>
+    /// Coalesces concurrent identical GETs within the same process. Not a durable cache —
+    /// completed requests are not retained; each new request hits SAP Service Layer.
+    /// </summary>
     private static readonly ConcurrentDictionary<string, Task<object?>> InFlightGets = new();
 
-    private string BuildCacheKey(string url) => $"{companyDbAccessor.GetCompanyDbName()}::GET::{url}";
+    private string BuildInFlightKey(string url) => $"{companyDbAccessor.GetCompanyDbName()}::GET::{url}";
 
     public async Task<T?> GetAsync<T>(string url, bool setTimeout = true, bool checkCache = true, CancellationToken cancellationToken = default)
     {
-        var cacheKey = BuildCacheKey(url);
+        // checkCache is ignored — SAP data is never cached (no DB / Redis / durable cache).
+        _ = checkCache;
+        _ = setTimeout;
+
+        var inFlightKey = BuildInFlightKey(url);
         try
         {
-            if (checkCache && url.StartsWith(Constants.SapServiceLayerUrl) && Constants.CachedEndpoints.ShouldCache(url))
-            {
-                var cached = await cache.GetAsync<T>(cacheKey, cancellationToken);
-                if (cached is not null) return cached;
-            }
-
             while (true)
             {
-                if (InFlightGets.TryGetValue(cacheKey, out var existing))
+                if (InFlightGets.TryGetValue(inFlightKey, out var existing))
                     return (T?)await existing;
 
-                var task = ExecuteGetAsync<T>(url, cacheKey, checkCache, cancellationToken);
-                var boxed = task.ContinueWith(static t => (object?)t.Result, cancellationToken, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-                if (InFlightGets.TryAdd(cacheKey, boxed))
+                var task = ExecuteGetAsync<T>(url, cancellationToken);
+                var boxed = task.ContinueWith(
+                    static t => (object?)t.Result,
+                    cancellationToken,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+
+                if (!InFlightGets.TryAdd(inFlightKey, boxed))
+                    continue;
+
+                try
                 {
-                    try
-                    {
-                        return await task;
-                    }
-                    finally
-                    {
-                        InFlightGets.TryRemove(cacheKey, out _);
-                    }
+                    return await task;
+                }
+                finally
+                {
+                    InFlightGets.TryRemove(inFlightKey, out _);
                 }
             }
         }
@@ -58,17 +63,11 @@ public class HttpRequestHandler(
         }
     }
 
-    private async Task<T?> ExecuteGetAsync<T>(string url, string cacheKey, bool checkCache, CancellationToken cancellationToken)
+    private async Task<T?> ExecuteGetAsync<T>(string url, CancellationToken cancellationToken)
     {
         var request = await BuildSapRequestAsync(HttpMethod.Get, url, cancellationToken);
         var response = await client.SendAsync(request, cancellationToken);
-        var result = await HandleResponseAsync<T>(request, response, cancellationToken);
-
-        if (checkCache && Constants.CachedEndpoints.ShouldCache(url) && result is not null
-            && result is not SapBaseResponse { Error: not null })
-            await cache.SetAsync(cacheKey, result, TimeSpan.FromHours(6), cancellationToken);
-
-        return result;
+        return await HandleResponseAsync<T>(request, response, cancellationToken);
     }
 
     public async Task<TResponse?> PostAsync<TRequest, TResponse>(string url, TRequest? data, CancellationToken cancellationToken = default)
@@ -95,28 +94,6 @@ public class HttpRequestHandler(
         request.Content = new StringContent(JsonSerializer.Serialize(data), Encoding.UTF8, "application/json");
         var response = await client.SendAsync(request, cancellationToken);
         return await HandleResponseAsync<TResponse>(request, response, cancellationToken);
-    }
-
-    public async Task PatchCachedEntityAsync<T>(string entity, int docEntry, string idProperty = "DocEntry", CancellationToken cancellationToken = default)
-    {
-        var singleEndpoint = $"{Constants.SapServiceLayerUrl}{Constants.SapBaseUrl}/{entity}({docEntry})";
-        var updated = await GetAsync<T>(singleEndpoint, checkCache: false, cancellationToken: cancellationToken);
-        if (updated == null) return;
-
-        foreach (var endpoint in Constants.CachedEndpoints.Endpoints.Where(e => e.Contains(entity)))
-        {
-            var cacheKey = BuildCacheKey(endpoint);
-            var cached = await cache.GetAsync<SapCacheResponse<T>>(cacheKey, cancellationToken);
-            if (cached?.Value is null) continue;
-
-            var index = cached.Value.FindIndex(x =>
-                (int?)typeof(T).GetProperty(idProperty)?.GetValue(x) == docEntry);
-
-            if (index >= 0) cached.Value[index] = updated;
-            else cached.Value.Add(updated);
-
-            await cache.SetAsync(cacheKey, cached, TimeSpan.FromHours(6), cancellationToken);
-        }
     }
 
     public async Task<T?> ExecuteSqlQueryAsync<T>(string queryName, Dictionary<string, object> parameters, CancellationToken cancellationToken = default)
@@ -205,9 +182,4 @@ public class HttpRequestHandler(
         content.Headers.ContentLength = bytes.Length;
         return content;
     }
-}
-
-public class SapCacheResponse<T>
-{
-    [JsonPropertyName("value")] public List<T>? Value { get; set; }
 }

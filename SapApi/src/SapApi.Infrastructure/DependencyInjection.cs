@@ -86,7 +86,6 @@ public static class DependencyInjection
         services.AddSingleton<IAesEncryptionService, AesEncryptionService>();
         services.AddSingleton<IRsaDecryptionService, RsaDecryptionService>();
         services.AddSingleton<IHmacVerificationService, HmacVerificationService>();
-        services.AddScoped<ICacheService, HybridCacheService>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 

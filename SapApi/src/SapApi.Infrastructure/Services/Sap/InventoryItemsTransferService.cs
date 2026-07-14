@@ -56,8 +56,7 @@ namespace SapApi.Infrastructure.Services.Sap
 
         private Task<SapInventoryTransferRequestListResponse?> GetAllInventoryTransferRequestsInternal(SapQueries sapQueries) =>
             requestHandler.GetAsync<SapInventoryTransferRequestListResponse>(
-                Constants.SapApiUrls.SapInventoryTransferRequests + sapQueries.GetQueryValue(),
-                checkCache: true);
+                Constants.SapApiUrls.SapInventoryTransferRequests + sapQueries.GetQueryValue());
 
         public Task<SapInventoryTransferRequestResponse?> GetInventoryTransferRequests(string id)
         {

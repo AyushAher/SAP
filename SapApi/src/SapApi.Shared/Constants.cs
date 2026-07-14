@@ -4,49 +4,6 @@ namespace SapApi.Shared
 {
     public static class Constants
     {
-        public static class CachedEndpoints
-        {
-            public static readonly HashSet<string> Endpoints =
-            [
-                SapApiUrls.GetAllBusinessPartners,
-                SapApiUrls.GetAllItems,
-                SapApiUrls.GetAllProductionOrders,
-                SapApiUrls.GetAllSapPurchaseOrders + "?$filter=DocDate ge '2026-01-01'",
-                SapApiUrls.GetAllWarehouses,
-                SapApiUrls.GetAllSalesOrders(),
-                SapApiUrls.GetAllSalesTaxCodes + "?$select=Name,Rate,Code",
-                SapApiUrls.GetAllSalesTaxCodes,
-                SapApiUrls.SapInventoryTransferRequests + "?$select=DocEntry,DocDate,DueDate,FromWarehouse,ToWarehouse,CardCode,CardName,ContactPerson",
-                SapApiUrls.CreateInventoryGenExits + "?$select=DocEntry,CardCode,CardName,Project,DownPayment,DocTotal",
-                SapApiUrls.GetAllProjectDetails,
-                SapApiUrls.GetAllBpl,
-            ];
-
-            private static readonly System.Text.RegularExpressions.Regex SingleEntityReadPattern =
-                new(@"/(PurchaseOrders|ProductionOrders|Orders|BusinessPartners)\(\d+\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-
-            public static bool ShouldCache(string url)
-            {
-                if (Endpoints.Any(e => url.Contains(e, StringComparison.OrdinalIgnoreCase)))
-                    return true;
-
-                if (!url.Contains("/b1s/v1/", StringComparison.Ordinal))
-                    return false;
-
-                if (url.Contains("/SQLQueries", StringComparison.OrdinalIgnoreCase)
-                    || url.Contains("/Login", StringComparison.OrdinalIgnoreCase))
-                    return false;
-
-                if (SingleEntityReadPattern.IsMatch(url))
-                    return true;
-
-                if (!url.Contains("$top=", StringComparison.OrdinalIgnoreCase))
-                    return false;
-
-                return !System.Text.RegularExpressions.Regex.IsMatch(url, @"\(\d+\)");
-            }
-        }
-
         public static class BankAccounts
         {
             public static Dictionary<string, string> Banks = new Dictionary<string, string>

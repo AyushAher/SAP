@@ -36,8 +36,7 @@ namespace SapApi.Infrastructure.Services.Sap
 
         private Task<GetAllSapPurchaseOrdersResponse?> GetAllPurchaseOrdersInternal(SapQueries sapQueries) =>
             requestHandler.GetAsync<GetAllSapPurchaseOrdersResponse>(
-                Constants.SapApiUrls.GetAllSapPurchaseOrders + sapQueries.GetQueryValue(),
-                checkCache: true);
+                Constants.SapApiUrls.GetAllSapPurchaseOrders + sapQueries.GetQueryValue());
 
         public Task<SapPurchaseOrdersResponse?> GetPurchaseOrders(string id, SapQueries? sapQueries = null)
         {
@@ -56,7 +55,6 @@ namespace SapApi.Infrastructure.Services.Sap
             CancellationToken cancellationToken = default) =>
             requestHandler.GetAsync<SapPurchaseOrdersResponse>(
                 Constants.SapApiUrls.GetAllSapPurchaseOrders + $"({id})",
-                checkCache: false,
                 cancellationToken: cancellationToken);
 
         public Task<SapPurchaseOrdersResponse?> CreateGrpo(SapPurchaseOrdersResponse data)
@@ -72,15 +70,7 @@ namespace SapApi.Infrastructure.Services.Sap
             {
                 return policyApproval as SapPurchaseOrdersResponse;
             }
-            var response = await requestHandler.PostAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.GetAllSapPurchaseOrders, data);
-
-            if (response?.DocEntry is not null)
-            {
-                await requestHandler.PatchCachedEntityAsync<SapPurchaseOrdersResponse>("PurchaseOrders", response.DocEntry.Value, "DocEntry");
-            }
-
-            return response;
-
+            return await requestHandler.PostAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.GetAllSapPurchaseOrders, data);
         }
 
         public async Task<SapPurchaseOrdersResponse?> UpdatePurchaseOrder(SapPurchaseOrdersResponse data, int? policyRequestId = null)
@@ -90,15 +80,7 @@ namespace SapApi.Infrastructure.Services.Sap
             {
                 return policyApproval as SapPurchaseOrdersResponse;
             }
-            var response = await requestHandler.PatchAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.UpdateSapPurchaseOrders(data.DocEntry), data);
-
-            if (response?.DocEntry is not null)
-            {
-                await requestHandler.PatchCachedEntityAsync<SapPurchaseOrdersResponse>("PurchaseOrders", response.DocEntry.Value, "DocEntry");
-            }
-
-            return response;
-
+            return await requestHandler.PatchAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.UpdateSapPurchaseOrders(data.DocEntry), data);
         }
 
         public Task<SapGetAllProjectDetailsResponse?> GetAllProjectDetailsResponse()
