@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsc -b && vite",
+    "dev": "tsc -b && vite --host",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -15,6 +15,7 @@
     "@fontsource/inter": "^5.2.8",
     "@reduxjs/toolkit": "^2.12.0",
     "@tailwindcss/vite": "^4.3.0",
+    "@tanstack/react-query": "^5.101.2",
     "axios": "^1.17.0",
     "clsx": "^2.1.1",
     "echarts": "^6.1.0",
@@ -29,6 +30,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -37,13 +41,10 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "jsdom": "^26.1.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12",
-    "vitest": "^3.2.4",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/jest-dom": "^6.6.4",
-    "@testing-library/user-event": "^14.6.1",
-    "jsdom": "^26.1.0"
+    "vitest": "^3.2.4"
   }
 }

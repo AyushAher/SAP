@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Ban, Download, Layers, Plus, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
@@ -11,11 +11,13 @@ import {
   cancelStageWisePayment,
   deleteStageWisePayment,
   downloadStageWisePaymentPdf,
-  getStageWisePaymentPageData,
   type StageWisePayment,
-  type StageWisePaymentPageData,
 } from '@/Requests/stageWisePayments'
 import { getBatchByStageWisePaymentId, cancelStageWisePaymentBatch, deleteStageWisePaymentBatch } from '@/Requests/stageWisePaymentBatches'
+import {
+  useInvalidateStageWisePaymentPageData,
+  useStageWisePaymentPageData,
+} from '@/hooks/useStageWisePaymentPageData'
 import {
   formatAmount,
   isBatchPaymentAvailable,
@@ -57,23 +59,19 @@ export function StageWisePaymentPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const poDocEntry = Number(id)
-  const [pageData, setPageData] = useState<StageWisePaymentPageData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const {
+    data: pageData,
+    isLoading: loading,
+    error: queryError,
+  } = useStageWisePaymentPageData(poDocEntry)
+  const invalidatePageData = useInvalidateStageWisePaymentPageData()
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [viewApprovalRequest, setViewApprovalRequest] = useState<ApprovalRequest | null>(null)
   const [actingId, setActingId] = useState<number | null>(null)
 
-  const reload = useCallback(async () => {
-    const data = await getStageWisePaymentPageData(poDocEntry)
-    setPageData(data)
-  }, [poDocEntry])
-
-  useEffect(() => {
-    reload()
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load payment data'))
-      .finally(() => setLoading(false))
-  }, [reload])
+  const loadError = error
+    ?? (queryError instanceof Error ? queryError.message : queryError ? 'Failed to load payment data' : null)
 
   const po = pageData?.purchaseOrder
   const paymentTerms = pageData?.paymentTerms ?? []
@@ -91,6 +89,8 @@ export function StageWisePaymentPage() {
     () => tableRecords.reduce((sum, record) => sum + recordGrossAmount(record), 0),
     [tableRecords],
   )
+
+  const reload = () => invalidatePageData(poDocEntry)
 
   const isBatchPayment = (record: StageWisePayment) =>
     record.stageDesc === 'Batch AP payment'
@@ -200,8 +200,8 @@ export function StageWisePaymentPage() {
         )}
       />
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>
       )}
       {successMessage && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{successMessage}</div>

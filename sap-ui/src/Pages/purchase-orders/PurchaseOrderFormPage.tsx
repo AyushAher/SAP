@@ -36,7 +36,11 @@ import {
 import { useAppSelector } from '@/store/hooks'
 import { getBranchesApi } from '@/Requests/auth'
 import { searchProjects, searchVendors, searchWarehouses } from '@/Requests/masters'
-import { createPurchaseOrder, getPurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '@/Requests/purchaseOrders'
+import { createPurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '@/Requests/purchaseOrders'
+import {
+  useInvalidatePurchaseOrders,
+  usePurchaseOrder,
+} from '@/hooks/usePurchaseOrders'
 import type { SelectOption } from '@/types'
 import type { PaymentTermRow, PurchaseOrderLineItem, PurchaseOrderLogistics, PurchaseOrderOtherTerms } from '@/types/purchaseOrder'
 import { PAYMENT_TERM_TYPE_OPTIONS } from '@/types/purchaseOrder'
@@ -62,10 +66,16 @@ export function PurchaseOrderFormPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const authBranchId = useAppSelector((state) => state.auth.branchId)
+  const invalidatePurchaseOrders = useInvalidatePurchaseOrders()
+  const {
+    data: purchaseOrder,
+    isLoading: queryLoading,
+    error: queryError,
+  } = usePurchaseOrder(id)
 
-  const [loading, setLoading] = useState(!!id)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hydratedId, setHydratedId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<FormTab>('items')
   const [form, setForm] = useState<Record<string, unknown>>({
     CardCode: '',
@@ -92,6 +102,10 @@ export function PurchaseOrderFormPage() {
   const [projectLabel, setProjectLabel] = useState('')
   const [warehouseLabel, setWarehouseLabel] = useState('')
   const [branchOptions, setBranchOptions] = useState<SelectOption[]>([])
+
+  const loading = Boolean(id) && (queryLoading || hydratedId !== String(id))
+  const loadError = error
+    ?? (queryError instanceof Error ? queryError.message : queryError ? 'Failed to load purchase order' : null)
 
   const defaultWarehouse = String(form.U_Warehouse ?? '')
 
@@ -144,32 +158,45 @@ export function PurchaseOrderFormPage() {
   useEffect(() => {
     if (!id) {
       if (authBranchId) setForm((prev) => ({ ...prev, BPLId: authBranchId }))
+      setHydratedId(null)
       return
     }
-    getPurchaseOrder(id)
-      .then(async (po) => {
-        const record = po as Record<string, unknown>
-        setForm(record)
-        setLines((po.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? [])
-        setPaymentTerms(parsePaymentTermsFromPo(record))
-        setLogistics(readLogisticsFromPo(record))
-        setOtherTerms(readOtherTermsFromPo(record))
+    if (!purchaseOrder || queryLoading)
+      return
+
+    let cancelled = false
+    void (async () => {
+      const record = purchaseOrder as Record<string, unknown>
+      setForm(record)
+      setLines((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? [])
+      setPaymentTerms(parsePaymentTermsFromPo(record))
+      setLogistics(readLogisticsFromPo(record))
+      setOtherTerms(readOtherTermsFromPo(record))
+      try {
         const labels = await resolveMasterSelectLabels({
-          vendorCode: po.CardCode,
-          projectCode: po.Project,
+          vendorCode: purchaseOrder.CardCode,
+          projectCode: purchaseOrder.Project,
         })
-        if (po.CardCode) {
-          setVendorLabel(labels.vendorLabel ?? formatCodeWithName(po.CardCode, po.CardName))
+        if (cancelled) return
+        if (purchaseOrder.CardCode) {
+          setVendorLabel(labels.vendorLabel ?? formatCodeWithName(purchaseOrder.CardCode, purchaseOrder.CardName))
         }
-        if (po.Project) {
-          setProjectLabel(labels.projectLabel ?? formatCodeWithName(po.Project))
+        if (purchaseOrder.Project) {
+          setProjectLabel(labels.projectLabel ?? formatCodeWithName(purchaseOrder.Project))
         }
-        const wh = String(record.U_Warehouse ?? '')
-        if (wh) setWarehouseLabel(wh)
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [id, authBranchId])
+      } catch {
+        // labels are optional enrichments
+      }
+      if (cancelled) return
+      const wh = String(record.U_Warehouse ?? '')
+      if (wh) setWarehouseLabel(wh)
+      setHydratedId(String(id))
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, purchaseOrder, queryLoading, authBranchId])
 
   const handleAddPaymentTerm = () => {
     const slot = nextPaymentTermSlot(paymentTerms)
@@ -238,6 +265,7 @@ export function PurchaseOrderFormPage() {
       const payload = buildPayload()
       if (id) await updatePurchaseOrder(Number(id), payload)
       else await createPurchaseOrder(payload)
+      await invalidatePurchaseOrders(id)
       navigate(ROUTES.PURCHASE_ORDERS)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -256,7 +284,7 @@ export function PurchaseOrderFormPage() {
         label={loading ? 'Loading purchase order...' : 'Saving purchase order...'}
         lockScroll={false}
       />
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {loadError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>}
 
       <Card>
         <CardContent className="space-y-6 pt-6">

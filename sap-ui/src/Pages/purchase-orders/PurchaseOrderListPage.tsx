@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Banknote, Pencil } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionLink, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
@@ -6,7 +6,8 @@ import { Badge, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
-import { listPurchaseOrders, type PurchaseOrder } from '@/Requests/purchaseOrders'
+import { usePurchaseOrderListFetcher } from '@/hooks/usePurchaseOrders'
+import type { PurchaseOrder } from '@/Requests/purchaseOrders'
 
 const extractors = {
   projectCodes: (row: PurchaseOrder) => row.Project,
@@ -14,10 +15,7 @@ const extractors = {
 }
 
 export function PurchaseOrderListPage() {
-  const fetchOrders = useCallback(
-    (request: Parameters<typeof listPurchaseOrders>[0]) => listPurchaseOrders(request),
-    [],
-  )
+  const fetchOrders = usePurchaseOrderListFetcher()
   const { fetchData, lookupMaps } = useEnrichedListFetch(fetchOrders, extractors)
 
   const columns = useMemo<DataTableColumn<PurchaseOrder>[]>(() => [

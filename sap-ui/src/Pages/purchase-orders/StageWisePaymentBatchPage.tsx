@@ -10,7 +10,6 @@ import {
   Input,
   Badge,
   SearchableSelect,
-  MultiSelect,
   Select,
   Textarea,
 } from '@/Components/ui'
@@ -71,7 +70,7 @@ function batchAdditionalDetailsFromBatch(batch: StageWisePaymentBatch) {
     journalRemark: batch.journalRemark ?? '',
     referenceNo: batch.referenceNo ?? '',
     postingDate: batch.postingDate ? batch.postingDate.slice(0, 10) : todayIsoDate(),
-    paymentDate: batch.paymentDate ? batch.paymentDate.slice(0, 10) : todayIsoDate(),
+    paymentDate: batch.paymentDate ? batch.paymentDate.slice(0, 10) : '',
   }
 }
 
@@ -166,7 +165,7 @@ export function StageWisePaymentBatchPage() {
   const [journalRemark, setJournalRemark] = useState('')
   const [referenceNo, setReferenceNo] = useState('')
   const [postingDate, setPostingDate] = useState(todayIsoDate)
-  const [paymentDate, setPaymentDate] = useState(todayIsoDate)
+  const [paymentDate, setPaymentDate] = useState('')
 
   const isApproval = mode === 'approval'
   const readOnly = isApproval || (batch ? Boolean(batch.readOnly) : mode !== 'create')
@@ -841,15 +840,17 @@ export function StageWisePaymentBatchPage() {
                           {readOnly ? (
                             <span>{batchLine?.paymentTermLabels?.join(', ') ?? '—'}</span>
                           ) : (
-                            <MultiSelect
+                            <Select
                               options={paymentTermOptions}
-                              value={row.paymentTermsTypes}
-                              onChange={(vals) => void updateRow(row.key, { paymentTermsTypes: vals })}
-                              placeholder="Select payment types"
+                              value={row.paymentTermsTypes[0] ?? ''}
+                              onChange={(val) => void updateRow(row.key, {
+                                paymentTermsTypes: val ? [val] : [],
+                              })}
+                              placeholder="Select payment type"
                               required
+                              usePortal
                               minHeight="min-h-[44px]"
                               menuMinHeight="min-h-52"
-                              usePortal
                             />
                           )}
                         </td>
