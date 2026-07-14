@@ -174,5 +174,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(e => new { e.CompanyDb, e.ExpiresAtUtc });
         });
+
+        // Npgsql rejects DateTime Kind=Unspecified for timestamptz. Convert at the model layer
+        // so every write (including SaveChanges inside transactions) is UTC regardless of caller.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.ClrType == typeof(DateTime))
+                    property.SetValueConverter(DateTimeUtcConverter.Required);
+                else if (property.ClrType == typeof(DateTime?))
+                    property.SetValueConverter(DateTimeUtcConverter.Optional);
+            }
+        }
     }
 }
