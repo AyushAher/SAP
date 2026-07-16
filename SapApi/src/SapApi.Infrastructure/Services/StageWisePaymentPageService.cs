@@ -247,9 +247,10 @@ public class StageWisePaymentPageService(
         if (documentNumbers is not { Length: > 0 })
             return null;
 
+        // Outgoing payment DocNum is appended last when PaymentDocEntry is set.
+        // Batch AP payments store only the outgoing payment number.
         if (!string.IsNullOrWhiteSpace(record.PaymentDocEntry)
-            || record.StageDesc == "Batch AP payment"
-            || documentNumbers.Length > 1)
+            || record.StageDesc == "Batch AP payment")
         {
             return documentNumbers[^1];
         }

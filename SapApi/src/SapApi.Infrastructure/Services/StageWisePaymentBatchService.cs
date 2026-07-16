@@ -468,9 +468,7 @@ public class StageWisePaymentBatchService(
                 .AnyAsync(x =>
                     !string.IsNullOrWhiteSpace(x.PaymentDocEntry)
                     || (x.StageDesc == "Batch AP payment"
-                        && !string.IsNullOrWhiteSpace(x.ApDownPaymentInvoiceEntryNumber))
-                    || (x.ApDownPaymentInvoiceEntryNumber != null
-                        && x.ApDownPaymentInvoiceEntryNumber.Contains(',')),
+                        && !string.IsNullOrWhiteSpace(x.ApDownPaymentInvoiceEntryNumber)),
                     cancellationToken);
 
         if (!hasSapOutgoingPayment && string.IsNullOrWhiteSpace(request.Account))
@@ -900,8 +898,7 @@ public class StageWisePaymentBatchService(
         var hasSapOutgoingPayment = linkedPayments.Any(p =>
             !string.IsNullOrWhiteSpace(p.PaymentDocEntry)
             || (p.StageDesc == "Batch AP payment"
-                && !string.IsNullOrWhiteSpace(p.ApDownPaymentInvoiceEntryNumber))
-            || (p.ApDownPaymentInvoiceEntryNumber?.Contains(',') == true));
+                && !string.IsNullOrWhiteSpace(p.ApDownPaymentInvoiceEntryNumber)));
 
         if (approvalRequestId.HasValue)
         {
