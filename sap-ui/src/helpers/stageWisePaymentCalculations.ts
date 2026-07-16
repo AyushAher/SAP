@@ -510,14 +510,14 @@ export function validateBatchPaymentAmounts<T extends BatchRowAmountFields>(
       return 'Each row amount must be greater than zero.'
     if (amount > (row.payable ?? 0) + 0.001) {
       const rowContext = formatBatchRowContextLabel(row, context)
-      return `Net amount cannot exceed payable (${formatAmount(row.payable)}) for row ${index + 1} (${rowContext}).`
+      return `Net amount entered (${formatAmount(amount)}) cannot exceed payable (${formatAmount(row.payable)}) for row ${index + 1} (${rowContext}).`
     }
 
     const termIds = (row.paymentTermsTypes ?? []).map(Number)
     const requiresAp = batchRowRequiresApInvoice(context.po, context.paymentTerms, termIds)
     if (requiresAp && amount > (row.balanceDue ?? 0) + 0.001) {
       const rowContext = formatBatchRowContextLabel(row, context)
-      return `Net amount cannot exceed AP invoice balance due (${formatAmount(row.balanceDue)}) for row ${index + 1} (${rowContext}).`
+      return `Net amount entered (${formatAmount(amount)}) cannot exceed AP invoice balance due (${formatAmount(row.balanceDue)}) for row ${index + 1} (${rowContext}).`
     }
   }
 

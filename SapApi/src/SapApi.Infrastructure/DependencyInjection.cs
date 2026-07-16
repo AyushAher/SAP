@@ -91,7 +91,7 @@ public static class DependencyInjection
 
         services.AddHttpClient<IHttpRequestHandler, HttpRequestHandler>(client =>
         {
-            client.Timeout = TimeSpan.FromHours(1);
+            client.Timeout = Timeout.InfiniteTimeSpan;
         })
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
         {
