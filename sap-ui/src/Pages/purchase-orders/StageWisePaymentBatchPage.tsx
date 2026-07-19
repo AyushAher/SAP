@@ -17,7 +17,6 @@ import { ROUTES } from '@/config/constants'
 import type { SelectOption } from '@/types'
 import {
   approveRequest,
-  getApprovalPaymentContext,
   rejectRequest,
 } from '@/Requests/approvals'
 import {
@@ -158,8 +157,6 @@ export function StageWisePaymentBatchPage() {
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [comment, setComment] = useState('')
-  const [utrNo, setUtrNo] = useState('')
-  const [utrDate, setUtrDate] = useState('')
   const [modeOfPayment, setModeOfPayment] = useState('pmtBankTransfer')
   const [account, setAccount] = useState('')
   const [journalRemark, setJournalRemark] = useState('')
@@ -314,11 +311,6 @@ export function StageWisePaymentBatchPage() {
         setSharedBank(batchData.lines[0]?.bank ?? '')
         setSharedWtCode(batchData.wtCode ?? '')
         applyBatchAdditionalDetails(batchData)
-        if (batchData.canApprove) {
-          const ctx = await getApprovalPaymentContext(Number(approvalRequestId))
-          setUtrNo(ctx.utrNo ?? '')
-          setUtrDate(ctx.utrDate ? new Date(ctx.utrDate).toISOString().slice(0, 10) : '')
-        }
         return
       }
 
@@ -585,8 +577,8 @@ export function StageWisePaymentBatchPage() {
 
   const handleApprove = async () => {
     if (!approvalRequestId) return
-    if (needsPaymentDetails && (!utrNo.trim() || !utrDate || !comment.trim())) {
-      setError('Payment date, reference number, and user remarks are all required to finalize this payment approval.')
+    if (needsPaymentDetails && (!referenceNo.trim() || !paymentDate || !journalRemark.trim())) {
+      setError('Payment Date, Reference No., and User Remark in Additional Details are all required to finalize this payment approval.')
       return
     }
     if (batch?.id && canEditAdditionalDetails) {
@@ -608,9 +600,9 @@ export function StageWisePaymentBatchPage() {
     }
     try {
       await approveRequest(Number(approvalRequestId), {
-        comment: comment || 'Approved',
-        utrNo: needsPaymentDetails ? utrNo : undefined,
-        utrDate: needsPaymentDetails && utrDate ? utrDate : undefined,
+        comment: needsPaymentDetails ? journalRemark : (comment || 'Approved'),
+        utrNo: needsPaymentDetails ? referenceNo : undefined,
+        utrDate: needsPaymentDetails && paymentDate ? paymentDate : undefined,
       })
       setSuccessMessage('Payment request approved.')
       navigate(ROUTES.APPROVALS)
@@ -964,12 +956,14 @@ export function StageWisePaymentBatchPage() {
                   value={journalRemark}
                   onChange={(e) => setJournalRemark(e.target.value)}
                   disabled={additionalDetailsReadOnly}
+                  required={needsPaymentDetails}
                 />
                 <Input
                   label="Reference No."
                   value={referenceNo}
                   onChange={(e) => setReferenceNo(e.target.value)}
                   disabled={sapPaymentDetailsReadOnly}
+                  required={needsPaymentDetails}
                 />
                 <Input
                   label="Posting Date"
@@ -1045,22 +1039,10 @@ export function StageWisePaymentBatchPage() {
             {needsPaymentDetails && (
               <div className="flex items-start gap-2 rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>This is the final approval level. Approving now will post the payment to SAP — payment date, reference number, and user remarks are all required.</span>
+                <span>This is the final approval level. Approving now will post the payment to SAP — Payment Date, Reference No., and User Remark in Additional Details above are all required.</span>
               </div>
             )}
-            {needsPaymentDetails && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <Input label="Payment Date" type="date" value={utrDate} onChange={(e) => setUtrDate(e.target.value)} required />
-                <Input label="Reference No." value={utrNo} onChange={(e) => setUtrNo(e.target.value)} required />
-              </div>
-            )}
-            <Textarea
-              label={needsPaymentDetails ? 'User Remarks' : 'Comments'}
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder={needsPaymentDetails ? 'Add remarks (required to finalize this payment)' : undefined}
-              required={needsPaymentDetails}
-            />
+            <Textarea label="Comments" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment (required to reject)" />
             <div className="flex justify-end gap-3">
               <Button variant="outline" type="button" onClick={() => navigate(ROUTES.APPROVALS)}>Cancel</Button>
               <Button variant="outline" onClick={handleReject} disabled={submitting}>Reject</Button>
