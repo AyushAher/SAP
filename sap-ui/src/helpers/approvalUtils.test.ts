@@ -9,7 +9,7 @@ import {
   getCardCodeFromRequest,
   groupApprovalsByLevel,
   parseRequestBody,
-  requiresUtrOnApprove,
+  requiresPaymentFinalizationDetails,
 } from './approvalUtils'
 import type { ApprovalRequest, UserApproval } from '@/Requests/approvals'
 
@@ -55,16 +55,16 @@ describe('approvalUtils', () => {
     expect(canActOnRequest(makeRequest(), true)).toBe(false)
   })
 
-  it('requiresUtrOnApprove is true only for final payment approvals', () => {
-    expect(requiresUtrOnApprove(makeRequest({
+  it('requiresPaymentFinalizationDetails is true only for final payment approvals', () => {
+    expect(requiresPaymentFinalizationDetails(makeRequest({
       documentType: 'Payments',
       isLastApproval: true,
     }))).toBe(true)
-    expect(requiresUtrOnApprove(makeRequest({
+    expect(requiresPaymentFinalizationDetails(makeRequest({
       documentType: 'Payments',
       isLastApproval: false,
     }))).toBe(false)
-    expect(requiresUtrOnApprove(makeRequest({ documentType: 'PurchaseOrder' }))).toBe(false)
+    expect(requiresPaymentFinalizationDetails(makeRequest({ documentType: 'PurchaseOrder' }))).toBe(false)
   })
 
   it('formatDocumentType uses friendly labels and falls back to spaced casing', () => {

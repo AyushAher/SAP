@@ -94,7 +94,7 @@ public class ApprovalsController(
         var pendingRequest = await approvalService.GetRequestForActionAsync(requestId)
             ?? throw new ApiErrorException(BaseErrorCodes.NullValue, "Approval request not found.");
 
-        ValidateUtrRequirement(pendingRequest, userId, data);
+        ValidatePaymentFinalizationRequirements(pendingRequest, userId, data);
 
         var result = await approvalService.ApproveAsync(requestId, userId, data.Comment ?? "Approved");
 
@@ -111,11 +111,13 @@ public class ApprovalsController(
     }
 
     /// <summary>
-    /// Payments must carry a UTR reference/date once this approval finalizes the request — SAP will
-    /// reject an outgoing payment without a transfer reference. Validated before ApproveAsync mutates
-    /// state, since a failed post-mutation validation cannot be retried (the user's approval is final).
+    /// Payments must carry a payment date, reference number, and user remarks once this approval
+    /// finalizes the request — SAP will reject an outgoing payment without a transfer reference/date,
+    /// and remarks are required for audit traceability of who authorized the payment and why.
+    /// Validated before ApproveAsync mutates state, since a failed post-mutation validation cannot be
+    /// retried (the user's approval is final).
     /// </summary>
-    private static void ValidateUtrRequirement(ApprovalRequest request, int userId, ApprovalActionData data)
+    private static void ValidatePaymentFinalizationRequirements(ApprovalRequest request, int userId, ApprovalActionData data)
     {
         if (request.DocumentType != ApprovalDocumentType.Payments)
             return;
@@ -123,10 +125,10 @@ public class ApprovalsController(
         if (!ApprovalService.WouldCompleteApproval(request, userId))
             return;
 
-        if (string.IsNullOrWhiteSpace(data.UtrNo) || data.UtrDate is null)
+        if (string.IsNullOrWhiteSpace(data.UtrNo) || data.UtrDate is null || string.IsNullOrWhiteSpace(data.Comment))
             throw new ApiErrorException(
                 BaseErrorCodes.ValidationFailed,
-                "UTR number and UTR date are required to finalize a payment approval.");
+                "Payment date, reference number, and user remarks are required to finalize a payment approval.");
     }
 
     [HttpPost("{requestId:int}/reject")]

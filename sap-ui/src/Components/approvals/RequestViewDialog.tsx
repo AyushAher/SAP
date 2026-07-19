@@ -17,7 +17,7 @@ import {
   formatDocumentType,
   getApprovalStatusBadgeVariant,
   parseRequestBody,
-  requiresUtrOnApprove,
+  requiresPaymentFinalizationDetails,
 } from '@/helpers/approvalUtils'
 
 interface RequestViewDialogProps {
@@ -85,11 +85,11 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
 
   const body = parseRequestBody(detail.requestBody)
   const showActions = canActOnRequest(detail, readOnly)
-  const needsUtr = requiresUtrOnApprove(detail)
+  const needsPaymentDetails = requiresPaymentFinalizationDetails(detail)
 
   const handleApprove = async () => {
-    if (needsUtr && (!utrNo.trim() || !utrDate)) {
-      setError('UTR number and UTR date are required to finalize this payment approval.')
+    if (needsPaymentDetails && (!utrNo.trim() || !utrDate || !comment.trim())) {
+      setError('Payment date, reference number, and user remarks are all required to finalize this payment approval.')
       return
     }
     setSubmitting(true)
@@ -97,8 +97,8 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
     try {
       await approveRequest(detail.id, {
         comment: comment || 'Approved',
-        utrNo: needsUtr ? utrNo : undefined,
-        utrDate: needsUtr && utrDate ? utrDate : undefined,
+        utrNo: needsPaymentDetails ? utrNo : undefined,
+        utrDate: needsPaymentDetails && utrDate ? utrDate : undefined,
       })
       onCompleted()
       onClose()
@@ -148,7 +148,7 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={getApprovalStatusBadgeVariant(detail.overallStatus)}>{detail.overallStatus}</Badge>
                 <Badge variant="outline">{detail.action ?? 'Create'}</Badge>
-                {needsUtr && <Badge variant="primary">Final approval level</Badge>}
+                {needsPaymentDetails && <Badge variant="primary">Final approval level</Badge>}
               </div>
               <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                 <div><span className="text-slate-500">Requester:</span> <strong className="text-slate-900">{detail.requesterUser?.fullName ?? detail.requesterUser?.userName ?? '—'}</strong></div>
@@ -206,19 +206,25 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
 
             {showActions && (
               <div className="space-y-4 border-t pt-4">
-                {needsUtr && (
+                {needsPaymentDetails && (
                   <div className="flex items-start gap-2 rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-800">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>This is the final approval level. Approving now will post the payment to SAP — UTR details are required.</span>
+                    <span>This is the final approval level. Approving now will post the payment to SAP — payment date, reference number, and user remarks are all required.</span>
                   </div>
                 )}
-                <Textarea label="Comments" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment (required to reject)" />
-                {needsUtr && (
+                {needsPaymentDetails && (
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Input label="UTR No" value={utrNo} onChange={(e) => setUtrNo(e.target.value)} required />
-                    <Input label="UTR Date" type="date" value={utrDate} onChange={(e) => setUtrDate(e.target.value)} required />
+                    <Input label="Payment Date" type="date" value={utrDate} onChange={(e) => setUtrDate(e.target.value)} required />
+                    <Input label="Reference No." value={utrNo} onChange={(e) => setUtrNo(e.target.value)} required />
                   </div>
                 )}
+                <Textarea
+                  label={needsPaymentDetails ? 'User Remarks' : 'Comments'}
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder={needsPaymentDetails ? 'Add remarks (required to finalize this payment)' : 'Add a comment (required to reject)'}
+                  required={needsPaymentDetails}
+                />
                 <div className="flex justify-end gap-3">
                   <Button variant="outline" onClick={onClose}>Close</Button>
                   <Button variant="outline" onClick={handleReject} isLoading={submitting}>Reject</Button>

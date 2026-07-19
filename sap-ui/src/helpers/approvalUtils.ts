@@ -43,7 +43,11 @@ export function canActOnRequest(request: ApprovalRequest, readOnly: boolean): bo
   return request.overallStatus === 'Pending' || request.overallStatus === 'Forwarded'
 }
 
-export function requiresUtrOnApprove(request: ApprovalRequest): boolean {
+/**
+ * True when this approval finalizes a Payment request — at which point payment date, reference
+ * number, and user remarks must all be captured before SAP will accept the outgoing payment.
+ */
+export function requiresPaymentFinalizationDetails(request: ApprovalRequest): boolean {
   return request.documentType === 'Payments' && !!request.isLastApproval
 }
 

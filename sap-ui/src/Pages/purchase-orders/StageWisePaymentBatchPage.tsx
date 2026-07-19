@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Trash2, Ban, Download, Undo2 } from 'lucide-react'
+import { AlertTriangle, Trash2, Ban, Download, Undo2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionButton, rowActionIconClassName, rowActionsCellClassName } from '@/Components/shared/RowActions'
 import {
@@ -170,7 +170,7 @@ export function StageWisePaymentBatchPage() {
   const isApproval = mode === 'approval'
   const readOnly = isApproval || (batch ? Boolean(batch.readOnly) : mode !== 'create')
   const canAct = batch?.canApprove ?? false
-  const needsUtr = isApproval && (batch?.isLastApproval ?? false)
+  const needsPaymentDetails = isApproval && (batch?.isLastApproval ?? false)
   const canWithdraw = !isApproval && Boolean(batch?.canWithdraw)
   const canSubmitExisting = !isApproval && Boolean(batch?.canSubmit)
   const isEditingExisting = Boolean(batch?.id) && !readOnly
@@ -585,8 +585,8 @@ export function StageWisePaymentBatchPage() {
 
   const handleApprove = async () => {
     if (!approvalRequestId) return
-    if (needsUtr && (!utrNo.trim() || !utrDate)) {
-      setError('UTR number and UTR date are required to finalize this payment approval.')
+    if (needsPaymentDetails && (!utrNo.trim() || !utrDate || !comment.trim())) {
+      setError('Payment date, reference number, and user remarks are all required to finalize this payment approval.')
       return
     }
     if (batch?.id && canEditAdditionalDetails) {
@@ -609,8 +609,8 @@ export function StageWisePaymentBatchPage() {
     try {
       await approveRequest(Number(approvalRequestId), {
         comment: comment || 'Approved',
-        utrNo: needsUtr ? utrNo : undefined,
-        utrDate: needsUtr && utrDate ? utrDate : undefined,
+        utrNo: needsPaymentDetails ? utrNo : undefined,
+        utrDate: needsPaymentDetails && utrDate ? utrDate : undefined,
       })
       setSuccessMessage('Payment request approved.')
       navigate(ROUTES.APPROVALS)
@@ -1042,13 +1042,25 @@ export function StageWisePaymentBatchPage() {
       {isApproval && canAct && (
         <Card>
           <CardContent className="space-y-4 pt-6">
-            <Textarea label="Comments" value={comment} onChange={(e) => setComment(e.target.value)} />
-            {needsUtr && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <Input label="UTR No" value={utrNo} onChange={(e) => setUtrNo(e.target.value)} required />
-                <Input label="UTR Date" type="date" value={utrDate} onChange={(e) => setUtrDate(e.target.value)} required />
+            {needsPaymentDetails && (
+              <div className="flex items-start gap-2 rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>This is the final approval level. Approving now will post the payment to SAP — payment date, reference number, and user remarks are all required.</span>
               </div>
             )}
+            {needsPaymentDetails && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <Input label="Payment Date" type="date" value={utrDate} onChange={(e) => setUtrDate(e.target.value)} required />
+                <Input label="Reference No." value={utrNo} onChange={(e) => setUtrNo(e.target.value)} required />
+              </div>
+            )}
+            <Textarea
+              label={needsPaymentDetails ? 'User Remarks' : 'Comments'}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder={needsPaymentDetails ? 'Add remarks (required to finalize this payment)' : undefined}
+              required={needsPaymentDetails}
+            />
             <div className="flex justify-end gap-3">
               <Button variant="outline" type="button" onClick={() => navigate(ROUTES.APPROVALS)}>Cancel</Button>
               <Button variant="outline" onClick={handleReject} disabled={submitting}>Reject</Button>
