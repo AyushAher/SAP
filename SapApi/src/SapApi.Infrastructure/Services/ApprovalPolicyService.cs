@@ -66,6 +66,10 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
         context.ApprovalPolicyRules.RemoveRange(policy.Rules);
         policy.Rules = rules ?? [];
 
+        // Update() walks the whole graph and attaches/marks it (Modified for the policy's own
+        // scalar changes, Added for the newly-assigned Approvers/Rules) — required because queries
+        // are untracked by default (QueryTrackingBehavior.NoTracking).
+        context.ApprovalPolicies.Update(policy);
         await context.SaveChangesAsync();
     }
 
@@ -110,6 +114,7 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
             await ValidateNoActiveDuplicateAsync(policy.DocumentType, policy.RequesterUserId, excludePolicyId: id);
 
         policy.IsActive = isActive;
+        context.ApprovalPolicies.Update(policy);
         await context.SaveChangesAsync();
     }
 

@@ -253,6 +253,14 @@ public class ApprovalService
             userApproval.ApprovalStatus = ApprovalStatus.Approved;
             userApproval.Comment = comment;
             userApproval.ActionDate = DateTime.UtcNow;
+            // DbContext is configured with QueryTrackingBehavior.NoTracking globally (see
+            // DependencyInjection.cs) for scalability — entities fetched via queries are NOT
+            // change-tracked, so mutations above are silently dropped unless we explicitly mark them
+            // Modified before SaveChangesAsync. We use Entry(...).State rather than DbSet.Update(...)
+            // because Update() walks the whole navigation graph and re-attaches it too, which throws a
+            // duplicate-key tracking conflict once EvaluateRequestStatus below re-queries the same
+            // UserApproval row (via its Include) inside this same DbContext/request.
+            context.Entry(userApproval).State = EntityState.Modified;
 
             if (!string.IsNullOrEmpty(body))
             {
@@ -260,6 +268,7 @@ public class ApprovalService
                     .FirstAsync(x => x.Id == requestId);
 
                 request.RequestBody = body;
+                context.Entry(request).State = EntityState.Modified;
             }
 
             await AddLogAsync(requestId, userId, "Approved", comment: comment);
@@ -291,6 +300,7 @@ public class ApprovalService
             userApproval.ApprovalStatus = ApprovalStatus.Rejected;
             userApproval.Comment = comment;
             userApproval.ActionDate = DateTime.UtcNow;
+            context.Entry(userApproval).State = EntityState.Modified;
 
             await AddLogAsync(requestId, userId, "Rejected", comment: comment);
             await context.SaveChangesAsync();
@@ -341,12 +351,18 @@ public class ApprovalService
                 .Include(r => r.UserApprovals)
                 .FirstAsync(r => r.Id == requestId);
 
+            // Entry(...).State rather than Update(): the entity was fetched with Include(UserApprovals),
+            // and Update() would also try to re-attach that collection, colliding with the UserApproval
+            // row ApproveAsync/RejectAsync already marked Modified earlier in this same DbContext scope.
+            // Entry(...).State only marks the ApprovalRequest root itself.
+
             // Rejection override
             if (request.UserApprovals
                 .Any(x => x.ApprovalStatus == ApprovalStatus.Rejected))
             {
                 request.OverallStatus = ApprovalStatus.Rejected;
                 request.IsApproved = false;
+                context.Entry(request).State = EntityState.Modified;
                 await context.SaveChangesAsync();
                 return request;
             }
@@ -364,6 +380,7 @@ public class ApprovalService
                 {
                     request.OverallStatus = ApprovalStatus.Forwarded;
                     request.IsApproved = false;
+                    context.Entry(request).State = EntityState.Modified;
                     await context.SaveChangesAsync();
                     return request;
                 }
@@ -371,6 +388,7 @@ public class ApprovalService
 
             request.OverallStatus = ApprovalStatus.Approved;
             request.IsApproved = true;
+            context.Entry(request).State = EntityState.Modified;
             await context.SaveChangesAsync();
             return request;
         }

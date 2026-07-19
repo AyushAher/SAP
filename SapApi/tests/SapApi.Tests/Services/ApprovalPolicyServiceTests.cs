@@ -18,8 +18,12 @@ public class ApprovalPolicyServiceTests
     [SetUp]
     public async Task SetUp()
     {
+        // Mirrors production's DbContextPool configuration (QueryTrackingBehavior.NoTracking, see
+        // DependencyInjection.cs) so tests catch bugs where a fetched entity is mutated without being
+        // explicitly re-attached (DbSet.Update/Entry.State=Modified) before SaveChangesAsync.
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking)
             .Options;
         _context = new AppDbContext(options);
         _context.Database.EnsureCreated();
@@ -122,6 +126,9 @@ public class ApprovalPolicyServiceTests
             ApprovalDocumentType.PurchaseOrder,
             1,
             [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+        // Each call below simulates its own HTTP request against a fresh pooled DbContext, so clear
+        // the shared test context between them rather than letting Add()'d entities stay tracked.
+        _context.ChangeTracker.Clear();
 
         var updatedApprovers = new List<ApprovalPolicyApprover>
         {
@@ -144,6 +151,7 @@ public class ApprovalPolicyServiceTests
             ApprovalDocumentType.PurchaseOrder,
             1,
             [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+        _context.ChangeTracker.Clear();
 
         await _sut.DeletePolicyAsync(policyId);
 
@@ -158,11 +166,13 @@ public class ApprovalPolicyServiceTests
             ApprovalDocumentType.PurchaseOrder,
             1,
             [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+        _context.ChangeTracker.Clear();
 
         await _sut.SetActiveAsync(policyId, false);
         var deactivated = await _sut.GetByIdAsync(policyId);
         deactivated!.IsActive.Should().BeFalse();
         deactivated.Approvers.Should().HaveCount(1);
+        _context.ChangeTracker.Clear();
 
         await _sut.SetActiveAsync(policyId, true);
         var reactivated = await _sut.GetByIdAsync(policyId);
@@ -172,12 +182,18 @@ public class ApprovalPolicyServiceTests
     [Test]
     public async Task SetActiveAsync_ReactivatingIntoDuplicate_Throws()
     {
-        var approvers = new List<ApprovalPolicyApprover> { new() { ApproverUserId = 10, Priority = 1 } };
-        var firstPolicyId = await _sut.CreatePolicyAsync(ApprovalDocumentType.PurchaseOrder, 1, approvers);
+        var firstPolicyId = await _sut.CreatePolicyAsync(
+            ApprovalDocumentType.PurchaseOrder, 1, [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+        _context.ChangeTracker.Clear();
         await _sut.SetActiveAsync(firstPolicyId, false);
+        _context.ChangeTracker.Clear();
 
-        // A second active policy now exists for the same requester + document type.
-        await _sut.CreatePolicyAsync(ApprovalDocumentType.PurchaseOrder, 1, approvers);
+        // A second active policy now exists for the same requester + document type. Uses a distinct
+        // approver instance — CreatePolicyAsync's Add() would otherwise try to re-insert the same
+        // already-keyed ApprovalPolicyApprover object from the first policy above.
+        await _sut.CreatePolicyAsync(
+            ApprovalDocumentType.PurchaseOrder, 1, [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+        _context.ChangeTracker.Clear();
 
         var act = async () => await _sut.SetActiveAsync(firstPolicyId, true);
 
