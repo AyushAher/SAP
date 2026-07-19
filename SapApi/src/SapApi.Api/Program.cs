@@ -25,6 +25,12 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         options.JsonSerializerOptions.Converters.Add(new UtcDateTimeJsonConverter());
         options.JsonSerializerOptions.Converters.Add(new UtcNullableDateTimeJsonConverter());
+        // EF Core performs bidirectional navigation fixup during query materialization (even with
+        // AsNoTracking) whenever related entities appear together in one query's Include graph
+        // (e.g. ApprovalRequest -> UserApprovals -> ApprovalRequest, or ApplicationUser's inverse
+        // collections). Several endpoints serialize domain entities directly, so a reference cycle
+        // here must degrade to `null` instead of throwing and returning a 500.
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
