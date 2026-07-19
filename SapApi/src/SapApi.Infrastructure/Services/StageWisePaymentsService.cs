@@ -725,7 +725,7 @@ public class StageWisePaymentService(
 
             record.Status = StageWisePaymentStatus.Cancelled;
             record.LastModifiedOn = DateTime.UtcNow;
-            context.StageWisePayments.Update(record);
+            context.AttachModified(record);
             await SyncBatchStatusForPaymentAsync(record.Id, StageWisePaymentBatchStatus.Rejected);
         }
 
@@ -760,7 +760,7 @@ public class StageWisePaymentService(
             {
                 record.Status = StageWisePaymentStatus.Approved;
                 record.LastModifiedOn = DateTime.UtcNow;
-                context.StageWisePayments.Update(record);
+                context.AttachModified(record);
                 await SyncBatchStatusForPaymentAsync(record.Id, StageWisePaymentBatchStatus.Approved);
             }
         }
@@ -779,7 +779,7 @@ public class StageWisePaymentService(
 
         batch.Status = status;
         batch.LastModifiedOn = DateTime.UtcNow;
-        context.StageWisePaymentBatches.Update(batch);
+        context.AttachModified(batch);
     }
 
     static bool IsLinkedToApprovalRequest(StageWisePayment record, string approvalRequestId) =>

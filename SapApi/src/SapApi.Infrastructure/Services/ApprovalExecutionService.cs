@@ -98,7 +98,7 @@ public class ApprovalExecutionService(
                                 item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNum?.ToString();
                             else
                                 item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNum;
-                            context.StageWisePayments.Update(item);
+                            context.AttachModified(item);
                         }
                         await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask, cancellationToken);
                     }
@@ -188,7 +188,7 @@ public class ApprovalExecutionService(
                             else
                                 item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNumber;
                             item.PaymentDocEntry = dpResponse?.DocEntry?.ToString();
-                            context.StageWisePayments.Update(item);
+                            context.AttachModified(item);
                         }
                         await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask, cancellationToken);
                     }
@@ -225,14 +225,14 @@ public class ApprovalExecutionService(
                     {
                         record.UtrDate = data?.UtrDate;
                         record.UtrNo = data?.UtrNo;
-                        context.StageWisePayments.Update(record);
+                        context.AttachModified(record);
                     }
                 }
 
                 if (result.DocumentType is ApprovalDocumentType.Payments or ApprovalDocumentType.StagewisePayments_DP)
                     await stageWisePaymentService.MarkApprovedWhenAllRequestsCompleteAsync(result.Id);
 
-                context.ApprovalRequests.Update(result);
+                context.AttachModified(result);
             }, cancellationToken);
         }
     }
