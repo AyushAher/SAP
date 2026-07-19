@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Button, Input, Modal, Textarea } from '@/Components/ui'
+import { AlertTriangle } from 'lucide-react'
+import { Badge, Button, Input, Modal, Textarea } from '@/Components/ui'
 import {
   approveRequest,
   getApprovalPaymentContext,
@@ -8,9 +9,16 @@ import {
   type ApprovalPaymentContext,
   type ApprovalRequest,
 } from '@/Requests/approvals'
+import { ApprovalTimeline } from '@/Components/approvals/ApprovalTimeline'
 import { RequestBodyViewer } from '@/Components/approvals/RequestBodyViewer'
 import { StageWisePaymentSummaryDialog } from '@/Components/approvals/StageWisePaymentSummaryDialog'
-import { canActOnRequest, parseRequestBody, requiresUtrOnApprove } from '@/helpers/approvalUtils'
+import {
+  canActOnRequest,
+  formatDocumentType,
+  getApprovalStatusBadgeVariant,
+  parseRequestBody,
+  requiresUtrOnApprove,
+} from '@/helpers/approvalUtils'
 
 interface RequestViewDialogProps {
   request: ApprovalRequest | null
@@ -80,6 +88,10 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
   const needsUtr = requiresUtrOnApprove(detail)
 
   const handleApprove = async () => {
+    if (needsUtr && (!utrNo.trim() || !utrDate)) {
+      setError('UTR number and UTR date are required to finalize this payment approval.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -120,7 +132,7 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
       <Modal
         isOpen={!!request}
         onClose={onClose}
-        title="Request Details"
+        title={`Request #${detail.id} — ${formatDocumentType(detail.documentType)}`}
         size="full"
         className="max-h-[90vh] overflow-y-auto"
       >
@@ -132,23 +144,41 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
               <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
             )}
 
-            <div className="grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-3">
-              <div><span className="text-slate-500">Request ID:</span> <strong>{detail.id}</strong></div>
-              <div><span className="text-slate-500">Requester:</span> <strong>{detail.requesterUser?.fullName ?? detail.requesterUser?.userName}</strong></div>
-              <div><span className="text-slate-500">Request Date:</span> <strong>{new Date(detail.createdAt).toLocaleDateString()}</strong></div>
-              <div><span className="text-slate-500">Module:</span> <strong>{detail.documentType}</strong></div>
-              <div><span className="text-slate-500">Action:</span> <strong>{detail.action ?? 'Create'}</strong></div>
-              <div><span className="text-slate-500">Status:</span> <strong>{detail.overallStatus}</strong></div>
-              {detail.supportingData && (
-                <div><span className="text-slate-500">Supporting Data:</span> <strong>{detail.supportingData}</strong></div>
-              )}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={getApprovalStatusBadgeVariant(detail.overallStatus)}>{detail.overallStatus}</Badge>
+                <Badge variant="outline">{detail.action ?? 'Create'}</Badge>
+                {needsUtr && <Badge variant="primary">Final approval level</Badge>}
+              </div>
+              <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <div><span className="text-slate-500">Requester:</span> <strong className="text-slate-900">{detail.requesterUser?.fullName ?? detail.requesterUser?.userName ?? '—'}</strong></div>
+                <div><span className="text-slate-500">Requested on:</span> <strong className="text-slate-900">{new Date(detail.createdAt).toLocaleString()}</strong></div>
+                {detail.supportingData && (
+                  <div><span className="text-slate-500">Reference:</span> <strong className="text-slate-900">{detail.supportingData}</strong></div>
+                )}
+                {(detail.sapResponseDocNum || detail.sapResponseDocEntry) && (
+                  <div><span className="text-slate-500">SAP Doc:</span> <strong className="text-slate-900">{detail.sapResponseDocNum ?? detail.sapResponseDocEntry}</strong></div>
+                )}
+              </div>
               {detail.failureReason && (
-                <div className="md:col-span-2 text-red-600"><span className="text-slate-500">Failure:</span> <strong>{detail.failureReason}</strong></div>
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span><strong>SAP posting failed:</strong> {detail.failureReason}</span>
+                </div>
               )}
             </div>
 
+            {detail.userApprovals && detail.userApprovals.length > 0 && (
+              <div>
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">Approval Progress</h3>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <ApprovalTimeline userApprovals={detail.userApprovals} />
+                </div>
+              </div>
+            )}
+
             <div>
-              <h3 className="mb-3 text-sm font-semibold text-slate-700">Request Body</h3>
+              <h3 className="mb-3 text-sm font-semibold text-slate-700">Request Details</h3>
               {detail.documentType === 'Payments' && paymentContext ? (
                 <div className="space-y-4 rounded-xl bg-slate-50 p-4">
                   <Button size="sm" variant="outline" onClick={() => setShowSummary(true)}>View Payment Summary</Button>
@@ -166,22 +196,6 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
                       <InfoRow label="Branch" value={paymentContext.branch} />
                     </div>
                   </div>
-                  <div className="rounded-xl border bg-white p-4">
-                    <h4 className="mb-3 font-semibold text-slate-800">Approval Timeline</h4>
-                    {paymentContext.previousApprovals.length === 0 ? (
-                      <p className="text-sm text-slate-500">No approvals completed yet.</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {paymentContext.previousApprovals.map((item, idx) => (
-                          <div key={idx} className="rounded-lg border-l-4 border-green-600 bg-slate-50 p-3">
-                            <InfoRow label="Approved By" value={item.approverName} />
-                            <InfoRow label="Date & Time" value={item.actionDate ? new Date(item.actionDate).toLocaleString() : undefined} />
-                            {item.comment && <InfoRow label="Comments" value={item.comment} />}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 </div>
               ) : body ? (
                 <RequestBodyViewer data={body} />
@@ -192,7 +206,13 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
 
             {showActions && (
               <div className="space-y-4 border-t pt-4">
-                <Textarea label="Comments" value={comment} onChange={(e) => setComment(e.target.value)} />
+                {needsUtr && (
+                  <div className="flex items-start gap-2 rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-800">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>This is the final approval level. Approving now will post the payment to SAP — UTR details are required.</span>
+                  </div>
+                )}
+                <Textarea label="Comments" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment (required to reject)" />
                 {needsUtr && (
                   <div className="grid gap-4 md:grid-cols-2">
                     <Input label="UTR No" value={utrNo} onChange={(e) => setUtrNo(e.target.value)} required />

@@ -15,10 +15,14 @@ public class GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExcep
         catch (ApiErrorException ex)
         {
             logger.LogWarning(ex, "API error: {Code}", ex.ErrorCode);
-            context.Response.StatusCode = ex.ErrorCode == BaseErrorCodes.IncorrectCredentials
-                || ex.ErrorCode == BaseErrorCodes.SapSessionUnavailable
-                ? StatusCodes.Status401Unauthorized
-                : StatusCodes.Status400BadRequest;
+            context.Response.StatusCode = ex.ErrorCode switch
+            {
+                _ when ex.ErrorCode == BaseErrorCodes.IncorrectCredentials
+                    || ex.ErrorCode == BaseErrorCodes.SapSessionUnavailable => StatusCodes.Status401Unauthorized,
+                _ when ex.ErrorCode == BaseErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+                _ when ex.ErrorCode == BaseErrorCodes.Conflict => StatusCodes.Status409Conflict,
+                _ => StatusCodes.Status400BadRequest
+            };
             await context.Response.WriteAsJsonAsync(ApiResponse<object>.Fail(ex.ErrorCode, ex.Message));
         }
         catch (Exception ex)

@@ -3,11 +3,15 @@ import {
   canActOnRequest,
   formatApprovalLabel,
   formatApprovalValue,
+  formatDocumentType,
+  getApprovalStatusBadgeVariant,
+  getApproverDisplayName,
   getCardCodeFromRequest,
+  groupApprovalsByLevel,
   parseRequestBody,
   requiresUtrOnApprove,
 } from './approvalUtils'
-import type { ApprovalRequest } from '@/Requests/approvals'
+import type { ApprovalRequest, UserApproval } from '@/Requests/approvals'
 
 function makeRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
   return {
@@ -61,5 +65,40 @@ describe('approvalUtils', () => {
       isLastApproval: false,
     }))).toBe(false)
     expect(requiresUtrOnApprove(makeRequest({ documentType: 'PurchaseOrder' }))).toBe(false)
+  })
+
+  it('formatDocumentType uses friendly labels and falls back to spaced casing', () => {
+    expect(formatDocumentType('PurchaseOrder')).toBe('Purchase Order')
+    expect(formatDocumentType('StagewisePayments_DP')).toBe('Stage-wise Payment (Down Payment)')
+    expect(formatDocumentType('SomeNewDocType')).toBe('Some New Doc Type')
+    expect(formatDocumentType(undefined)).toBe('—')
+  })
+
+  it('getApprovalStatusBadgeVariant maps every status to a distinct color', () => {
+    expect(getApprovalStatusBadgeVariant('Approved')).toBe('success')
+    expect(getApprovalStatusBadgeVariant('Pending')).toBe('warning')
+    expect(getApprovalStatusBadgeVariant('Forwarded')).toBe('primary')
+    expect(getApprovalStatusBadgeVariant('Rejected')).toBe('danger')
+    expect(getApprovalStatusBadgeVariant('Failed')).toBe('danger')
+    expect(getApprovalStatusBadgeVariant('Unknown')).toBe('default')
+  })
+
+  it('getApproverDisplayName prefers full name, then user name, then a fallback', () => {
+    const base: UserApproval = { userId: 5, approvalStatus: 'Pending', priority: 1 }
+    expect(getApproverDisplayName({ ...base, user: { fullName: 'Jane Doe', userName: 'jdoe' } })).toBe('Jane Doe')
+    expect(getApproverDisplayName({ ...base, user: { userName: 'jdoe' } })).toBe('jdoe')
+    expect(getApproverDisplayName(base)).toBe('User #5')
+  })
+
+  it('groupApprovalsByLevel groups by priority and sorts ascending', () => {
+    const approvals: UserApproval[] = [
+      { userId: 2, priority: 2, approvalStatus: 'Pending' },
+      { userId: 1, priority: 1, approvalStatus: 'Approved' },
+      { userId: 3, priority: 1, approvalStatus: 'Pending' },
+    ]
+    const levels = groupApprovalsByLevel(approvals)
+    expect(levels.map((l) => l.priority)).toEqual([1, 2])
+    expect(levels[0].approvers).toHaveLength(2)
+    expect(levels[1].approvers).toHaveLength(1)
   })
 })

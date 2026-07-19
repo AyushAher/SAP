@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Eye } from 'lucide-react'
+import { AlertTriangle, Eye } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
 import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Badge, DataTable, type DataTableColumn } from '@/Components/ui'
-import { getCardCodeFromRequest } from '@/helpers/approvalUtils'
+import { formatDocumentType, getApprovalStatusBadgeVariant, getCardCodeFromRequest } from '@/helpers/approvalUtils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { listMyApprovalRequests, type ApprovalRequest } from '@/Requests/approvals'
@@ -12,6 +12,14 @@ import { listMyApprovalRequests, type ApprovalRequest } from '@/Requests/approva
 const extractors = {
   cardCodes: (row: ApprovalRequest) => getCardCodeFromRequest(row),
 }
+
+const STATUS_FILTER_OPTIONS = [
+  { value: 'Pending', label: 'Pending' },
+  { value: 'Forwarded', label: 'Forwarded' },
+  { value: 'Approved', label: 'Approved' },
+  { value: 'Rejected', label: 'Rejected' },
+  { value: 'Failed', label: 'Failed' },
+]
 
 export function MyApprovalRequestsPage() {
   const [viewRow, setViewRow] = useState<ApprovalRequest | null>(null)
@@ -24,7 +32,13 @@ export function MyApprovalRequestsPage() {
 
   const columns = useMemo<DataTableColumn<ApprovalRequest>[]>(() => [
     { key: 'id', header: 'ID', sortable: true, filterable: true, accessor: (r) => r.id },
-    { key: 'documentType', header: 'Document Type', sortable: true, filterable: true, accessor: (r) => r.documentType },
+    {
+      key: 'documentType',
+      header: 'Document Type',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => formatDocumentType(r.documentType),
+    },
     {
       key: 'cardCode',
       header: 'Business Partner',
@@ -33,10 +47,24 @@ export function MyApprovalRequestsPage() {
         return formatCodeWithName(code, lookupMaps.businessPartners[code])
       },
     },
-    { key: 'overallStatus', header: 'Status', render: (r) => <Badge>{r.overallStatus}</Badge> },
+    {
+      key: 'overallStatus',
+      header: 'Status',
+      filterable: true,
+      filterType: 'select',
+      filterOptions: STATUS_FILTER_OPTIONS,
+      filterOperator: 'eq',
+      render: (r) => <Badge variant={getApprovalStatusBadgeVariant(r.overallStatus)}>{r.overallStatus}</Badge>,
+    },
     { key: 'sapResponseDocNum', header: 'SAP Doc No', accessor: (r) => r.sapResponseDocNum },
     { key: 'sapResponseDocEntry', header: 'SAP Doc Entry', accessor: (r) => r.sapResponseDocEntry },
-    { key: 'failureReason', header: 'Failure Reason', accessor: (r) => r.failureReason },
+    {
+      key: 'failureReason',
+      header: 'Issue',
+      render: (r) => r.failureReason
+        ? <span title={r.failureReason} className="inline-flex items-center gap-1 text-red-600"><AlertTriangle className="h-4 w-4" /> Failed</span>
+        : null,
+    },
     { key: 'createdAt', header: 'Created', sortable: true, accessor: (r) => new Date(r.createdAt).toLocaleString() },
     {
       key: 'actions',

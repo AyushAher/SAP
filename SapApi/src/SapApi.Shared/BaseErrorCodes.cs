@@ -7,6 +7,8 @@
         public static string SystemError = "SYS-01";
         public static string NullValue = "SYS-02";
         public static string RecordExists = "SYS-03";
+        public static string ValidationFailed = "SYS-04";
+        public static string Conflict = "SYS-05";
 
         #endregion
 
@@ -14,6 +16,7 @@
 
         public static string IncorrectCredentials = "AUTH-01";
         public static string SapSessionUnavailable = "AUTH-02";
+        public static string Forbidden = "AUTH-03";
 
         #endregion
 

@@ -7,6 +7,9 @@ using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Infrastructure.Sap;
+using SapApi.Shared;
+using SapApi.Shared.Enums;
+using SapApi.Shared.Exceptions;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
 
@@ -87,6 +90,12 @@ public class ApprovalsController(
     public async Task<IActionResult> Approve(int requestId, [FromBody] ApprovalActionData data, CancellationToken cancellationToken)
     {
         var userId = httpContext.GetUserIdAsync() ?? throw new UnauthorizedAccessException();
+
+        var pendingRequest = await approvalService.GetRequestForActionAsync(requestId)
+            ?? throw new ApiErrorException(BaseErrorCodes.NullValue, "Approval request not found.");
+
+        ValidateUtrRequirement(pendingRequest, userId, data);
+
         var result = await approvalService.ApproveAsync(requestId, userId, data.Comment ?? "Approved");
 
         if (result?.OverallStatus == ApprovalStatus.Approved)
@@ -99,6 +108,25 @@ public class ApprovalsController(
         return Ok(ApiResponse<object>.Ok(result, result?.OverallStatus == ApprovalStatus.Pending
             ? "Forwarded for further approval"
             : "Approved"));
+    }
+
+    /// <summary>
+    /// Payments must carry a UTR reference/date once this approval finalizes the request — SAP will
+    /// reject an outgoing payment without a transfer reference. Validated before ApproveAsync mutates
+    /// state, since a failed post-mutation validation cannot be retried (the user's approval is final).
+    /// </summary>
+    private static void ValidateUtrRequirement(ApprovalRequest request, int userId, ApprovalActionData data)
+    {
+        if (request.DocumentType != ApprovalDocumentType.Payments)
+            return;
+
+        if (!ApprovalService.WouldCompleteApproval(request, userId))
+            return;
+
+        if (string.IsNullOrWhiteSpace(data.UtrNo) || data.UtrDate is null)
+            throw new ApiErrorException(
+                BaseErrorCodes.ValidationFailed,
+                "UTR number and UTR date are required to finalize a payment approval.");
     }
 
     [HttpPost("{requestId:int}/reject")]
@@ -117,13 +145,36 @@ public class ApprovalsController(
         var results = new List<object>();
         foreach (var id in requestIds)
         {
-            var result = await approvalService.ApproveAsync(id, userId, "Bulk approved");
-            if (result?.OverallStatus == ApprovalStatus.Approved)
+            var pendingRequest = await approvalService.GetRequestForActionAsync(id);
+            if (pendingRequest is null)
             {
-                var sapResponse = await executionService.ExecuteAsync(result, new ApprovalActionData { Action = "Approve" }, cancellationToken);
-                await executionService.FinalizeApprovalAsync(result, null, sapResponse, cancellationToken);
+                results.Add(new { id, error = "Approval request not found." });
+                continue;
             }
-            results.Add(new { id, result });
+
+            // Bulk approve has no per-request UTR field; skip finalizing payments that need one instead
+            // of silently posting to SAP with a blank transfer reference.
+            if (pendingRequest.DocumentType == ApprovalDocumentType.Payments
+                && ApprovalService.WouldCompleteApproval(pendingRequest, userId))
+            {
+                results.Add(new { id, error = "Skipped — payment approvals requiring UTR details must be finalized individually." });
+                continue;
+            }
+
+            try
+            {
+                var result = await approvalService.ApproveAsync(id, userId, "Bulk approved");
+                if (result?.OverallStatus == ApprovalStatus.Approved)
+                {
+                    var sapResponse = await executionService.ExecuteAsync(result, new ApprovalActionData { Action = "Approve" }, cancellationToken);
+                    await executionService.FinalizeApprovalAsync(result, null, sapResponse, cancellationToken);
+                }
+                results.Add(new { id, result });
+            }
+            catch (ApiErrorException ex)
+            {
+                results.Add(new { id, error = ex.Message });
+            }
         }
         return Ok(ApiResponse<object>.Ok(results));
     }
@@ -132,12 +183,22 @@ public class ApprovalsController(
     public async Task<IActionResult> BulkReject([FromBody] BulkRejectRequest request, CancellationToken cancellationToken)
     {
         var userId = httpContext.GetUserIdAsync() ?? throw new UnauthorizedAccessException();
+        var errors = new List<object>();
         foreach (var id in request.RequestIds)
         {
-            await approvalService.RejectAsync(id, userId, request.Comment ?? "Bulk rejected");
-            await stageWisePaymentService.MarkRejectedWhenRequestRejectedAsync(id);
+            try
+            {
+                await approvalService.RejectAsync(id, userId, request.Comment ?? "Bulk rejected");
+                await stageWisePaymentService.MarkRejectedWhenRequestRejectedAsync(id);
+            }
+            catch (ApiErrorException ex)
+            {
+                errors.Add(new { id, error = ex.Message });
+            }
         }
-        return Ok(ApiResponse<object>.Ok(null, "Rejected"));
+        return errors.Count == 0
+            ? Ok(ApiResponse<object>.Ok(null, "Rejected"))
+            : Ok(ApiResponse<object>.Ok(errors, "Rejected with some errors"));
     }
 }
 

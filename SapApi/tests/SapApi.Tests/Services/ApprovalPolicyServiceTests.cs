@@ -150,4 +150,45 @@ public class ApprovalPolicyServiceTests
         (await _sut.GetByIdAsync(policyId)).Should().BeNull();
         (await _sut.GetAllAsync()).Should().BeEmpty();
     }
+
+    [Test]
+    public async Task SetActiveAsync_CanDeactivateAndReactivate_WithoutDeletingConfiguration()
+    {
+        var policyId = await _sut.CreatePolicyAsync(
+            ApprovalDocumentType.PurchaseOrder,
+            1,
+            [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+
+        await _sut.SetActiveAsync(policyId, false);
+        var deactivated = await _sut.GetByIdAsync(policyId);
+        deactivated!.IsActive.Should().BeFalse();
+        deactivated.Approvers.Should().HaveCount(1);
+
+        await _sut.SetActiveAsync(policyId, true);
+        var reactivated = await _sut.GetByIdAsync(policyId);
+        reactivated!.IsActive.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task SetActiveAsync_ReactivatingIntoDuplicate_Throws()
+    {
+        var approvers = new List<ApprovalPolicyApprover> { new() { ApproverUserId = 10, Priority = 1 } };
+        var firstPolicyId = await _sut.CreatePolicyAsync(ApprovalDocumentType.PurchaseOrder, 1, approvers);
+        await _sut.SetActiveAsync(firstPolicyId, false);
+
+        // A second active policy now exists for the same requester + document type.
+        await _sut.CreatePolicyAsync(ApprovalDocumentType.PurchaseOrder, 1, approvers);
+
+        var act = async () => await _sut.SetActiveAsync(firstPolicyId, true);
+
+        await act.Should().ThrowAsync<Exception>().WithMessage("*active approval policy already exists*");
+    }
+
+    [Test]
+    public async Task SetActiveAsync_UnknownPolicy_Throws()
+    {
+        var act = async () => await _sut.SetActiveAsync(999, true);
+
+        await act.Should().ThrowAsync<Exception>().WithMessage("*Policy not found*");
+    }
 }

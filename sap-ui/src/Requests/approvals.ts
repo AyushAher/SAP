@@ -84,10 +84,15 @@ export async function rejectRequest(id: number, comment?: string) {
   return apiPost(`/approvals/${id}/reject`, { action: 'Reject', comment })
 }
 
+export interface BulkActionResultItem {
+  id: number
+  error?: string
+}
+
 export async function bulkApprove(ids: number[]) {
-  return apiPost('/approvals/bulk-approve', ids)
+  return apiPost<BulkActionResultItem[]>('/approvals/bulk-approve', ids)
 }
 
 export async function bulkReject(ids: number[], comment?: string) {
-  return apiPost('/approvals/bulk-reject', { requestIds: ids, comment })
+  return apiPost<BulkActionResultItem[] | null>('/approvals/bulk-reject', { requestIds: ids, comment })
 }

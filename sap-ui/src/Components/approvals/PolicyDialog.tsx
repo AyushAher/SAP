@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { Info, Trash2 } from 'lucide-react'
 import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Button, Input, Modal, Select } from '@/Components/ui'
+import { formatDocumentType } from '@/helpers/approvalUtils'
 import {
   createApprovalPolicy,
   getApprovalPolicyMetadata,
@@ -86,7 +87,9 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
   const userOptions = users.map((u) => ({ value: String(u.id), label: userLabel(u) }))
   const fieldOptions = (fieldsByType[documentType] ?? []).map((f) => ({ value: f, label: f }))
   const operatorOptions = operators.map((o) => ({ value: o, label: o }))
-  const docTypeOptions = documentTypes.map((t) => ({ value: t, label: t.replace(/_/g, ' ') }))
+  const docTypeOptions = documentTypes.map((t) => ({ value: t, label: formatDocumentType(t) }))
+
+  const nextApproverPriority = () => approvers.length ? Math.max(...approvers.map((a) => a.priority)) + 1 : 1
 
   const handleSave = async () => {
     if (!requesterUserId || !documentType) {
@@ -151,14 +154,18 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
               />
             </div>
 
-            <div>
-              <div className="mb-2 flex items-center justify-between">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-1 flex items-center justify-between">
                 <h3 className="font-semibold text-slate-800">Approvers</h3>
-                <Button size="sm" variant="outline" onClick={() => setApprovers([...approvers, { approverUserId: 0, priority: 1 }])}>Add Approver</Button>
+                <Button size="sm" variant="outline" onClick={() => setApprovers([...approvers, { approverUserId: 0, priority: nextApproverPriority() }])}>Add Approver</Button>
               </div>
+              <p className="mb-3 flex items-start gap-1.5 text-xs text-slate-500">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Priority determines the approval order. Approvers sharing the same priority form a level where any one of them can approve to move to the next level.
+              </p>
               <div className="space-y-3">
                 {approvers.map((row, idx) => (
-                  <div key={idx} className="grid gap-3 rounded-lg border p-3 md:grid-cols-[2fr_1fr_auto]">
+                  <div key={idx} className="grid gap-3 rounded-lg border bg-white p-3 md:grid-cols-[2fr_1fr_auto]">
                     <Select
                       label="User"
                       value={String(row.approverUserId || '')}
@@ -193,8 +200,8 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
               </div>
             </div>
 
-            <div>
-              <div className="mb-2 flex items-center justify-between">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-1 flex items-center justify-between">
                 <h3 className="font-semibold text-slate-800">Approval Rules</h3>
                 <Button
                   size="sm"
@@ -205,10 +212,19 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
                   Add Rule
                 </Button>
               </div>
-              {!documentType && <p className="mb-2 text-sm text-slate-500">Select a document type to configure rules.</p>}
+              <p className="mb-3 text-xs text-slate-500">
+                {documentType
+                  ? 'Optional: only route requests through this policy when all rules match. Leave empty to apply the policy to every request from this requester.'
+                  : 'Select a document type to configure rules.'}
+              </p>
               <div className="space-y-3">
+                {rules.length === 0 && documentType && (
+                  <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-center text-sm text-slate-400">
+                    No rules — this policy applies to all requests from this requester.
+                  </p>
+                )}
                 {rules.map((row, idx) => (
-                  <div key={idx} className="grid gap-3 rounded-lg border p-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+                  <div key={idx} className="grid gap-3 rounded-lg border bg-white p-3 md:grid-cols-[1fr_1fr_1fr_auto]">
                     <Select
                       label="Field"
                       value={row.fieldName}

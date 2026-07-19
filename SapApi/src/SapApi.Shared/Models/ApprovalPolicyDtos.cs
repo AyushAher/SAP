@@ -34,6 +34,11 @@ public class UpsertApprovalPolicyRequest
     public List<ApprovalPolicyRuleDto>? Rules { get; set; }
 }
 
+public class SetPolicyActiveRequest
+{
+    public bool IsActive { get; set; }
+}
+
 public class UserRoleUpdateRequest
 {
     public List<string> Roles { get; set; } = [];

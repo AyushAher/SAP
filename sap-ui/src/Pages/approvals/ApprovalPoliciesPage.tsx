@@ -1,21 +1,67 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { PolicyDialog } from '@/Components/approvals/PolicyDialog'
 import { SapDataGrid } from '@/Components/shared/SapDataGrid'
 import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
-import { deleteApprovalPolicy, getApprovalPolicies, type ApprovalPolicy } from '@/Requests/approvalPolicies'
+import { Badge, Switch } from '@/Components/ui'
+import { formatDocumentType } from '@/helpers/approvalUtils'
+import {
+  deleteApprovalPolicy,
+  getApprovalPolicies,
+  setApprovalPolicyActive,
+  type ApprovalPolicy,
+} from '@/Requests/approvalPolicies'
+import { getUsersWithRoles, type UserWithRoles } from '@/Requests/userRoles'
+
+function groupApproversByLevel(approvers: ApprovalPolicy['approvers']) {
+  const byPriority = new Map<number, number[]>()
+  for (const a of approvers) {
+    const bucket = byPriority.get(a.priority) ?? []
+    bucket.push(a.approverUserId)
+    byPriority.set(a.priority, bucket)
+  }
+  return Array.from(byPriority.entries()).sort(([a], [b]) => a - b)
+}
 
 export function ApprovalPoliciesPage() {
   const [rows, setRows] = useState<ApprovalPolicy[]>([])
+  const [users, setUsers] = useState<UserWithRoles[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogPolicy, setDialogPolicy] = useState<ApprovalPolicy | null | undefined>(undefined)
+  const [togglingId, setTogglingId] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const reload = () => getApprovalPolicies().then(setRows)
 
   useEffect(() => {
-    reload().finally(() => setLoading(false))
+    Promise.all([reload(), getUsersWithRoles().then(setUsers)]).finally(() => setLoading(false))
   }, [])
+
+  const userLabel = useMemo(() => {
+    const map = new Map(users.map((u) => [u.id, u.fullName || u.userName || u.email || `User #${u.id}`]))
+    return (id: number) => map.get(id) ?? `User #${id}`
+  }, [users])
+
+  const handleToggleActive = async (policy: ApprovalPolicy) => {
+    setTogglingId(policy.id)
+    setError(null)
+    try {
+      await setApprovalPolicyActive(policy.id, !policy.isActive)
+      await reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update policy status')
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  const handleDelete = async (policy: ApprovalPolicy) => {
+    const label = `${formatDocumentType(policy.documentType)} policy for ${policy.requesterName ?? `user #${policy.requesterUserId}`}`
+    if (!window.confirm(`Delete the ${label}? This cannot be undone.`)) return
+    await deleteApprovalPolicy(policy.id)
+    await reload()
+  }
 
   return (
     <div className="space-y-6">
@@ -25,22 +71,49 @@ export function ApprovalPoliciesPage() {
         actionLabel="Add Policy"
         onAction={() => setDialogPolicy(null)}
       />
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+
       <SapDataGrid
         loading={loading}
         data={rows}
         getRowKey={(r) => r.id}
+        emptyMessage="No approval policies configured yet. Click “Add Policy” to define the first approval rule."
         columns={[
           { key: 'id', header: 'ID', accessor: (r) => r.id },
-          { key: 'documentType', header: 'Document Type', accessor: (r) => r.documentType },
-          { key: 'requester', header: 'Requester', accessor: (r) => r.requesterName },
-          { key: 'approvers', header: 'Approvers', accessor: (r) => r.approvers.length },
+          { key: 'documentType', header: 'Document Type', accessor: (r) => formatDocumentType(r.documentType) },
+          { key: 'requester', header: 'Requester', accessor: (r) => r.requesterName ?? `User #${r.requesterUserId}` },
           {
-            key: 'levels',
-            header: 'Levels',
-            accessor: (r) => new Set(r.approvers.map((a) => a.priority)).size,
+            key: 'approvers',
+            header: 'Approvers',
+            render: (r) => (
+              <div className="flex flex-wrap gap-1">
+                {groupApproversByLevel(r.approvers).map(([priority, userIds]) => (
+                  <span key={priority} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                    <strong>L{priority}</strong> {userIds.map((id) => userLabel(id)).join(' / ')}
+                  </span>
+                ))}
+              </div>
+            ),
           },
-          { key: 'rules', header: 'Rules', accessor: (r) => r.rules.length },
-          { key: 'active', header: 'Active', accessor: (r) => r.isActive ? 'Yes' : 'No' },
+          { key: 'rules', header: 'Rules', accessor: (r) => r.rules.length || '—' },
+          {
+            key: 'active',
+            header: 'Status',
+            render: (r) => (
+              <div className="flex items-center gap-2">
+                <Badge variant={r.isActive ? 'success' : 'default'}>{r.isActive ? 'Active' : 'Inactive'}</Badge>
+                <Switch
+                  checked={r.isActive}
+                  disabled={togglingId === r.id}
+                  onChange={() => void handleToggleActive(r)}
+                  aria-label={r.isActive ? 'Deactivate policy' : 'Activate policy'}
+                />
+              </div>
+            ),
+          },
         ]}
         actions={(row) => (
           <RowActions>
@@ -53,7 +126,7 @@ export function ApprovalPoliciesPage() {
               title="Delete policy"
               variant="danger"
               icon={<Trash2 className={rowActionIconClassName} />}
-              onClick={() => deleteApprovalPolicy(row.id).then(reload)}
+              onClick={() => void handleDelete(row)}
             />
           </RowActions>
         )}

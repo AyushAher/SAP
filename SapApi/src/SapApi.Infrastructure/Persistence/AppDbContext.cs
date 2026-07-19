@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ApprovalRequest> ApprovalRequests => Set<ApprovalRequest>();
     public DbSet<UserApproval> UserApprovals => Set<UserApproval>();
     public DbSet<ApprovalPolicyRule> ApprovalPolicyRules => Set<ApprovalPolicyRule>();
+    public DbSet<ApprovalLog> ApprovalLogs => Set<ApprovalLog>();
     public DbSet<IssueForProductionRequests> IssueForProductionRequests => Set<IssueForProductionRequests>();
     public DbSet<ReceiptFromProductionRequests> ReceiptFromProductionRequests => Set<ReceiptFromProductionRequests>();
     public DbSet<CacheEntry> CacheEntries => Set<CacheEntry>();
@@ -78,6 +79,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.RequestBody).HasConversion(EncryptedStringConverter.Instance);
             entity.Property(e => e.SupportingData).HasConversion(EncryptedStringConverter.Instance);
             entity.HasMany(r => r.UserApprovals).WithOne(u => u.ApprovalRequest).HasForeignKey(u => u.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ApprovalLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Action).HasMaxLength(64).IsRequired();
+            entity.HasIndex(e => new { e.CompanyDb, e.ApprovalRequestId });
+            entity.Property(e => e.OldValue).HasConversion(EncryptedStringConverter.Instance);
+            entity.Property(e => e.NewValue).HasConversion(EncryptedStringConverter.Instance);
+            entity.HasOne(e => e.ApprovalRequest).WithMany().HasForeignKey(e => e.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StageWisePayment>(entity =>

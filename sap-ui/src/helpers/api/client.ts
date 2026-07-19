@@ -75,6 +75,17 @@ export async function apiPut<T>(url: string, body?: unknown, params?: Record<str
   }
 }
 
+export async function apiPatch<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
+  try {
+    const { data } = await axiosInstance.patch<ApiResponse<T>>(url, body, { params })
+    if (!data.success) throw new Error(data.message ?? data.errorCode ?? 'Request failed')
+    invalidateCachedGets()
+    return data.data as T
+  } catch (error) {
+    throw new Error(getApiErrorMessage(error), { cause: error })
+  }
+}
+
 export async function apiDelete<T>(url: string): Promise<T> {
   try {
     const { data } = await axiosInstance.delete<ApiResponse<T>>(url)

@@ -69,8 +69,8 @@ public class ApprovalExecutionService(
                 if (body == null) return sapBaseResponse;
                 sapBaseResponse = request.Action switch
                 {
-                    ApprovalAction.Create => await sapPurchaseOrderService.CreatePurchaseOrder(body),
-                    ApprovalAction.Update => await sapPurchaseOrderService.UpdatePurchaseOrder(body),
+                    ApprovalAction.Create => await sapPurchaseOrderService.CreatePurchaseOrder(body, request.Id),
+                    ApprovalAction.Update => await sapPurchaseOrderService.UpdatePurchaseOrder(body, request.Id),
                     _ => sapBaseResponse
                 };
                 break;
@@ -90,14 +90,10 @@ public class ApprovalExecutionService(
 
                     if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value))
                     {
-                        var records = await context.StageWisePayments
-                            .Where(x => x.ApprovalRequestId != null && x.Status == StageWisePaymentStatus.PendingApproval
-                                && x.DocNumber != null && x.DocNumber.ToString() == request.SupportingData)
-                            .ToListAsync(cancellationToken);
+                        var records = await GetStageWisePaymentsLinkedToApprovalAsync(request.Id, request.CompanyDb, cancellationToken);
 
                         foreach (var item in records)
                         {
-                            if (!IsLinkedToApprovalRequest(item, request.Id.ToString())) continue;
                             if (string.IsNullOrEmpty(item.ApDownPaymentInvoiceEntryNumber))
                                 item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNum?.ToString();
                             else
@@ -183,15 +179,10 @@ public class ApprovalExecutionService(
 
                     if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value))
                     {
-                        var records = await context.StageWisePayments
-                            .Where(x => x.ApprovalRequestId != null && x.Status == StageWisePaymentStatus.PendingApproval)
-                            .ToListAsync(cancellationToken);
+                        var records = await GetStageWisePaymentsLinkedToApprovalAsync(request.Id, request.CompanyDb, cancellationToken);
 
                         foreach (var item in records)
                         {
-                            if (item.DocNumber?.ToString() != request.SupportingData) continue;
-                            if (!IsLinkedToApprovalRequest(item, request.Id.ToString())) continue;
-
                             if (string.IsNullOrEmpty(item.ApDownPaymentInvoiceEntryNumber))
                                 item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNumber?.ToString();
                             else
@@ -246,12 +237,32 @@ public class ApprovalExecutionService(
         }
     }
 
-    private async Task<StageWisePayment?> FindStageWisePaymentForApprovalAsync(ApprovalRequest request)
+    private Task<StageWisePayment?> FindStageWisePaymentForApprovalAsync(ApprovalRequest request) =>
+        GetStageWisePaymentLinkedToApprovalAsync(request.Id, request.CompanyDb, CancellationToken.None);
+
+    /// <summary>
+    /// Finds the (single) PendingApproval StageWisePayment row linked to a given approval request.
+    /// Matches strictly on the ApprovalRequestId link column (set at request creation time), not on
+    /// DocNumber/SupportingData — SupportingData is stored as the PO DocEntry while StageWisePayment.DocNumber
+    /// is the PO DocNum, so comparing the two would silently miss records whenever DocEntry != DocNum.
+    /// </summary>
+    private async Task<StageWisePayment?> GetStageWisePaymentLinkedToApprovalAsync(int approvalRequestId, string companyDb, CancellationToken cancellationToken)
     {
-        var records = await context.StageWisePayments
-            .Where(x => x.ApprovalRequestId != null && request.SupportingData == x.DocNumber.ToString())
-            .ToListAsync();
-        return records.FirstOrDefault(x => IsLinkedToApprovalRequest(x, request.Id.ToString()));
+        var records = await GetStageWisePaymentsLinkedToApprovalAsync(approvalRequestId, companyDb, cancellationToken);
+        return records.FirstOrDefault();
+    }
+
+    private async Task<List<StageWisePayment>> GetStageWisePaymentsLinkedToApprovalAsync(int approvalRequestId, string companyDb, CancellationToken cancellationToken)
+    {
+        var idText = approvalRequestId.ToString();
+        var candidates = await context.StageWisePayments
+            .Where(x => x.CompanyDb == companyDb
+                && x.Status == StageWisePaymentStatus.PendingApproval
+                && x.ApprovalRequestId != null
+                && x.ApprovalRequestId.Contains(idText))
+            .ToListAsync(cancellationToken);
+
+        return candidates.Where(x => IsLinkedToApprovalRequest(x, idText)).ToList();
     }
 
     private static bool IsLinkedToApprovalRequest(StageWisePayment record, string approvalRequestId) =>

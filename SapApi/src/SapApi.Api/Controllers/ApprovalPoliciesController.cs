@@ -56,6 +56,14 @@ public class ApprovalPoliciesController(ApprovalPolicyService policyService) : C
         return Ok(ApiResponse<object>.Ok(null, "Deleted"));
     }
 
+    [HttpPatch("{id:int}/active")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<IActionResult> SetActive(int id, [FromBody] SetPolicyActiveRequest request)
+    {
+        await policyService.SetActiveAsync(id, request.IsActive);
+        return Ok(ApiResponse<object>.Ok(null, request.IsActive ? "Activated" : "Deactivated"));
+    }
+
     [HttpGet("metadata")]
     [Authorize(Roles = "Admin,SuperAdmin")]
     public IActionResult GetMetadata() =>

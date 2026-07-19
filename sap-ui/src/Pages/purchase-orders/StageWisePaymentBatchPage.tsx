@@ -585,6 +585,10 @@ export function StageWisePaymentBatchPage() {
 
   const handleApprove = async () => {
     if (!approvalRequestId) return
+    if (needsUtr && (!utrNo.trim() || !utrDate)) {
+      setError('UTR number and UTR date are required to finalize this payment approval.')
+      return
+    }
     if (batch?.id && canEditAdditionalDetails) {
       const details = buildAdditionalDetailsPayload()
       if (!details) return

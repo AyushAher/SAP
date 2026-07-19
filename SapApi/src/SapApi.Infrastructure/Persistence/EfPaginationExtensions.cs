@@ -88,6 +88,9 @@ public static class EfPaginationExtensions
         if (underlying == typeof(string))
             return text;
 
+        if (underlying.IsEnum)
+            return Enum.TryParse(underlying, text, ignoreCase: true, out var enumValue) ? enumValue : null;
+
         if (underlying == typeof(int) && int.TryParse(text, out var intValue))
             return intValue;
 

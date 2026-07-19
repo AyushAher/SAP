@@ -136,6 +136,8 @@ public class ApprovalService
                 });
             }
 
+            await AddLogAsync(approvalRequest.Id, UserId, "Created", newValue: $"{docType}/{action}");
+
             await context.SaveChangesAsync();
 
             return approvalRequest.Id;
@@ -197,6 +199,38 @@ public class ApprovalService
 
         #endregion
 
+        #region PRE-APPROVAL VALIDATION
+
+        public Task<ApprovalRequest?> GetRequestForActionAsync(int requestId)
+        {
+            return context.ApprovalRequests
+                .Include(x => x.UserApprovals)
+                .FirstOrDefaultAsync(x => x.Id == requestId && x.CompanyDb == CompanyDb);
+        }
+
+        /// <summary>
+        /// Determines, without mutating state, whether the given user approving now would push the
+        /// request to OverallStatus.Approved (i.e. this is the final outstanding level). Used to enforce
+        /// pre-conditions (e.g. UTR details for payments) before ApproveAsync commits the approval, since
+        /// ApproveAsync cannot be safely retried once a user's approval has been recorded.
+        /// </summary>
+        public static bool WouldCompleteApproval(ApprovalRequest request, int userId)
+        {
+            UserApproval? currentApproval = request.UserApprovals.FirstOrDefault(x => x.UserId == userId);
+            if (currentApproval == null || currentApproval.ApprovalStatus != ApprovalStatus.Pending)
+                return false;
+
+            if (request.UserApprovals.Any(x => x.ApprovalStatus == ApprovalStatus.Rejected))
+                return false;
+
+            return request.UserApprovals
+                .Where(x => x.Priority != currentApproval.Priority)
+                .GroupBy(x => x.Priority)
+                .All(g => g.Any(x => x.ApprovalStatus == ApprovalStatus.Approved));
+        }
+
+        #endregion
+
         #region APPROVE
 
         public async Task<ApprovalRequest?> ApproveAsync(
@@ -206,12 +240,15 @@ public class ApprovalService
             string? body = null)
         {
             UserApproval userApproval = await context.UserApprovals
-                .FirstAsync(x =>
+                .FirstOrDefaultAsync(x =>
                     x.ApprovalRequestId == requestId &&
-                    x.UserId == userId);
+                    x.UserId == userId)
+                ?? throw new ApiErrorException(
+                    BaseErrorCodes.Forbidden,
+                    "You are not an approver for this request.");
 
             if (userApproval.ApprovalStatus != ApprovalStatus.Pending)
-                throw new Exception("Already processed.");
+                throw new ApiErrorException(BaseErrorCodes.Conflict, "This request has already been processed.");
 
             userApproval.ApprovalStatus = ApprovalStatus.Approved;
             userApproval.Comment = comment;
@@ -225,6 +262,7 @@ public class ApprovalService
                 request.RequestBody = body;
             }
 
+            await AddLogAsync(requestId, userId, "Approved", comment: comment);
             await context.SaveChangesAsync();
 
             return await EvaluateRequestStatus(requestId);
@@ -240,14 +278,21 @@ public class ApprovalService
             string comment)
         {
             UserApproval userApproval = await context.UserApprovals
-                .FirstAsync(x =>
+                .FirstOrDefaultAsync(x =>
                     x.ApprovalRequestId == requestId &&
-                    x.UserId == userId);
+                    x.UserId == userId)
+                ?? throw new ApiErrorException(
+                    BaseErrorCodes.Forbidden,
+                    "You are not an approver for this request.");
+
+            if (userApproval.ApprovalStatus != ApprovalStatus.Pending)
+                throw new ApiErrorException(BaseErrorCodes.Conflict, "This request has already been processed.");
 
             userApproval.ApprovalStatus = ApprovalStatus.Rejected;
             userApproval.Comment = comment;
             userApproval.ActionDate = DateTime.UtcNow;
 
+            await AddLogAsync(requestId, userId, "Rejected", comment: comment);
             await context.SaveChangesAsync();
 
             await EvaluateRequestStatus(requestId);
@@ -263,7 +308,27 @@ public class ApprovalService
             request.FailureReason = comment;
 
             context.ApprovalRequests.Entry(request).State = EntityState.Modified;
+            await AddLogAsync(requestId, UserId, "Failed", comment: comment);
             await context.SaveChangesAsync();
+        }
+
+        #endregion
+
+        #region AUDIT LOG
+
+        private async Task AddLogAsync(int approvalRequestId, int actionByUserId, string action, string? comment = null, string? oldValue = null, string? newValue = null)
+        {
+            await context.ApprovalLogs.AddAsync(new ApprovalLog
+            {
+                CompanyDb = CompanyDb,
+                ApprovalRequestId = approvalRequestId,
+                ActionByUserId = actionByUserId,
+                Action = action,
+                Comment = comment,
+                OldValue = oldValue,
+                NewValue = newValue,
+                CreatedAt = DateTime.UtcNow
+            });
         }
 
         #endregion
@@ -316,28 +381,22 @@ public class ApprovalService
 
         public async Task<List<ApprovalRequest>> GetPendingForUserAsync(int userId)
         {
+            // Filter at the database: only requests where this user currently has an outstanding
+            // approval, instead of loading every approval request for the company into memory.
             List<ApprovalRequest> requests = await context.ApprovalRequests
                 .Include(r => r.UserApprovals)
                 .Include(x => x.Policy)
                 .Include(x => x.RequesterUser)
-                .Where(r => r.CompanyDb == CompanyDb)
+                .Where(r => r.CompanyDb == CompanyDb
+                    && (r.OverallStatus == ApprovalStatus.Pending || r.OverallStatus == ApprovalStatus.Forwarded)
+                    && r.UserApprovals.Any(u => u.UserId == userId && u.ApprovalStatus == ApprovalStatus.Pending))
                 .ToListAsync();
 
             var visibleRequests = new List<ApprovalRequest>();
 
-            foreach (ApprovalRequest? request in requests)
+            foreach (ApprovalRequest request in requests)
             {
-                UserApproval? userApproval = request.UserApprovals
-                    .FirstOrDefault(x => x.UserId == userId);
-
-                if (userApproval == null)
-                    continue;
-
-                if (userApproval.ApprovalStatus != ApprovalStatus.Pending)
-                    continue;
-
-                if (request.OverallStatus is not ApprovalStatus.Pending and not ApprovalStatus.Forwarded)
-                    continue;
+                UserApproval userApproval = request.UserApprovals.First(x => x.UserId == userId);
 
                 var currentPriority = userApproval.Priority;
                 var maxPriority = request.UserApprovals.Max(x => x.Priority);

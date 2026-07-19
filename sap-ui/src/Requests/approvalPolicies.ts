@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete } from '@/helpers/api/client'
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from '@/helpers/api/client'
 
 export interface ApprovalPolicy {
   id: number
@@ -24,6 +24,10 @@ export async function updateApprovalPolicy(id: number, payload: Omit<ApprovalPol
 
 export async function deleteApprovalPolicy(id: number) {
   return apiDelete(`/approval-policies/${id}`)
+}
+
+export async function setApprovalPolicyActive(id: number, isActive: boolean) {
+  return apiPatch(`/approval-policies/${id}/active`, { isActive })
 }
 
 export interface ApprovalPolicyMetadata {
