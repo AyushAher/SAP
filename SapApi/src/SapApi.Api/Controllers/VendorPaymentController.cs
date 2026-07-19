@@ -26,4 +26,12 @@ public class VendorPaymentController(SapVendorPaymentService service) : Controll
     [HttpPost("{docEntry}/cancel")]
     public async Task<IActionResult> Cancel(string docEntry) =>
         Ok(ApiResponse<object>.Ok(await service.CancelVendorPayment(docEntry)));
+
+    /// <summary>
+    /// Read-only lookup by SAP DocEntry — used to reconcile local approval/payment records against
+    /// SAP's actual state (e.g. after a local persistence failure following a successful SAP post).
+    /// </summary>
+    [HttpGet("{docEntry}")]
+    public async Task<IActionResult> GetByDocEntry(string docEntry) =>
+        Ok(ApiResponse<object>.Ok(await service.GetVendorPayment(docEntry)));
 }
