@@ -5,8 +5,9 @@ using SapApi.Infrastructure.Identity;
 using SapApi.Shared;
 using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
+using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
-using System.Reflection;
+using System.Globalization;
 using System.Text.Json;
 
 namespace SapApi.Infrastructure.Services;
@@ -157,11 +158,7 @@ public class ApprovalService
 
             foreach (ApprovalPolicyRule rule in policy.Rules)
             {
-                PropertyInfo? property = type.GetProperty(rule.FieldName);
-                if (property == null)
-                    continue;
-
-                var value = property.GetValue(data);
+                var value = ResolveRuleFieldValue(policy.DocumentType, type, data, rule.FieldName);
                 if (value == null)
                     continue;
 
@@ -170,6 +167,32 @@ public class ApprovalService
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Resolves a rule's configured field name to a value on the request object being evaluated.
+        /// Mostly a direct reflection lookup, except for Payments/"DocTotal": SapVendorPaymentRequests
+        /// has no DocTotal property — only TransferSum (a string, the batch's own outgoing payment
+        /// total) — so the UI-facing "DocTotal" field for Payments policies is mapped onto TransferSum
+        /// here instead of silently no-op'ing via a missing PropertyInfo (which would leave amount-based
+        /// approval thresholds on Payments policies never actually enforced).
+        /// </summary>
+        private static object? ResolveRuleFieldValue<T>(ApprovalDocumentType docType, Type type, T data, string fieldName)
+        {
+            if (docType == ApprovalDocumentType.Payments
+                && fieldName == "DocTotal"
+                && data is SapVendorPaymentRequests paymentRequest)
+            {
+                return double.TryParse(
+                    paymentRequest.TransferSum,
+                    NumberStyles.Any,
+                    CultureInfo.InvariantCulture,
+                    out var transferSum)
+                    ? transferSum
+                    : null;
+            }
+
+            return type.GetProperty(fieldName)?.GetValue(data);
         }
 
         private bool EvaluateCondition(object actualValue,

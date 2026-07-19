@@ -29,6 +29,23 @@ interface RuleRow {
   value: string
 }
 
+// "DocTotal" means something different (and, for Payments, is resolved to a different underlying
+// field entirely) depending on document type — clarify in the rule builder so admins don't assume it
+// always means "the PO's total value".
+function fieldLabel(documentType: string, fieldName: string): string {
+  if (fieldName !== 'DocTotal') return fieldName
+  switch (documentType) {
+    case 'Payments':
+      return 'DocTotal (this payment\u2019s transfer amount)'
+    case 'StagewisePayments_DP':
+      return 'DocTotal (this down payment\u2019s amount)'
+    case 'PurchaseOrder':
+      return 'DocTotal (PO total value)'
+    default:
+      return fieldName
+  }
+}
+
 export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogProps) {
   const [users, setUsers] = useState<UserWithRoles[]>([])
   const [documentTypes, setDocumentTypes] = useState<string[]>([])
@@ -85,7 +102,7 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
   }
 
   const userOptions = users.map((u) => ({ value: String(u.id), label: userLabel(u) }))
-  const fieldOptions = (fieldsByType[documentType] ?? []).map((f) => ({ value: f, label: f }))
+  const fieldOptions = (fieldsByType[documentType] ?? []).map((f) => ({ value: f, label: fieldLabel(documentType, f) }))
   const operatorOptions = operators.map((o) => ({ value: o, label: o }))
   const docTypeOptions = documentTypes.map((t) => ({ value: t, label: formatDocumentType(t) }))
 

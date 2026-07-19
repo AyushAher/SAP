@@ -9,6 +9,7 @@ using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
+using SapApi.Shared.Requests;
 
 namespace SapApi.Tests.Services;
 
@@ -214,5 +215,51 @@ public class ApprovalServiceTests
         var act = async () => await _sut.ApproveAsync(requestId, SecondApproverId, "Approved");
 
         await act.Should().ThrowAsync<ApiErrorException>().WithMessage("*not an approver*");
+    }
+
+    /// <summary>
+    /// SapVendorPaymentRequests (the object actually evaluated for Payments) has no DocTotal property —
+    /// only TransferSum (a string, the batch's own outgoing payment total). A "DocTotal" rule on a
+    /// Payments policy must resolve against TransferSum instead of silently no-op'ing via a missing
+    /// PropertyInfo (which would make the threshold never actually gate anything).
+    /// </summary>
+    private async Task SeedPaymentsPolicyWithDocTotalRuleAsync(string @operator, string thresholdValue)
+    {
+        var policy = new ApprovalPolicy
+        {
+            CompanyDb = CompanyDb,
+            DocumentType = ApprovalDocumentType.Payments,
+            RequesterUserId = RequesterId,
+            IsActive = true,
+            Approvers = [new ApprovalPolicyApprover { ApproverUserId = ApproverId, Priority = 1 }],
+            Rules = [new ApprovalPolicyRule { FieldName = "DocTotal", Operator = @operator, Value = thresholdValue }],
+        };
+        _context.ApprovalPolicies.Add(policy);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    [Test]
+    public async Task CheckApprovalPolicy_PaymentsDocTotalRule_TransferSumAboveThreshold_RequiresApproval()
+    {
+        await SeedPaymentsPolicyWithDocTotalRuleAsync("GreaterThan", "100000");
+        var payment = new SapVendorPaymentRequests { CardCode = "V001", TransferSum = "150000.00" };
+
+        var result = await _sut.CheckApprovalPolicy<SapVendorPaymentRequests>(
+            null, payment, ApprovalDocumentType.Payments, ApprovalAction.Create);
+
+        result.PendingApproval.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task CheckApprovalPolicy_PaymentsDocTotalRule_TransferSumAtOrBelowThreshold_SkipsApproval()
+    {
+        await SeedPaymentsPolicyWithDocTotalRuleAsync("GreaterThan", "100000");
+        var payment = new SapVendorPaymentRequests { CardCode = "V001", TransferSum = "50000.00" };
+
+        var result = await _sut.CheckApprovalPolicy<SapVendorPaymentRequests>(
+            null, payment, ApprovalDocumentType.Payments, ApprovalAction.Create);
+
+        result.PendingApproval.Should().BeFalse();
     }
 }
