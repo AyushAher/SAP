@@ -3,7 +3,7 @@ import { DEFAULT_PAGE_SIZE } from '@/helpers/api/pagination'
 
 export function createMasterSearchRequest(
   search: string,
-  options?: { pageSize?: number; pageNumber?: number },
+  options?: { pageSize?: number; pageNumber?: number; fields?: string[] },
 ): PaginationRequest {
   const trimmed = search.trim()
   return {
@@ -13,5 +13,6 @@ export function createMasterSearchRequest(
       ? [{ field: '__search', operator: 'contains', value: trimmed }]
       : [],
     sorts: [],
+    fields: options?.fields,
   }
 }

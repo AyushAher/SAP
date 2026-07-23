@@ -33,8 +33,12 @@ public class ApprovalPoliciesController(ApprovalPolicyService policyService) : C
     public async Task<IActionResult> Create([FromBody] UpsertApprovalPolicyRequest request)
     {
         var id = await policyService.CreatePolicyAsync(
-            request.DocumentType, request.RequesterUserId,
-            MapApprovers(request.Approvers), MapRules(request.Rules));
+            request.DocumentType,
+            request.RequesterType,
+            request.RequesterUserId,
+            request.RequesterGroupId,
+            MapApprovers(request.Approvers),
+            MapRules(request.Rules));
         return Ok(ApiResponse<object>.Ok(new { id }));
     }
 
@@ -43,8 +47,13 @@ public class ApprovalPoliciesController(ApprovalPolicyService policyService) : C
     public async Task<IActionResult> Update(int id, [FromBody] UpsertApprovalPolicyRequest request)
     {
         await policyService.UpdatePolicyAsync(
-            id, request.DocumentType, request.RequesterUserId,
-            MapApprovers(request.Approvers), MapRules(request.Rules));
+            id,
+            request.DocumentType,
+            request.RequesterType,
+            request.RequesterUserId,
+            request.RequesterGroupId,
+            MapApprovers(request.Approvers),
+            MapRules(request.Rules));
         return Ok(ApiResponse<object>.Ok(null, "Updated"));
     }
 
@@ -82,8 +91,11 @@ public class ApprovalPoliciesController(ApprovalPolicyService policyService) : C
     {
         Id = p.Id,
         DocumentType = p.DocumentType,
+        RequesterType = p.RequesterType,
         RequesterUserId = p.RequesterUserId,
         RequesterName = p.RequesterUser?.FullName ?? p.RequesterUser?.UserName,
+        RequesterGroupId = p.RequesterGroupId,
+        RequesterGroupName = p.RequesterGroup?.Name,
         IsActive = p.IsActive,
         Approvers = p.Approvers.Select(a => new ApprovalPolicyApproverDto
         {

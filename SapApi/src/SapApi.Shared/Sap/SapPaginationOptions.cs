@@ -4,6 +4,12 @@ public class SapPaginationOptions
 {
     public string? BaseFilter { get; init; }
     public string? Select { get; init; }
+
+    /// <summary>
+    /// Fields that must always be present in the resolved $select, regardless of what the caller
+    /// requests (e.g. the record's code/key, since callers rely on it for identification/mapping).
+    /// </summary>
+    public IReadOnlyList<string> KeyFields { get; init; } = [];
     public Dictionary<string, string> FieldMap { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public string DefaultSortField { get; init; } = "DocEntry";
     public string DefaultSortDirection { get; init; } = "asc";

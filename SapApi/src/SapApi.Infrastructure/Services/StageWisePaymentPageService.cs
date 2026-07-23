@@ -198,7 +198,7 @@ public class StageWisePaymentPageService(
         string? cardCode,
         CancellationToken cancellationToken)
     {
-        var partner = await masterDataService.GetBusinessPartnerByCardCodeAsync(cardCode ?? string.Empty, cancellationToken);
+        var partner = await masterDataService.GetBusinessPartnerByCardCodeAsync(cardCode ?? string.Empty, cancellationToken: cancellationToken);
         var wtCodes = partner?.WithholdingTaxDataCollectionResponse?
             .Select(wt => wt.WtCode)
             .Where(code => !string.IsNullOrWhiteSpace(code))

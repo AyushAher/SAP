@@ -26,6 +26,12 @@ export interface PaginationRequest {
   pageNumber: number
   filters: Filter[]
   sorts: Sort[]
+  /**
+   * Optional subset of field names actually needed by the caller (e.g. `['ItemCode', 'ItemName']` for
+   * a dropdown that only displays a code + label). When omitted, the backend falls back to its default
+   * field set for that endpoint. Fields outside the endpoint's known set are ignored server-side.
+   */
+  fields?: string[]
 }
 
 export interface ApiResponse<T = unknown> {

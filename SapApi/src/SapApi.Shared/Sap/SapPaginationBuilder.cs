@@ -43,11 +43,44 @@ public static class SapPaginationBuilder
         {
             Filter = filterParts.Count > 0 ? string.Join(" and ", filterParts) : null,
             OrderBy = orderBy,
-            Select = options.Select,
+            Select = ResolveSelect(options.Select, options.KeyFields, request.Fields),
             Skip = skip.ToString(CultureInfo.InvariantCulture),
             Top = pageSize.ToString(CultureInfo.InvariantCulture),
             InlineCount = request.IncludeTotalCount,
         };
+    }
+
+    /// <summary>
+    /// Narrows a default $select field list down to only the fields a caller actually asked for
+    /// (plus any key fields, which are always kept). Requested fields that aren't part of
+    /// <paramref name="defaultSelect"/> are silently ignored — this is a safety property, not just a
+    /// convenience: it means a caller can never expand the field set beyond what the endpoint already
+    /// knows how to map, so there's no risk of exposing unintended SAP fields or injecting arbitrary
+    /// OData $select values. When <paramref name="requestedFields"/> is null/empty, the full default
+    /// select is returned unchanged (existing callers keep their current behavior).
+    /// </summary>
+    public static string? ResolveSelect(string? defaultSelect, IReadOnlyList<string> keyFields, IReadOnlyList<string>? requestedFields)
+    {
+        if (string.IsNullOrWhiteSpace(defaultSelect) || requestedFields is null || requestedFields.Count == 0)
+            return defaultSelect;
+
+        var allowedFields = defaultSelect.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var requestedSet = new HashSet<string>(requestedFields, StringComparer.OrdinalIgnoreCase);
+
+        var resolved = new List<string>();
+        foreach (var key in keyFields)
+        {
+            if (!resolved.Contains(key, StringComparer.OrdinalIgnoreCase))
+                resolved.Add(key);
+        }
+
+        foreach (var field in allowedFields)
+        {
+            if (requestedSet.Contains(field) && !resolved.Contains(field, StringComparer.OrdinalIgnoreCase))
+                resolved.Add(field);
+        }
+
+        return resolved.Count > 0 ? string.Join(",", resolved) : defaultSelect;
     }
 
     public static string EscapeODataString(string value) =>

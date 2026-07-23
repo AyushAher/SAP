@@ -5,7 +5,7 @@ import { Button, Input, SearchableSelect } from '@/Components/ui'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { calculateLineTotals } from '@/helpers/purchaseOrderForm'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
-import { searchItems, searchTaxCodes, searchWarehouses } from '@/Requests/masters'
+import { ITEM_DETAIL_FIELDS, searchItems, searchTaxCodes, searchWarehouses } from '@/Requests/masters'
 import type { SelectOption } from '@/types'
 import type { PurchaseOrderLineItem } from '@/types/purchaseOrder'
 
@@ -45,7 +45,7 @@ export function PurchaseOrderLinesEditor({
   const itemMap = useItemMasterMap(itemCodes)
 
   const searchItemOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchItems(search)
+    const response = await searchItems(search, 20, ITEM_DETAIL_FIELDS)
     return (response.data ?? []).map((item) => ({
       value: item.ItemCode ?? '',
       label: `${item.ItemCode ?? ''} - ${item.ItemName ?? ''}`.trim(),

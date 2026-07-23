@@ -64,7 +64,12 @@ public class ApprovalPolicyServiceTests
             new() { ApproverUserId = 20, Priority = 2 },
         };
 
-        var policyId = await _sut.CreatePolicyAsync(ApprovalDocumentType.PurchaseOrder, 5, approvers);
+        var policyId = await _sut.CreatePolicyAsync(
+            ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
+            5,
+            null,
+            approvers);
 
         policyId.Should().BeGreaterThan(0);
         var saved = await _sut.GetByIdAsync(policyId);
@@ -80,7 +85,9 @@ public class ApprovalPolicyServiceTests
     {
         var act = async () => await _sut.CreatePolicyAsync(
             ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
             1,
+            null,
             []);
 
         await act.Should().ThrowAsync<Exception>().WithMessage("*At least one approver required*");
@@ -97,7 +104,9 @@ public class ApprovalPolicyServiceTests
 
         var act = async () => await _sut.CreatePolicyAsync(
             ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
             1,
+            null,
             approvers);
 
         await act.Should().ThrowAsync<Exception>().WithMessage("*Duplicate approvers*");
@@ -113,7 +122,9 @@ public class ApprovalPolicyServiceTests
 
         var act = async () => await _sut.CreatePolicyAsync(
             ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
             1,
+            null,
             approvers);
 
         await act.Should().ThrowAsync<Exception>().WithMessage("*Priority 1 approver required*");
@@ -124,7 +135,9 @@ public class ApprovalPolicyServiceTests
     {
         var policyId = await _sut.CreatePolicyAsync(
             ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
             1,
+            null,
             [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
         // Each call below simulates its own HTTP request against a fresh pooled DbContext, so clear
         // the shared test context between them rather than letting Add()'d entities stay tracked.
@@ -136,7 +149,13 @@ public class ApprovalPolicyServiceTests
             new() { ApproverUserId = 40, Priority = 2 },
         };
 
-        await _sut.UpdatePolicyAsync(policyId, ApprovalDocumentType.Payments, 2, updatedApprovers);
+        await _sut.UpdatePolicyAsync(
+            policyId,
+            ApprovalDocumentType.Payments,
+            ApprovalRequesterType.User,
+            2,
+            null,
+            updatedApprovers);
 
         var saved = await _sut.GetByIdAsync(policyId);
         saved!.DocumentType.Should().Be(ApprovalDocumentType.Payments);
@@ -149,7 +168,9 @@ public class ApprovalPolicyServiceTests
     {
         var policyId = await _sut.CreatePolicyAsync(
             ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
             1,
+            null,
             [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
         _context.ChangeTracker.Clear();
 
@@ -164,7 +185,9 @@ public class ApprovalPolicyServiceTests
     {
         var policyId = await _sut.CreatePolicyAsync(
             ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
             1,
+            null,
             [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
         _context.ChangeTracker.Clear();
 
@@ -183,7 +206,11 @@ public class ApprovalPolicyServiceTests
     public async Task SetActiveAsync_ReactivatingIntoDuplicate_Throws()
     {
         var firstPolicyId = await _sut.CreatePolicyAsync(
-            ApprovalDocumentType.PurchaseOrder, 1, [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+            ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
+            1,
+            null,
+            [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
         _context.ChangeTracker.Clear();
         await _sut.SetActiveAsync(firstPolicyId, false);
         _context.ChangeTracker.Clear();
@@ -192,12 +219,43 @@ public class ApprovalPolicyServiceTests
         // approver instance — CreatePolicyAsync's Add() would otherwise try to re-insert the same
         // already-keyed ApprovalPolicyApprover object from the first policy above.
         await _sut.CreatePolicyAsync(
-            ApprovalDocumentType.PurchaseOrder, 1, [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+            ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.User,
+            1,
+            null,
+            [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
         _context.ChangeTracker.Clear();
 
         var act = async () => await _sut.SetActiveAsync(firstPolicyId, true);
 
         await act.Should().ThrowAsync<Exception>().WithMessage("*active approval policy already exists*");
+    }
+
+    [Test]
+    public async Task CreatePolicyAsync_GroupRequester_PersistsGroupPolicy()
+    {
+        _context.UserGroups.Add(new UserGroup
+        {
+            Id = 100,
+            CompanyDb = SapCompanyDatabase.PBBPL_UAT.ToString(),
+            Name = "Finance",
+            IsActive = true,
+            Members = [new UserGroupMember { UserId = 5 }],
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var policyId = await _sut.CreatePolicyAsync(
+            ApprovalDocumentType.PurchaseOrder,
+            ApprovalRequesterType.Group,
+            null,
+            100,
+            [new ApprovalPolicyApprover { ApproverUserId = 10, Priority = 1 }]);
+
+        var saved = await _sut.GetByIdAsync(policyId);
+        saved!.RequesterType.Should().Be(ApprovalRequesterType.Group);
+        saved.RequesterGroupId.Should().Be(100);
+        saved.RequesterUserId.Should().BeNull();
     }
 
     [Test]

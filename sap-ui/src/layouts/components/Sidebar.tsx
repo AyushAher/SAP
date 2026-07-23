@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Shield,
   Users,
+  UsersRound,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -34,6 +35,7 @@ const navItems = [
 
 const adminItems = [
   { to: ROUTES.APPROVAL_POLICIES, label: 'Approval Policies', icon: Shield },
+  { to: ROUTES.USER_GROUPS, label: 'User Groups', icon: UsersRound },
   { to: ROUTES.USER_ROLES, label: 'User Role Management', icon: Users },
 ]
 

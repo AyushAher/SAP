@@ -83,32 +83,45 @@ function normalizeLookupResult(raw: Record<string, unknown>): MasterLookupResult
   }
 }
 
-async function searchMaster<T>(url: string, search: string, pageSize = 20) {
-  return apiListPost<T>(url, createMasterSearchRequest(search, { pageSize }))
+async function searchMaster<T>(url: string, search: string, pageSize = 20, fields?: string[]) {
+  return apiListPost<T>(url, createMasterSearchRequest(search, { pageSize, fields }))
 }
 
-export function searchItems(search: string, pageSize = 20) {
-  return searchMaster<MasterItem>('/masters/items/list', search, pageSize)
+/** Fields needed just to render a code+name dropdown option for an item. */
+export const ITEM_DROPDOWN_FIELDS = ['ItemCode', 'ItemName']
+/**
+ * Fields needed by line editors that also resolve UOM for the selected item. Note: `InventoryWeight`
+ * is intentionally not part of the items *list* endpoint's field set (see `SapPaginationProfiles.Items`)
+ * — it's only available via the by-code lookup (`lookupItem`), so it's omitted here.
+ */
+export const ITEM_DETAIL_FIELDS = ['ItemCode', 'ItemName', 'InventoryUOM']
+export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'City']
+export const TAX_CODE_DROPDOWN_FIELDS = ['Code', 'Name', 'Rate']
+export const PROJECT_DROPDOWN_FIELDS = ['Code', 'Name']
+export const BUSINESS_PARTNER_DROPDOWN_FIELDS = ['CardCode', 'CardName']
+
+export function searchItems(search: string, pageSize = 20, fields: string[] = ITEM_DROPDOWN_FIELDS) {
+  return searchMaster<MasterItem>('/masters/items/list', search, pageSize, fields)
 }
 
-export function searchWarehouses(search: string, pageSize = 20) {
-  return searchMaster<MasterWarehouse>('/masters/warehouses/list', search, pageSize)
+export function searchWarehouses(search: string, pageSize = 20, fields: string[] = WAREHOUSE_DROPDOWN_FIELDS) {
+  return searchMaster<MasterWarehouse>('/masters/warehouses/list', search, pageSize, fields)
 }
 
-export function searchTaxCodes(search: string, pageSize = 20) {
-  return searchMaster<MasterTaxCode>('/masters/tax-codes/list', search, pageSize)
+export function searchTaxCodes(search: string, pageSize = 20, fields: string[] = TAX_CODE_DROPDOWN_FIELDS) {
+  return searchMaster<MasterTaxCode>('/masters/tax-codes/list', search, pageSize, fields)
 }
 
-export function searchProjects(search: string, pageSize = 20) {
-  return searchMaster<MasterProject>('/masters/projects/list', search, pageSize)
+export function searchProjects(search: string, pageSize = 20, fields: string[] = PROJECT_DROPDOWN_FIELDS) {
+  return searchMaster<MasterProject>('/masters/projects/list', search, pageSize, fields)
 }
 
-export function searchVendors(search: string, pageSize = 20) {
-  return searchMaster<MasterBusinessPartner>('/business-partner/list', search, pageSize)
+export function searchVendors(search: string, pageSize = 20, fields: string[] = BUSINESS_PARTNER_DROPDOWN_FIELDS) {
+  return searchMaster<MasterBusinessPartner>('/business-partner/list', search, pageSize, fields)
 }
 
-export function searchCustomers(search: string, pageSize = 20) {
-  return searchMaster<MasterBusinessPartner>('/business-partner/customers/list', search, pageSize)
+export function searchCustomers(search: string, pageSize = 20, fields: string[] = BUSINESS_PARTNER_DROPDOWN_FIELDS) {
+  return searchMaster<MasterBusinessPartner>('/business-partner/customers/list', search, pageSize, fields)
 }
 
 export function listSalesOrders(search: string, customerId?: string, pageSize = 20) {

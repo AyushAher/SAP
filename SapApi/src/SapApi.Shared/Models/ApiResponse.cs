@@ -22,6 +22,14 @@ public class PaginationRequest
     public List<FilterModel> Filters { get; set; } = [];
     public List<SortModel> Sorts { get; set; } = [];
 
+    /// <summary>
+    /// Optional subset of field names the caller actually needs. When supplied, only fields that are
+    /// both requested and part of the endpoint's known/allowed field set are pulled from SAP (plus any
+    /// key fields, which are always included). When omitted, the endpoint's default field set is used
+    /// unchanged, so existing callers are unaffected.
+    /// </summary>
+    public List<string>? Fields { get; set; }
+
     public static PaginationRequest Normalize(PaginationRequest? request)
     {
         request ??= new PaginationRequest();

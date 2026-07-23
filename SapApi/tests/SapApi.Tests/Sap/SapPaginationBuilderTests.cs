@@ -69,4 +69,64 @@ public class SapPaginationBuilderTests
         var total = SapPaginationBuilder.ResolveTotalCount(response, new List<string> { "a" }, new PaginationRequest { PageNumber = 1, PageSize = 10 });
         total.Should().Be(42);
     }
+
+    [Test]
+    public void ResolveSelect_NoFieldsRequested_ReturnsDefaultSelectUnchanged()
+    {
+        var select = SapPaginationBuilder.ResolveSelect("ItemCode,ItemName,InventoryUOM", ["ItemCode"], null);
+        select.Should().Be("ItemCode,ItemName,InventoryUOM");
+    }
+
+    [Test]
+    public void ResolveSelect_RequestedSubset_NarrowsToRequestedFieldsPlusKeyFields()
+    {
+        var select = SapPaginationBuilder.ResolveSelect("ItemCode,ItemName,InventoryUOM", ["ItemCode"], ["ItemName"]);
+        select.Should().Be("ItemCode,ItemName");
+    }
+
+    [Test]
+    public void ResolveSelect_KeyFieldAlwaysIncludedEvenIfNotRequested()
+    {
+        var select = SapPaginationBuilder.ResolveSelect("CardCode,CardName,CardType", ["CardCode"], ["CardType"]);
+        select.Should().Be("CardCode,CardType");
+    }
+
+    [Test]
+    public void ResolveSelect_UnknownRequestedFieldsAreIgnored_CannotExpandBeyondDefaultSelect()
+    {
+        // "SecretField" isn't part of the default select, so it must never leak into the resolved
+        // $select — a caller can only narrow the field set, never widen it.
+        var select = SapPaginationBuilder.ResolveSelect("ItemCode,ItemName", ["ItemCode"], ["ItemName", "SecretField"]);
+        select.Should().Be("ItemCode,ItemName");
+        select.Should().NotContain("SecretField");
+    }
+
+    [Test]
+    public void ResolveSelect_EmptyRequestedFieldsList_ReturnsDefaultSelectUnchanged()
+    {
+        var select = SapPaginationBuilder.ResolveSelect("ItemCode,ItemName", ["ItemCode"], []);
+        select.Should().Be("ItemCode,ItemName");
+    }
+
+    [Test]
+    public void ResolveSelect_RequestedFieldsMatchNothingInDefault_FallsBackToDefaultSelect()
+    {
+        var select = SapPaginationBuilder.ResolveSelect("Code,Name", [], ["DoesNotExist"]);
+        select.Should().Be("Code,Name");
+    }
+
+    [Test]
+    public void ToSapQueries_WithRequestedFields_NarrowsSelectInBuiltQuery()
+    {
+        var request = new PaginationRequest
+        {
+            PageNumber = 1,
+            PageSize = 10,
+            Fields = ["ItemName"],
+        };
+
+        var query = SapPaginationBuilder.ToSapQueries(request, SapPaginationProfiles.Items);
+
+        query.Select.Should().Be("ItemCode,ItemName");
+    }
 }

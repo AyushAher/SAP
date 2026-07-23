@@ -36,6 +36,7 @@ export const ROUTES = {
   APPROVALS: '/approvals',
   MY_APPROVAL_REQUESTS: '/my-approval-requests',
   APPROVAL_POLICIES: '/approval-policies',
+  USER_GROUPS: '/user-groups',
   USER_ROLES: '/user-roles',
   BUSINESS_PARTNER: '/business-partner',
   GRPO: '/grpo',

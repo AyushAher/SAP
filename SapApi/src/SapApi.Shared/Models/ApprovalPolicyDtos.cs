@@ -6,8 +6,11 @@ public class ApprovalPolicyDto
 {
     public int Id { get; set; }
     public ApprovalDocumentType DocumentType { get; set; }
-    public int RequesterUserId { get; set; }
+    public ApprovalRequesterType RequesterType { get; set; }
+    public int? RequesterUserId { get; set; }
     public string? RequesterName { get; set; }
+    public int? RequesterGroupId { get; set; }
+    public string? RequesterGroupName { get; set; }
     public bool IsActive { get; set; }
     public List<ApprovalPolicyApproverDto> Approvers { get; set; } = [];
     public List<ApprovalPolicyRuleDto> Rules { get; set; } = [];
@@ -29,7 +32,9 @@ public class ApprovalPolicyRuleDto
 public class UpsertApprovalPolicyRequest
 {
     public ApprovalDocumentType DocumentType { get; set; }
-    public int RequesterUserId { get; set; }
+    public ApprovalRequesterType RequesterType { get; set; } = ApprovalRequesterType.User;
+    public int? RequesterUserId { get; set; }
+    public int? RequesterGroupId { get; set; }
     public List<ApprovalPolicyApproverDto> Approvers { get; set; } = [];
     public List<ApprovalPolicyRuleDto>? Rules { get; set; }
 }

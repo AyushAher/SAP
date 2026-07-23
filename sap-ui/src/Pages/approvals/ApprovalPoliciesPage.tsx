@@ -24,6 +24,11 @@ function groupApproversByLevel(approvers: ApprovalPolicy['approvers']) {
   return Array.from(byPriority.entries()).sort(([a], [b]) => a - b)
 }
 
+function normalizeRequesterType(value: unknown): 'User' | 'Group' {
+  if (value === 1 || value === 'Group' || value === 'group') return 'Group'
+  return 'User'
+}
+
 export function ApprovalPoliciesPage() {
   const [rows, setRows] = useState<ApprovalPolicy[]>([])
   const [users, setUsers] = useState<UserWithRoles[]>([])
@@ -57,10 +62,31 @@ export function ApprovalPoliciesPage() {
   }
 
   const handleDelete = async (policy: ApprovalPolicy) => {
-    const label = `${formatDocumentType(policy.documentType)} policy for ${policy.requesterName ?? `user #${policy.requesterUserId}`}`
+    const requesterLabel =
+      normalizeRequesterType(policy.requesterType) === 'Group'
+        ? (policy.requesterGroupName ?? `Group #${policy.requesterGroupId}`)
+        : (policy.requesterName ?? `user #${policy.requesterUserId}`)
+    const label = `${formatDocumentType(policy.documentType)} policy for ${requesterLabel}`
     if (!window.confirm(`Delete the ${label}? This cannot be undone.`)) return
     await deleteApprovalPolicy(policy.id)
     await reload()
+  }
+
+  const requesterDisplay = (policy: ApprovalPolicy) => {
+    if (normalizeRequesterType(policy.requesterType) === 'Group') {
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <Badge variant="default">Group</Badge>
+          {policy.requesterGroupName ?? `Group #${policy.requesterGroupId}`}
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Badge variant="default">User</Badge>
+        {policy.requesterName ?? `User #${policy.requesterUserId}`}
+      </span>
+    )
   }
 
   return (
@@ -84,7 +110,7 @@ export function ApprovalPoliciesPage() {
         columns={[
           { key: 'id', header: 'ID', accessor: (r) => r.id },
           { key: 'documentType', header: 'Document Type', accessor: (r) => formatDocumentType(r.documentType) },
-          { key: 'requester', header: 'Requester', accessor: (r) => r.requesterName ?? `User #${r.requesterUserId}` },
+          { key: 'requester', header: 'Requester', render: (r) => requesterDisplay(r) },
           {
             key: 'approvers',
             header: 'Approvers',

@@ -76,6 +76,7 @@ public static class SapPaginationProfiles
     public static SapPaginationOptions Items => new()
     {
         Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM",
+        KeyFields = ["ItemCode"],
         DefaultSortField = "ItemCode",
         DefaultSortDirection = "asc",
         SearchOrFields = ["ItemCode", "ItemName"],
@@ -91,6 +92,7 @@ public static class SapPaginationProfiles
     public static SapPaginationOptions Warehouses => new()
     {
         Select = "WarehouseCode,State,City,Location",
+        KeyFields = ["WarehouseCode"],
         DefaultSortField = "WarehouseCode",
         DefaultSortDirection = "asc",
         SearchOrFields = ["WarehouseCode", "City"],
@@ -106,6 +108,7 @@ public static class SapPaginationProfiles
     public static SapPaginationOptions TaxCodes => new()
     {
         Select = "Code,Name,Rate",
+        KeyFields = ["Code"],
         DefaultSortField = "Code",
         DefaultSortDirection = "asc",
         SearchOrFields = ["Code", "Name"],
@@ -121,6 +124,7 @@ public static class SapPaginationProfiles
     public static SapPaginationOptions Projects => new()
     {
         Select = "Code,Name",
+        KeyFields = ["Code"],
         DefaultSortField = "Code",
         DefaultSortDirection = "asc",
         SearchOrFields = ["Code", "Name"],
@@ -136,6 +140,7 @@ public static class SapPaginationProfiles
     public static SapPaginationOptions BusinessPlaces => new()
     {
         Select = "BPLID,BPLName,Address",
+        KeyFields = ["BPLID"],
         DefaultSortField = "BPLID",
         DefaultSortDirection = "asc",
         SearchOrFields = ["BPLName"],
@@ -151,6 +156,7 @@ public static class SapPaginationProfiles
     {
         BaseFilter = "CardType eq 'cSupplier'",
         Select = "CardCode,CardName,CardType",
+        KeyFields = ["CardCode"],
         DefaultSortField = "CardCode",
         DefaultSortDirection = "asc",
         SearchOrFields = ["CardCode", "CardName"],
@@ -167,6 +173,7 @@ public static class SapPaginationProfiles
     {
         BaseFilter = "CardType eq 'cCustomer'",
         Select = "CardCode,CardName,CardType",
+        KeyFields = ["CardCode"],
         DefaultSortField = "CardCode",
         DefaultSortDirection = "asc",
         SearchOrFields = ["CardCode", "CardName"],

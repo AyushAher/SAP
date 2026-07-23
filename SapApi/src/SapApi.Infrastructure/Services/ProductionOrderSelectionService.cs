@@ -55,10 +55,10 @@ public class ProductionOrderSelectionService(
             ? line.PlannedQuantity / order.PlannedQuantity
             : 0;
 
-        var item = await masterDataService.GetItemByCodeAsync(line.ItemNo ?? string.Empty, cancellationToken);
+        var item = await masterDataService.GetItemByCodeAsync(line.ItemNo ?? string.Empty, cancellationToken: cancellationToken);
         line.ItemName = item?.ItemName;
 
-        var warehouse = await masterDataService.GetWarehouseByCodeAsync(line.Warehouse, cancellationToken);
+        var warehouse = await masterDataService.GetWarehouseByCodeAsync(line.Warehouse, cancellationToken: cancellationToken);
         line.LocationCode = warehouse?.Location ?? 0;
 
         order.ProductionOrderLines.Add(line);

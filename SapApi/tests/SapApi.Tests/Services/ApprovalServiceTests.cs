@@ -262,4 +262,87 @@ public class ApprovalServiceTests
 
         result.PendingApproval.Should().BeFalse();
     }
+
+    [Test]
+    public async Task CheckApprovalPolicy_GroupPolicy_MatchesMemberAndRequiresApproval()
+    {
+        _context.UserGroups.Add(new UserGroup
+        {
+            CompanyDb = CompanyDb,
+            Name = "Buyers",
+            IsActive = true,
+            Members = [new UserGroupMember { UserId = RequesterId }],
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var group = await _context.UserGroups.FirstAsync();
+        _context.ApprovalPolicies.Add(new ApprovalPolicy
+        {
+            CompanyDb = CompanyDb,
+            DocumentType = ApprovalDocumentType.Payments,
+            RequesterType = ApprovalRequesterType.Group,
+            RequesterGroupId = group.Id,
+            IsActive = true,
+            Approvers = [new ApprovalPolicyApprover { ApproverUserId = ApproverId, Priority = 1 }],
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var result = await _sut.CheckApprovalPolicy(
+            null,
+            new SapVendorPaymentRequests { CardCode = "V001", TransferSum = "1" },
+            ApprovalDocumentType.Payments,
+            ApprovalAction.Create);
+
+        result.PendingApproval.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task CheckApprovalPolicy_UserPolicyTakesPriorityOverGroupPolicy()
+    {
+        _context.UserGroups.Add(new UserGroup
+        {
+            CompanyDb = CompanyDb,
+            Name = "Buyers",
+            IsActive = true,
+            Members = [new UserGroupMember { UserId = RequesterId }],
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var group = await _context.UserGroups.FirstAsync();
+        _context.ApprovalPolicies.Add(new ApprovalPolicy
+        {
+            CompanyDb = CompanyDb,
+            DocumentType = ApprovalDocumentType.Payments,
+            RequesterType = ApprovalRequesterType.Group,
+            RequesterGroupId = group.Id,
+            IsActive = true,
+            Approvers = [new ApprovalPolicyApprover { ApproverUserId = ApproverId, Priority = 1 }],
+            Rules = [new ApprovalPolicyRule { FieldName = "DocTotal", Operator = "GreaterThan", Value = "1" }],
+        });
+        // User-specific policy with a rule that will NOT match — proves user policy wins over group.
+        _context.ApprovalPolicies.Add(new ApprovalPolicy
+        {
+            CompanyDb = CompanyDb,
+            DocumentType = ApprovalDocumentType.Payments,
+            RequesterType = ApprovalRequesterType.User,
+            RequesterUserId = RequesterId,
+            IsActive = true,
+            Approvers = [new ApprovalPolicyApprover { ApproverUserId = ApproverId, Priority = 1 }],
+            Rules = [new ApprovalPolicyRule { FieldName = "DocTotal", Operator = "GreaterThan", Value = "999999" }],
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var result = await _sut.CheckApprovalPolicy(
+            null,
+            new SapVendorPaymentRequests { CardCode = "V001", TransferSum = "100" },
+            ApprovalDocumentType.Payments,
+            ApprovalAction.Create);
+
+        // Group would have matched (100 > 1), but user policy is preferred and its rule fails (100 !> 999999).
+        result.PendingApproval.Should().BeFalse();
+    }
 }

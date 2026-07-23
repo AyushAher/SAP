@@ -22,6 +22,7 @@ import { ReceiptFromProductionFormPage } from '@/Pages/production/ReceiptFromPro
 import { ApprovalsPage } from '@/Pages/approvals/ApprovalsPage'
 import { MyApprovalRequestsPage } from '@/Pages/approvals/MyApprovalRequestsPage'
 import { ApprovalPoliciesPage } from '@/Pages/approvals/ApprovalPoliciesPage'
+import { UserGroupsPage } from '@/Pages/users/UserGroupsPage'
 import { UserRoleManagementPage } from '@/Pages/users/UserRoleManagementPage'
 import { BusinessPartnerPage } from '@/Pages/business-partner/BusinessPartnerPage'
 import { GrpoPage } from '@/Pages/grpo/GrpoPage'
@@ -55,6 +56,7 @@ export const router = createBrowserRouter([
       { path: ROUTES.APPROVALS.slice(1), element: <ApprovalsPage /> },
       { path: ROUTES.MY_APPROVAL_REQUESTS.slice(1), element: <MyApprovalRequestsPage /> },
       { path: ROUTES.APPROVAL_POLICIES.slice(1), element: <ApprovalPoliciesPage /> },
+      { path: ROUTES.USER_GROUPS.slice(1), element: <UserGroupsPage /> },
       { path: ROUTES.USER_ROLES.slice(1), element: <UserRoleManagementPage /> },
       { path: ROUTES.BUSINESS_PARTNER.slice(1), element: <BusinessPartnerPage /> },
       { path: ROUTES.GRPO.slice(1), element: <GrpoPage /> },

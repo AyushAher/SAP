@@ -37,9 +37,16 @@ public static class CancelStageWisePaymentsCommand
         }
 
         var sapCredentials = configuration.GetSection(SapCredentials.Label).Get<SapCredentials>() ?? new SapCredentials();
-        var companyDb = Enum.TryParse<SapCompanyDatabase>(sapCredentials.CompanyDb ?? "PBBPL_UAT", out var parsedCompanyDb)
+        var companyDbName = Environment.GetEnvironmentVariable("SAP_COMPANY_DB")
+            ?? sapCredentials.Accounts.FirstOrDefault()?.CompanyDb
+            ?? "PBBPL_UAT";
+        var companyDb = Enum.TryParse<SapCompanyDatabase>(companyDbName, out var parsedCompanyDb)
             ? parsedCompanyDb
             : SapCompanyDatabase.PBBPL_UAT;
+        var account = sapCredentials.Accounts.FirstOrDefault(a =>
+                          string.Equals(a.CompanyDb, companyDb.ToString(), StringComparison.OrdinalIgnoreCase))
+                      ?? sapCredentials.Accounts.FirstOrDefault()
+                      ?? new SapCompanyCredential();
 
         var httpContextAccessor = new DevHttpContextAccessor();
         httpContextAccessor.HttpContext = CreateHttpContext(4, companyDb);
@@ -70,11 +77,13 @@ public static class CancelStageWisePaymentsCommand
         }
         catch (ApiErrorException)
         {
-            var sapUser = Environment.GetEnvironmentVariable("SAP_DEV_USERNAME") ?? sapCredentials.Username ?? "manager";
-            var sapPassword = Environment.GetEnvironmentVariable("SAP_DEV_PASSWORD") ?? sapCredentials.Password;
+            var sapUser = Environment.GetEnvironmentVariable("SAP_DEV_USERNAME") ?? account.Username ?? "manager";
+            var sapPassword = Environment.GetEnvironmentVariable("SAP_DEV_PASSWORD")
+                ?? account.Password
+                ?? Environment.GetEnvironmentVariable("SAP_PASSWORD");
             if (string.IsNullOrWhiteSpace(sapPassword))
             {
-                Console.Error.WriteLine("No active SAP session found. Log in to the app or set SAP_DEV_PASSWORD.");
+                Console.Error.WriteLine("No active SAP session found. Log in to the app or set SAP_DEV_PASSWORD / SapCredentials Accounts password.");
                 return 1;
             }
 

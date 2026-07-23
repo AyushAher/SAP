@@ -8,7 +8,9 @@ import {
   getApprovalPolicyMetadata,
   updateApprovalPolicy,
   type ApprovalPolicy,
+  type ApprovalRequesterType,
 } from '@/Requests/approvalPolicies'
+import { getUserGroups, type UserGroup } from '@/Requests/userGroups'
 import { getUsersWithRoles, type UserWithRoles } from '@/Requests/userRoles'
 
 interface PolicyDialogProps {
@@ -46,13 +48,21 @@ function fieldLabel(documentType: string, fieldName: string): string {
   }
 }
 
+function normalizeRequesterType(value: unknown): ApprovalRequesterType {
+  if (value === 1 || value === 'Group' || value === 'group') return 'Group'
+  return 'User'
+}
+
 export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogProps) {
   const [users, setUsers] = useState<UserWithRoles[]>([])
+  const [groups, setGroups] = useState<UserGroup[]>([])
   const [documentTypes, setDocumentTypes] = useState<string[]>([])
   const [fieldsByType, setFieldsByType] = useState<Record<string, string[]>>({})
   const [operators, setOperators] = useState<string[]>([])
   const [documentType, setDocumentType] = useState('')
+  const [requesterType, setRequesterType] = useState<ApprovalRequesterType>('User')
   const [requesterUserId, setRequesterUserId] = useState('')
+  const [requesterGroupId, setRequesterGroupId] = useState('')
   const [approvers, setApprovers] = useState<ApproverRow[]>([{ approverUserId: 0, priority: 1 }])
   const [rules, setRules] = useState<RuleRow[]>([])
   const [saving, setSaving] = useState(false)
@@ -65,9 +75,10 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
     setLoading(true)
     setError(null)
 
-    void Promise.all([getUsersWithRoles(), getApprovalPolicyMetadata()])
-      .then(([userList, metadata]) => {
+    void Promise.all([getUsersWithRoles(), getUserGroups(), getApprovalPolicyMetadata()])
+      .then(([userList, groupList, metadata]) => {
         setUsers(userList)
+        setGroups(groupList.filter((g) => g.isActive || (policy?.requesterGroupId != null && g.id === policy.requesterGroupId)))
         setDocumentTypes(metadata.documentTypes.filter((t) => t !== 'None'))
         setFieldsByType(metadata.fields)
         setOperators(metadata.operators)
@@ -79,18 +90,22 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
         setError(err instanceof Error ? err.message : 'Failed to load policy form data')
       })
       .finally(() => setLoading(false))
-  }, [isOpen])
+  }, [isOpen, policy?.requesterGroupId])
 
   useEffect(() => {
     if (!isOpen) return
     if (policy) {
       setDocumentType(String(policy.documentType ?? ''))
-      setRequesterUserId(String(policy.requesterUserId ?? ''))
+      setRequesterType(normalizeRequesterType(policy.requesterType))
+      setRequesterUserId(policy.requesterUserId != null ? String(policy.requesterUserId) : '')
+      setRequesterGroupId(policy.requesterGroupId != null ? String(policy.requesterGroupId) : '')
       setApprovers(policy.approvers.length ? policy.approvers : [{ approverUserId: 0, priority: 1 }])
       setRules(policy.rules.map((r) => ({ fieldName: r.fieldName, operator: r.operator, value: r.value })))
     } else {
       setDocumentType('')
+      setRequesterType('User')
       setRequesterUserId('')
+      setRequesterGroupId('')
       setApprovers([{ approverUserId: 0, priority: 1 }])
       setRules([])
     }
@@ -102,15 +117,38 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
   }
 
   const userOptions = users.map((u) => ({ value: String(u.id), label: userLabel(u) }))
+  const groupOptions = groups.map((g) => ({
+    value: String(g.id),
+    label: `${g.name}${g.members.length ? ` (${g.members.length} members)` : ''}`,
+  }))
   const fieldOptions = (fieldsByType[documentType] ?? []).map((f) => ({ value: f, label: fieldLabel(documentType, f) }))
   const operatorOptions = operators.map((o) => ({ value: o, label: o }))
   const docTypeOptions = documentTypes.map((t) => ({ value: t, label: formatDocumentType(t) }))
+  const requesterTypeOptions = [
+    { value: 'User', label: 'User' },
+    { value: 'Group', label: 'Group' },
+  ]
 
-  const nextApproverPriority = () => approvers.length ? Math.max(...approvers.map((a) => a.priority)) + 1 : 1
+  const nextApproverPriority = () => (approvers.length ? Math.max(...approvers.map((a) => a.priority)) + 1 : 1)
+
+  const handleRequesterTypeChange = (value: string) => {
+    const next = value === 'Group' ? 'Group' : 'User'
+    setRequesterType(next)
+    if (next === 'User') setRequesterGroupId('')
+    else setRequesterUserId('')
+  }
 
   const handleSave = async () => {
-    if (!requesterUserId || !documentType) {
-      setError('Requester and document type are required.')
+    if (!documentType) {
+      setError('Document type is required.')
+      return
+    }
+    if (requesterType === 'User' && !requesterUserId) {
+      setError('Requester user is required.')
+      return
+    }
+    if (requesterType === 'Group' && !requesterGroupId) {
+      setError('Requester group is required.')
       return
     }
     const validApprovers = approvers.filter((a) => a.approverUserId > 0)
@@ -128,7 +166,9 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
     try {
       const payload = {
         documentType,
-        requesterUserId: Number(requesterUserId),
+        requesterType,
+        requesterUserId: requesterType === 'User' ? Number(requesterUserId) : null,
+        requesterGroupId: requesterType === 'Group' ? Number(requesterGroupId) : null,
         approvers: validApprovers,
         rules: rules.filter((r) => r.fieldName && r.operator && r.value),
       }
@@ -152,15 +192,34 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
           <div className="py-8 text-center text-slate-500">Loading users and document types...</div>
         ) : (
           <>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
               <Select
-                label="Requesting User"
+                label="Requester Type"
                 required
-                value={requesterUserId}
-                onChange={setRequesterUserId}
-                placeholder={userOptions.length ? 'Select user' : 'No users available'}
-                options={[{ value: '', label: 'Select user' }, ...userOptions]}
+                value={requesterType}
+                onChange={handleRequesterTypeChange}
+                options={requesterTypeOptions}
               />
+              {requesterType === 'User' ? (
+                <Select
+                  label="Requesting User"
+                  required
+                  value={requesterUserId}
+                  onChange={setRequesterUserId}
+                  placeholder={userOptions.length ? 'Select user' : 'No users available'}
+                  options={[{ value: '', label: 'Select user' }, ...userOptions]}
+                />
+              ) : (
+                <Select
+                  label="Requesting Group"
+                  required
+                  value={requesterGroupId}
+                  onChange={setRequesterGroupId}
+                  placeholder={groupOptions.length ? 'Select group' : 'No groups available'}
+                  options={[{ value: '', label: 'Select group' }, ...groupOptions]}
+                  hint={groupOptions.length === 0 ? 'Create a user group first from User Groups.' : undefined}
+                />
+              )}
               <Select
                 label="Document Type"
                 required
@@ -170,6 +229,11 @@ export function PolicyDialog({ policy, isOpen, onClose, onSaved }: PolicyDialogP
                 options={[{ value: '', label: 'Select type' }, ...docTypeOptions]}
               />
             </div>
+            <p className="flex items-start gap-1.5 text-xs text-slate-500">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              Groups apply only to the requester. Approvers remain individual users. When both a user policy and a group
+              policy exist, the user policy takes priority.
+            </p>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-1 flex items-center justify-between">

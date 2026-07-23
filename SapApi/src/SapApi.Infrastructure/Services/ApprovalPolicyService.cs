@@ -14,18 +14,23 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
 
     public async Task<int> CreatePolicyAsync(
         ApprovalDocumentType docType,
-        int requesterId,
+        ApprovalRequesterType requesterType,
+        int? requesterUserId,
+        int? requesterGroupId,
         List<ApprovalPolicyApprover> approvers,
         List<ApprovalPolicyRule>? rules = null)
     {
         ValidateApprovers(approvers);
-        await ValidateNoActiveDuplicateAsync(docType, requesterId, excludePolicyId: null);
+        var (userId, groupId) = await ResolveRequesterAsync(requesterType, requesterUserId, requesterGroupId);
+        await ValidateNoActiveDuplicateAsync(docType, requesterType, userId, groupId, excludePolicyId: null);
 
         var policy = new ApprovalPolicy
         {
             CompanyDb = CompanyDb,
             DocumentType = docType,
-            RequesterUserId = requesterId,
+            RequesterType = requesterType,
+            RequesterUserId = userId,
+            RequesterGroupId = groupId,
             IsActive = true,
             Approvers = approvers,
             Rules = rules ?? []
@@ -44,12 +49,15 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
     public async Task UpdatePolicyAsync(
         int policyId,
         ApprovalDocumentType docType,
-        int requesterId,
+        ApprovalRequesterType requesterType,
+        int? requesterUserId,
+        int? requesterGroupId,
         List<ApprovalPolicyApprover> approvers,
         List<ApprovalPolicyRule>? rules = null)
     {
         ValidateApprovers(approvers);
-        await ValidateNoActiveDuplicateAsync(docType, requesterId, excludePolicyId: policyId);
+        var (userId, groupId) = await ResolveRequesterAsync(requesterType, requesterUserId, requesterGroupId);
+        await ValidateNoActiveDuplicateAsync(docType, requesterType, userId, groupId, excludePolicyId: policyId);
 
         ApprovalPolicy policy = await context.ApprovalPolicies
             .Include(p => p.Approvers)
@@ -58,7 +66,9 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
             ?? throw new ApiErrorException(BaseErrorCodes.NullValue, "Policy not found.");
 
         policy.DocumentType = docType;
-        policy.RequesterUserId = requesterId;
+        policy.RequesterType = requesterType;
+        policy.RequesterUserId = userId;
+        policy.RequesterGroupId = groupId;
 
         context.ApprovalPolicyApprovers.RemoveRange(policy.Approvers);
         policy.Approvers = approvers;
@@ -82,6 +92,7 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
         return await context.ApprovalPolicies
             .Where(p => p.CompanyDb == CompanyDb)
             .Include(p => p.RequesterUser)
+            .Include(p => p.RequesterGroup)
             .Include(p => p.Approvers)
             .Include(p => p.Rules)
             .ToListAsync();
@@ -92,6 +103,7 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
         return await context.ApprovalPolicies
             .Where(p => p.CompanyDb == CompanyDb)
             .Include(p => p.RequesterUser)
+            .Include(p => p.RequesterGroup)
             .Include(p => p.Approvers)
             .Include(p => p.Rules)
             .FirstOrDefaultAsync(p => p.Id == id);
@@ -111,7 +123,14 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
             ?? throw new ApiErrorException(BaseErrorCodes.NullValue, "Policy not found.");
 
         if (isActive && !policy.IsActive)
-            await ValidateNoActiveDuplicateAsync(policy.DocumentType, policy.RequesterUserId, excludePolicyId: id);
+        {
+            await ValidateNoActiveDuplicateAsync(
+                policy.DocumentType,
+                policy.RequesterType,
+                policy.RequesterUserId,
+                policy.RequesterGroupId,
+                excludePolicyId: id);
+        }
 
         policy.IsActive = isActive;
         context.ApprovalPolicies.Update(policy);
@@ -162,19 +181,66 @@ public class ApprovalPolicyService(AppDbContext context, ICurrentCompanyDbAccess
             throw new ApiErrorException(BaseErrorCodes.ValidationFailed, "Duplicate approvers not allowed.");
     }
 
-    /// <summary>
-    /// Only one active policy may exist per (requester, document type). CheckApprovalPolicy resolves the
-    /// applicable policy with FirstOrDefaultAsync, so a second active match here would silently make
-    /// approval routing non-deterministic instead of raising a visible error.
-    /// </summary>
-    private async Task ValidateNoActiveDuplicateAsync(ApprovalDocumentType docType, int requesterId, int? excludePolicyId)
+    private async Task<(int? UserId, int? GroupId)> ResolveRequesterAsync(
+        ApprovalRequesterType requesterType,
+        int? requesterUserId,
+        int? requesterGroupId)
     {
-        var duplicateExists = await context.ApprovalPolicies.AnyAsync(p =>
-            p.CompanyDb == CompanyDb &&
-            p.DocumentType == docType &&
-            p.RequesterUserId == requesterId &&
-            p.IsActive &&
-            p.Id != excludePolicyId);
+        if (requesterType == ApprovalRequesterType.User)
+        {
+            if (!requesterUserId.HasValue || requesterUserId.Value <= 0)
+                throw new ApiErrorException(BaseErrorCodes.ValidationFailed, "Requester user is required.");
+
+            var userExists = await context.Users.AnyAsync(u => u.Id == requesterUserId.Value);
+            if (!userExists)
+                throw new ApiErrorException(BaseErrorCodes.ValidationFailed, "Requester user does not exist.");
+
+            return (requesterUserId.Value, null);
+        }
+
+        if (requesterType == ApprovalRequesterType.Group)
+        {
+            if (!requesterGroupId.HasValue || requesterGroupId.Value <= 0)
+                throw new ApiErrorException(BaseErrorCodes.ValidationFailed, "Requester group is required.");
+
+            var groupExists = await context.UserGroups.AnyAsync(g =>
+                g.Id == requesterGroupId.Value && g.CompanyDb == CompanyDb);
+            if (!groupExists)
+                throw new ApiErrorException(BaseErrorCodes.ValidationFailed, "Requester group does not exist.");
+
+            return (null, requesterGroupId.Value);
+        }
+
+        throw new ApiErrorException(BaseErrorCodes.ValidationFailed, "Invalid requester type.");
+    }
+
+    /// <summary>
+    /// Only one active policy may exist per (requester user|group, document type). Matching prefers
+    /// a user-specific policy over a group policy, so two active user policies for the same pair
+    /// would make routing non-deterministic.
+    /// </summary>
+    private async Task ValidateNoActiveDuplicateAsync(
+        ApprovalDocumentType docType,
+        ApprovalRequesterType requesterType,
+        int? requesterUserId,
+        int? requesterGroupId,
+        int? excludePolicyId)
+    {
+        var duplicateExists = requesterType == ApprovalRequesterType.User
+            ? await context.ApprovalPolicies.AnyAsync(p =>
+                p.CompanyDb == CompanyDb &&
+                p.DocumentType == docType &&
+                p.RequesterType == ApprovalRequesterType.User &&
+                p.RequesterUserId == requesterUserId &&
+                p.IsActive &&
+                p.Id != excludePolicyId)
+            : await context.ApprovalPolicies.AnyAsync(p =>
+                p.CompanyDb == CompanyDb &&
+                p.DocumentType == docType &&
+                p.RequesterType == ApprovalRequesterType.Group &&
+                p.RequesterGroupId == requesterGroupId &&
+                p.IsActive &&
+                p.Id != excludePolicyId);
 
         if (duplicateExists)
             throw new ApiErrorException(

@@ -59,6 +59,7 @@ public static class DependencyInjection
         services.AddMemoryCache();
         AddDistributedCache(services, configuration);
         services.AddSingleton<ISapSessionStore, DistributedCacheSapSessionStore>();
+        services.AddSingleton<ISapMasterDataCache, SapMasterDataCache>();
 
         var redisConnection = RedisConnectionStringNormalizer.Normalize(
             configuration.GetConnectionString("RedisConnection"));
@@ -109,6 +110,7 @@ public static class DependencyInjection
         services.AddScoped<ApprovalService>();
         services.AddScoped<ApprovalExecutionService>();
         services.AddScoped<ApprovalPolicyService>();
+        services.AddScoped<UserGroupService>();
         services.AddScoped<ApprovalRequestViewService>();
         services.AddScoped<StageWisePaymentService>();
         services.AddScoped<StageWisePaymentPageService>();

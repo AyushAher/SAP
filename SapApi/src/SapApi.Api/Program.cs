@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using SapApi.Api.DevTools;
+using SapApi.Api.Hangfire;
 using SapApi.Api.Middleware;
 using SapApi.Infrastructure;
 using SapApi.Infrastructure.Persistence;
@@ -36,6 +37,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<SapApi.Infrastructure.Services.AuthService>();
+builder.Services.AddSapHangfire(builder.Configuration);
 builder.Services.AddHealthChecks();
 
 builder.Services.AddCors(options =>
@@ -83,6 +85,7 @@ app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<SecurityMiddleware>();
+app.UseSapHangfire();
 app.MapControllers();
 app.MapHealthChecks("/health");
 

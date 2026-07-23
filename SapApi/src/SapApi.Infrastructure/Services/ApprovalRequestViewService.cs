@@ -63,13 +63,13 @@ public class ApprovalRequestViewService(
 
         var currentUserId = httpContext.GetUserIdAsync() ?? 0;
         var po = await purchaseOrderService.GetPurchaseOrders(request.SupportingData ?? "0");
-        var vendor = await masterDataService.GetBusinessPartnerByCardCodeAsync(paymentBody.CardCode ?? string.Empty, cancellationToken);
+        var vendor = await masterDataService.GetBusinessPartnerByCardCodeAsync(paymentBody.CardCode ?? string.Empty, cancellationToken: cancellationToken);
         var projectName = await masterDataService.GetProjectNameAsync(paymentBody.ProjectCode, cancellationToken);
 
         string? branch = null;
         if (paymentBody.BPLId is not null)
         {
-            var businessPlace = await masterDataService.GetBusinessPlaceByIdAsync(paymentBody.BPLId, cancellationToken);
+            var businessPlace = await masterDataService.GetBusinessPlaceByIdAsync(paymentBody.BPLId, cancellationToken: cancellationToken);
             branch = businessPlace?.BplName ?? paymentBody.BPLId.ToString();
         }
 

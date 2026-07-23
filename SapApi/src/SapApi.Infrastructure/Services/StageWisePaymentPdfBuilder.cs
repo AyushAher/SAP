@@ -28,7 +28,7 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             ? "Outgoing Payment Request"
             : "Downpayment Request";
 
-        var branch = await masterDataService.GetBusinessPlaceByIdAsync(po.BPLId, cancellationToken);
+        var branch = await masterDataService.GetBusinessPlaceByIdAsync(po.BPLId, cancellationToken: cancellationToken);
 
         var placeholders = new Dictionary<string, string>
         {

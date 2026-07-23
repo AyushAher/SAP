@@ -9,9 +9,26 @@ using SapApi.Shared.Sap;
 
 namespace SapApi.Infrastructure.Services.Sap;
 
-public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sapLogin)
+public class SapMasterDataService(
+    IHttpRequestHandler http,
+    ISapLoginService sapLogin,
+    ISapMasterDataCache cache,
+    ICurrentCompanyDbAccessor companyDbAccessor)
 {
     private const int LookupBatchSize = 20;
+
+    /// <summary>
+    /// Master data (vendors, items, warehouses, projects, tax codes, business places) changes rarely
+    /// enough that a 1-hour cache is safe. Transactional documents (sales orders, PO/payment lookups)
+    /// must never be cached and always go straight to SAP — see the `cacheable: false` call sites below.
+    /// </summary>
+    private static readonly TimeSpan MasterDataCacheTtl = TimeSpan.FromHours(1);
+
+    private static readonly string[] ItemLookupKeyFields = ["ItemCode"];
+    private static readonly string[] BusinessPartnerLookupKeyFields = ["CardCode"];
+    private static readonly string[] WarehouseLookupKeyFields = ["WarehouseCode"];
+    private static readonly string[] ProjectLookupKeyFields = ["Code"];
+    private static readonly string[] BusinessPlaceLookupKeyFields = ["BPLID"];
 
     public Task<PaginationResponse<List<ItemsResponse>>> SearchItemsAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>
         SearchAsync<SapItemsResponse, ItemsResponse>(
@@ -61,9 +78,9 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
             Select = "BPLID,BPLName",
             Top = "500",
         };
-        var response = await http.GetAsync<SapGetAllBranchesResponse>(
+        var response = await GetCachedAsync<SapGetAllBranchesResponse>(
             Constants.SapApiUrls.BusinessPlacesCollection + queries.GetQueryValue(),
-            cancellationToken: cancellationToken);
+            cancellationToken);
 
         return response?.Value?
             .Select(branch => new BranchOptionResponse
@@ -91,6 +108,7 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
             r => r?.Value,
             cancellationToken);
 
+    /// <summary>Sales orders are transactional documents, not master data — never cached.</summary>
     public Task<PaginationResponse<List<SapSalesOrderResponse>>> SearchSalesOrdersAsync(
         PaginationRequest request,
         string? customerId = null,
@@ -100,25 +118,33 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
             SapPaginationProfiles.SalesOrders(customerId),
             request,
             r => r?.Value,
-            cancellationToken);
+            cancellationToken,
+            cacheable: false);
 
-    public async Task<SapBusinessPartner?> GetBusinessPartnerByCardCodeAsync(string cardCode, CancellationToken cancellationToken = default)
+    public async Task<SapBusinessPartner?> GetBusinessPartnerByCardCodeAsync(
+        string cardCode,
+        IReadOnlyList<string>? fields = null,
+        CancellationToken cancellationToken = default)
     {
         await sapLogin.SapLoginAsync(cancellationToken);
         var safeCode = SapPaginationBuilder.EscapeODataString(cardCode);
         var queries = new SapQueries
         {
             Filter = $"CardCode eq '{safeCode}'",
-            Select = "CardCode,CardName,CardType,BPWithholdingTaxCollection",
+            Select = SapPaginationBuilder.ResolveSelect(
+                "CardCode,CardName,CardType,BPWithholdingTaxCollection", BusinessPartnerLookupKeyFields, fields),
             Top = "1",
         };
-        var response = await http.GetAsync<SapBusinessPartnerResponse>(
+        var response = await GetCachedAsync<SapBusinessPartnerResponse>(
             Constants.SapApiUrls.BusinessPartnersCollection + queries.GetQueryValue(),
-            cancellationToken: cancellationToken);
+            cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
 
-    public async Task<ItemsResponse?> GetItemByCodeAsync(string itemCode, CancellationToken cancellationToken = default)
+    public async Task<ItemsResponse?> GetItemByCodeAsync(
+        string itemCode,
+        IReadOnlyList<string>? fields = null,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(itemCode))
             return null;
@@ -128,16 +154,20 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         var queries = new SapQueries
         {
             Filter = $"ItemCode eq '{safeCode}'",
-            Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight",
+            Select = SapPaginationBuilder.ResolveSelect(
+                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight", ItemLookupKeyFields, fields),
             Top = "1",
         };
-        var response = await http.GetAsync<SapItemsResponse>(
+        var response = await GetCachedAsync<SapItemsResponse>(
             Constants.SapApiUrls.ItemsCollection + queries.GetQueryValue(),
-            cancellationToken: cancellationToken);
+            cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
 
-    public async Task<WarehouseResponse?> GetWarehouseByCodeAsync(string? warehouseCode, CancellationToken cancellationToken = default)
+    public async Task<WarehouseResponse?> GetWarehouseByCodeAsync(
+        string? warehouseCode,
+        IReadOnlyList<string>? fields = null,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(warehouseCode))
             return null;
@@ -147,16 +177,20 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         var queries = new SapQueries
         {
             Filter = $"WarehouseCode eq '{safeCode}'",
-            Select = "WarehouseCode,State,City,Location",
+            Select = SapPaginationBuilder.ResolveSelect(
+                "WarehouseCode,State,City,Location", WarehouseLookupKeyFields, fields),
             Top = "1",
         };
-        var response = await http.GetAsync<SapWarehousesResponse>(
+        var response = await GetCachedAsync<SapWarehousesResponse>(
             Constants.SapApiUrls.WarehousesCollection + queries.GetQueryValue(),
-            cancellationToken: cancellationToken);
+            cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
 
-    public async Task<SapProjectDetailsResponse?> GetProjectByCodeAsync(string? projectCode, CancellationToken cancellationToken = default)
+    public async Task<SapProjectDetailsResponse?> GetProjectByCodeAsync(
+        string? projectCode,
+        IReadOnlyList<string>? fields = null,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(projectCode))
             return null;
@@ -166,16 +200,19 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         var queries = new SapQueries
         {
             Filter = $"Code eq '{safeCode}'",
-            Select = "Code,Name",
+            Select = SapPaginationBuilder.ResolveSelect("Code,Name", ProjectLookupKeyFields, fields),
             Top = "1",
         };
-        var response = await http.GetAsync<SapGetAllProjectDetailsResponse>(
+        var response = await GetCachedAsync<SapGetAllProjectDetailsResponse>(
             Constants.SapApiUrls.ProjectsCollection + queries.GetQueryValue(),
-            cancellationToken: cancellationToken);
+            cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
 
-    public async Task<SapBranchesResponse?> GetBusinessPlaceByIdAsync(int? bplId, CancellationToken cancellationToken = default)
+    public async Task<SapBranchesResponse?> GetBusinessPlaceByIdAsync(
+        int? bplId,
+        IReadOnlyList<string>? fields = null,
+        CancellationToken cancellationToken = default)
     {
         if (bplId is null)
             return null;
@@ -184,20 +221,61 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         var queries = new SapQueries
         {
             Filter = $"BPLID eq {bplId.Value}",
-            Select = "BPLID,BPLName,Address",
+            Select = SapPaginationBuilder.ResolveSelect("BPLID,BPLName,Address", BusinessPlaceLookupKeyFields, fields),
             Top = "1",
         };
-        var response = await http.GetAsync<SapGetAllBranchesResponse>(
+        var response = await GetCachedAsync<SapGetAllBranchesResponse>(
             Constants.SapApiUrls.BusinessPlacesCollection + queries.GetQueryValue(),
-            cancellationToken: cancellationToken);
+            cancellationToken);
         return response?.Value?.FirstOrDefault();
     }
 
     public async Task<string?> GetProjectNameAsync(string? projectCode, CancellationToken cancellationToken = default)
     {
-        var project = await GetProjectByCodeAsync(projectCode, cancellationToken);
+        var project = await GetProjectByCodeAsync(projectCode, cancellationToken: cancellationToken);
         return project?.ProjectName;
     }
+
+    /// <summary>
+    /// Prefetches the first page of every master-data collection using the same field subsets the UI
+    /// typeaheads request, plus the full default select used by server-side callers. Replaces (and
+    /// extends) the 1-hour Redis TTL so Hangfire can refresh before entries expire.
+    /// </summary>
+    public async Task WarmCacheAsync(CancellationToken cancellationToken = default)
+    {
+        // Match sap-ui Requests/masters.ts default field constants so cache keys align with live traffic.
+        string[] itemDropdown = ["ItemCode", "ItemName"];
+        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM"];
+        string[] warehouseDropdown = ["WarehouseCode", "City"];
+        string[] taxDropdown = ["Code", "Name", "Rate"];
+        string[] projectDropdown = ["Code", "Name"];
+        string[] partnerDropdown = ["CardCode", "CardName"];
+
+        await SearchItemsAsync(Page(itemDropdown), cancellationToken);
+        await SearchItemsAsync(Page(itemDetail), cancellationToken);
+        await SearchItemsAsync(Page(null), cancellationToken);
+
+        await SearchWarehousesAsync(Page(warehouseDropdown), cancellationToken);
+        await SearchWarehousesAsync(Page(null), cancellationToken);
+
+        await SearchTaxCodesAsync(Page(taxDropdown), cancellationToken);
+        await SearchProjectsAsync(Page(projectDropdown), cancellationToken);
+
+        await SearchVendorsAsync(Page(partnerDropdown), cancellationToken);
+        await SearchVendorsAsync(Page(null), cancellationToken);
+        await SearchCustomersAsync(Page(partnerDropdown), cancellationToken);
+        await SearchCustomersAsync(Page(null), cancellationToken);
+
+        await SearchBusinessPlacesAsync(Page(null), cancellationToken);
+        await ListBranchOptionsAsync(cancellationToken);
+    }
+
+    private static PaginationRequest Page(IReadOnlyList<string>? fields) => new()
+    {
+        PageNumber = 1,
+        PageSize = 20,
+        Fields = fields is null ? null : fields.ToList(),
+    };
 
     public async Task<MasterLookupResponse> LookupMasterDataAsync(
         MasterLookupRequest request,
@@ -239,9 +317,9 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
             Select = "WTCode,WTName,Rate",
             Top = Math.Min(wtCodes.Count, 50).ToString(),
         };
-        var response = await http.GetAsync<GetAllWithholdingTaxDataCollectionResponse>(
+        var response = await GetCachedAsync<GetAllWithholdingTaxDataCollectionResponse>(
             Constants.SapApiUrls.WithholdingTaxCodesCollection + queries.GetQueryValue(),
-            cancellationToken: cancellationToken);
+            cancellationToken);
         return response?.Value ?? [];
     }
 
@@ -262,9 +340,9 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
                 Select = "ItemCode,ItemName",
                 Top = chunk.Length.ToString(),
             };
-            var response = await http.GetAsync<SapItemsResponse>(
+            var response = await GetCachedAsync<SapItemsResponse>(
                 Constants.SapApiUrls.ItemsCollection + queries.GetQueryValue(),
-                cancellationToken: cancellationToken);
+                cancellationToken);
             foreach (var item in response?.Value ?? [])
             {
                 if (!string.IsNullOrWhiteSpace(item.ItemCode))
@@ -292,9 +370,9 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
                 Select = "Code,Name",
                 Top = chunk.Length.ToString(),
             };
-            var response = await http.GetAsync<SapGetAllProjectDetailsResponse>(
+            var response = await GetCachedAsync<SapGetAllProjectDetailsResponse>(
                 Constants.SapApiUrls.ProjectsCollection + queries.GetQueryValue(),
-                cancellationToken: cancellationToken);
+                cancellationToken);
             foreach (var project in response?.Value ?? [])
             {
                 if (!string.IsNullOrWhiteSpace(project.ProjectCode))
@@ -322,9 +400,9 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
                 Select = "CardCode,CardName",
                 Top = chunk.Length.ToString(),
             };
-            var response = await http.GetAsync<SapBusinessPartnerResponse>(
+            var response = await GetCachedAsync<SapBusinessPartnerResponse>(
                 Constants.SapApiUrls.BusinessPartnersCollection + queries.GetQueryValue(),
-                cancellationToken: cancellationToken);
+                cancellationToken);
             foreach (var partner in response?.Value ?? [])
             {
                 if (!string.IsNullOrWhiteSpace(partner.CardCode))
@@ -340,19 +418,35 @@ public class SapMasterDataService(IHttpRequestHandler http, ISapLoginService sap
         SapPaginationOptions profile,
         PaginationRequest request,
         Func<TResponse?, List<TItem>?> getItems,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool cacheable = true)
         where TResponse : class
     {
         await sapLogin.SapLoginAsync(cancellationToken);
         var normalized = PaginationRequest.Normalize(request);
         var queries = SapPaginationBuilder.ToSapQueries(normalized, profile);
-        var response = await http.GetAsync<TResponse>(
-            collectionUrl + queries.GetQueryValue(),
-            cancellationToken: cancellationToken);
+        var url = collectionUrl + queries.GetQueryValue();
+        var response = cacheable
+            ? await GetCachedAsync<TResponse>(url, cancellationToken)
+            : await http.GetAsync<TResponse>(url, cancellationToken: cancellationToken);
         var items = getItems(response) ?? [];
         var totalCount = response is SapBaseResponse sapResponse
             ? SapPaginationBuilder.ResolveTotalCount(sapResponse, items, normalized)
             : SapPaginationBuilder.ResolveTotalCountFromItems(items, normalized);
         return PaginationResponseFactory.Create(normalized, items, totalCount);
     }
+
+    /// <summary>
+    /// Wraps a SAP GET behind the 1-hour master-data cache. The full request URL (collection + resolved
+    /// $select/$filter/$orderby/$skip/$top) is already the exact, unique signature of what's being
+    /// asked for, so it doubles as the cache key — different filters, field subsets, or pages simply
+    /// produce different keys and are cached independently. Namespaced per company DB so tenants never
+    /// share cache entries.
+    /// </summary>
+    private Task<T?> GetCachedAsync<T>(string url, CancellationToken cancellationToken) =>
+        cache.GetOrCreateAsync(
+            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:{url}",
+            () => http.GetAsync<T>(url, cancellationToken: cancellationToken),
+            MasterDataCacheTtl,
+            cancellationToken);
 }

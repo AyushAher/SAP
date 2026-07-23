@@ -90,14 +90,8 @@ public class ApprovalService
             TData data,
             ApprovalAction action, string? supportingData = null)
         {
-            ApprovalPolicy? policy = await context.ApprovalPolicies
-                .Include(x => x.Approvers)
-                .Include(x => x.Rules)
-                .FirstOrDefaultAsync(x =>
-                    x.CompanyDb == CompanyDb &&
-                    x.RequesterUserId == UserId &&
-                    x.DocumentType == docType &&
-                    x.IsActive);
+            // Priority: user-specific policy first, then group membership policy.
+            ApprovalPolicy? policy = await ResolveApplicablePolicyAsync(docType);
 
             if (policy == null)
                 return -1;
@@ -142,6 +136,50 @@ public class ApprovalService
             await context.SaveChangesAsync();
 
             return approvalRequest.Id;
+        }
+
+        #endregion
+
+        #region POLICY RESOLUTION
+
+        /// <summary>
+        /// Resolves the applicable active policy for the current requester.
+        /// User-targeted policies take priority over group-targeted policies.
+        /// When multiple group policies match (user in several groups), the lowest policy Id wins.
+        /// </summary>
+        private async Task<ApprovalPolicy?> ResolveApplicablePolicyAsync(ApprovalDocumentType docType)
+        {
+            var userPolicy = await context.ApprovalPolicies
+                .Include(x => x.Approvers)
+                .Include(x => x.Rules)
+                .FirstOrDefaultAsync(x =>
+                    x.CompanyDb == CompanyDb &&
+                    x.DocumentType == docType &&
+                    x.IsActive &&
+                    x.RequesterType == ApprovalRequesterType.User &&
+                    x.RequesterUserId == UserId);
+
+            if (userPolicy != null)
+                return userPolicy;
+
+            return await context.ApprovalPolicies
+                .Include(x => x.Approvers)
+                .Include(x => x.Rules)
+                .Where(x =>
+                    x.CompanyDb == CompanyDb &&
+                    x.DocumentType == docType &&
+                    x.IsActive &&
+                    x.RequesterType == ApprovalRequesterType.Group &&
+                    x.RequesterGroupId != null &&
+                    context.UserGroupMembers.Any(m =>
+                        m.UserGroupId == x.RequesterGroupId &&
+                        m.UserId == UserId) &&
+                    context.UserGroups.Any(g =>
+                        g.Id == x.RequesterGroupId &&
+                        g.CompanyDb == CompanyDb &&
+                        g.IsActive))
+                .OrderBy(x => x.Id)
+                .FirstOrDefaultAsync();
         }
 
         #endregion

@@ -44,12 +44,20 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<int>("RequesterUserId")
+                    b.Property<int?>("RequesterGroupId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RequesterType")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RequesterUserId")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
 
                     b.HasIndex("ApplicationUserId");
+
+                    b.HasIndex("RequesterGroupId");
 
                     b.HasIndex("RequesterUserId");
 
@@ -808,17 +816,84 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.ToTable("UserApprovals");
                 });
 
+            modelBuilder.Entity("SapApi.Domain.Entities.UserGroup", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CompanyDb")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyDb", "Name")
+                        .IsUnique();
+
+                    b.ToTable("UserGroups");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.UserGroupMember", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("UserGroupId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.HasIndex("UserGroupId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserGroupMembers");
+                });
+
             modelBuilder.Entity("ApprovalPolicy", b =>
                 {
                     b.HasOne("SapApi.Domain.Entities.ApplicationUser", null)
                         .WithMany("Policy")
                         .HasForeignKey("ApplicationUserId");
 
+                    b.HasOne("SapApi.Domain.Entities.UserGroup", "RequesterGroup")
+                        .WithMany()
+                        .HasForeignKey("RequesterGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SapApi.Domain.Entities.ApplicationUser", "RequesterUser")
                         .WithMany()
                         .HasForeignKey("RequesterUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("RequesterGroup");
 
                     b.Navigation("RequesterUser");
                 });
@@ -996,6 +1071,25 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("SapApi.Domain.Entities.UserGroupMember", b =>
+                {
+                    b.HasOne("SapApi.Domain.Entities.UserGroup", "Group")
+                        .WithMany("Members")
+                        .HasForeignKey("UserGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SapApi.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ApprovalPolicy", b =>
                 {
                     b.Navigation("Approvers");
@@ -1025,6 +1119,11 @@ namespace SapApi.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatchLine", b =>
                 {
                     b.Navigation("PaymentTerms");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.UserGroup", b =>
+                {
+                    b.Navigation("Members");
                 });
 #pragma warning restore 612, 618
         }

@@ -24,9 +24,12 @@ public class BusinessPartnerController(
         Ok(await masterDataService.SearchCustomersAsync(PaginationRequest.Normalize(request), cancellationToken));
 
     [HttpGet("{cardCode}")]
-    public async Task<IActionResult> GetByCardCode(string cardCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetByCardCode(string cardCode, [FromQuery] string? fields, CancellationToken cancellationToken)
     {
-        var partner = await masterDataService.GetBusinessPartnerByCardCodeAsync(cardCode, cancellationToken);
+        var parsedFields = string.IsNullOrWhiteSpace(fields)
+            ? null
+            : fields.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+        var partner = await masterDataService.GetBusinessPartnerByCardCodeAsync(cardCode, parsedFields, cancellationToken);
         return partner is null
             ? NotFound(ApiResponse<object>.Fail("SYS-02", "Business partner not found"))
             : Ok(ApiResponse<object>.Ok(partner));

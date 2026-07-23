@@ -15,9 +15,9 @@ public class MastersController(SapMasterDataService masterDataService) : Control
         Ok(await masterDataService.SearchItemsAsync(PaginationRequest.Normalize(request), cancellationToken));
 
     [HttpGet("items/{itemCode}")]
-    public async Task<IActionResult> GetItem(string itemCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetItem(string itemCode, [FromQuery] string? fields, CancellationToken cancellationToken)
     {
-        var item = await masterDataService.GetItemByCodeAsync(itemCode, cancellationToken);
+        var item = await masterDataService.GetItemByCodeAsync(itemCode, ParseFields(fields), cancellationToken);
         return item is null
             ? NotFound(ApiResponse<object>.Fail("SYS-02", "Item not found"))
             : Ok(ApiResponse<object>.Ok(item));
@@ -36,9 +36,9 @@ public class MastersController(SapMasterDataService masterDataService) : Control
         Ok(await masterDataService.SearchProjectsAsync(PaginationRequest.Normalize(request), cancellationToken));
 
     [HttpGet("projects/{projectCode}")]
-    public async Task<IActionResult> GetProject(string projectCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetProject(string projectCode, [FromQuery] string? fields, CancellationToken cancellationToken)
     {
-        var project = await masterDataService.GetProjectByCodeAsync(projectCode, cancellationToken);
+        var project = await masterDataService.GetProjectByCodeAsync(projectCode, ParseFields(fields), cancellationToken);
         return project is null
             ? NotFound(ApiResponse<object>.Fail("SYS-02", "Project not found"))
             : Ok(ApiResponse<object>.Ok(project));
@@ -58,4 +58,10 @@ public class MastersController(SapMasterDataService masterDataService) : Control
         [FromQuery] string? customerId,
         CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchSalesOrdersAsync(PaginationRequest.Normalize(request), customerId, cancellationToken));
+
+    /// <summary>Comma-separated list of field names the caller actually needs, e.g. "ItemCode,ItemName".</summary>
+    private static List<string>? ParseFields(string? fields) =>
+        string.IsNullOrWhiteSpace(fields)
+            ? null
+            : fields.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
 }

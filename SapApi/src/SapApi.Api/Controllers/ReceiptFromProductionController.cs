@@ -65,7 +65,7 @@ public class ReceiptFromProductionController(
         var itemDetailsMap = new Dictionary<string, ItemsResponse?>(StringComparer.OrdinalIgnoreCase);
         foreach (var itemCode in itemCodes)
         {
-            itemDetailsMap[itemCode!] = await masterDataService.GetItemByCodeAsync(itemCode!, cancellationToken);
+            itemDetailsMap[itemCode!] = await masterDataService.GetItemByCodeAsync(itemCode!, cancellationToken: cancellationToken);
         }
 
         var itemsHtml = new StringBuilder();

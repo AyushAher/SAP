@@ -18,6 +18,8 @@ public class SecurityMiddleware(RequestDelegate next)
     {
         if (HttpMethods.IsGet(context.Request.Method) ||
             context.Request.Path.StartsWithSegments("/swagger") ||
+            context.Request.Path.StartsWithSegments("/hangfire") ||
+            context.Request.Path.StartsWithSegments("/health") ||
             context.Request.Path.StartsWithSegments("/api/auth/public-key"))
         {
             await next(context);
