@@ -69,7 +69,11 @@ namespace RotatingJwt
             services.AddAuthorizationBuilder()
                 .SetDefaultPolicy(new AuthorizationPolicyBuilder("CustomScheme")
                     .RequireAuthenticatedUser()
-                    .Build());
+                    .Build())
+                .AddPolicy("AdminOrSuperAdmin", policy =>
+                    policy.AddAuthenticationSchemes("CustomScheme")
+                        .RequireAuthenticatedUser()
+                        .RequireRole("Admin", "SuperAdmin"));
 
             services.AddScoped<IJwtTokenService, JwtTokenService>();
 

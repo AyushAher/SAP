@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { SelectableSapDataGrid } from '@/Components/shared/SelectableSapDataGrid'
 import type { SapColumn } from '@/Components/shared/SapDataGrid'
 import { Button, Input, SearchableSelect } from '@/Components/ui'
@@ -94,16 +94,6 @@ export function PurchaseOrderLinesEditor({
     return enriched
   }
 
-  const handleAdd = (e: FormEvent) => {
-    e.preventDefault()
-    if (readOnly) return
-    onChange([...lines, enrichLine({ ...draft, WarehouseCode: draft.WarehouseCode || defaultWarehouse })])
-    setDraft({ ...emptyLine(), WarehouseCode: defaultWarehouse })
-    setItemLabel('')
-    setWarehouseLabel('')
-    setTaxLabel('')
-  }
-
   const columns: SapColumn<PurchaseOrderLineItem>[] = [
     {
       key: 'ItemCode',
@@ -122,7 +112,7 @@ export function PurchaseOrderLinesEditor({
   return (
     <div className="space-y-4">
       {!readOnly && (
-        <form onSubmit={handleAdd} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <SearchableSelect
             label="Item"
             lookupKind="item"
@@ -188,9 +178,21 @@ export function PurchaseOrderLinesEditor({
             }}
           />
           <div className="md:col-span-2 xl:col-span-4">
-            <Button type="submit">Add Item</Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!draft.ItemCode) return
+                onChange([...lines, enrichLine({ ...draft, WarehouseCode: draft.WarehouseCode || defaultWarehouse })])
+                setDraft({ ...emptyLine(), WarehouseCode: defaultWarehouse })
+                setItemLabel('')
+                setWarehouseLabel('')
+                setTaxLabel('')
+              }}
+            >
+              Add Item
+            </Button>
           </div>
-        </form>
+        </div>
       )}
 
       <SelectableSapDataGrid

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -68,8 +69,24 @@ public class CustomAuthenticationHandler(
 
         if (!result.IsValid) return AuthenticateResult.Fail("Invalid Token");
 
-        var ticket = new AuthenticationTicket(result.ClaimsPrincipal, Scheme.Name);
-        
+        // Normalize role claims so [Authorize(Roles=...)] works whether JWT mapped the claim
+        // type to the short "role" name or kept ClaimTypes.Role.
+        var source = result.ClaimsPrincipal;
+        var roleValues = source.FindAll(ClaimTypes.Role)
+            .Concat(source.FindAll("role"))
+            .Select(c => c.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var claims = source.Claims
+            .Where(c => c.Type != ClaimTypes.Role && c.Type != "role")
+            .Concat(roleValues.Select(r => new Claim(ClaimTypes.Role, r)))
+            .ToList();
+
+        var identity = new ClaimsIdentity(claims, Scheme.Name, ClaimTypes.Name, ClaimTypes.Role);
+        var principal = new ClaimsPrincipal(identity);
+        var ticket = new AuthenticationTicket(principal, Scheme.Name);
+
         return AuthenticateResult.Success(ticket);
     }
 

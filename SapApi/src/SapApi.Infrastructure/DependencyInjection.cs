@@ -65,10 +65,6 @@ public static class DependencyInjection
             configuration.GetConnectionString("RedisConnection"));
         var useInMemoryDatabase = configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
 
-        services.AddRotatingJwt(configuration);
-        if (!useInMemoryDatabase && !string.IsNullOrWhiteSpace(redisConnection))
-            services.AddScoped<ICacheConfiguration, DistributedJwtCacheConfiguration>();
-
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
         {
             options.Password.RequireDigit = false;
@@ -80,6 +76,13 @@ public static class DependencyInjection
         })
         .AddEntityFrameworkStores<AppDbContext>()
         .AddDefaultTokenProviders();
+
+        // AddIdentity resets DefaultAuthenticate/ChallengeScheme to Identity.Application (cookies).
+        // Restore rotating JWT as the API default so [Authorize(Roles=...)] authenticates via Bearer,
+        // not cookies (which would 401 even for valid JWTs with Admin/SuperAdmin claims).
+        services.AddRotatingJwt(configuration);
+        if (!useInMemoryDatabase && !string.IsNullOrWhiteSpace(redisConnection))
+            services.AddScoped<ICacheConfiguration, DistributedJwtCacheConfiguration>();
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentCompanyDbAccessor, CurrentCompanyDbAccessor>();

@@ -8,7 +8,9 @@ namespace SapApi.Api.Controllers;
 
 [ApiController]
 [Route("api/user-groups")]
-[Authorize(Roles = "Admin,SuperAdmin")]
+// Must name CustomScheme explicitly: AddIdentity resets the default scheme to cookies
+// (Identity.Application). Roles-only [Authorize] would then 401 valid JWT Admin sessions.
+[Authorize(AuthenticationSchemes = "CustomScheme", Roles = "Admin,SuperAdmin")]
 public class UserGroupsController(UserGroupService userGroupService) : ControllerBase
 {
     [HttpGet]
