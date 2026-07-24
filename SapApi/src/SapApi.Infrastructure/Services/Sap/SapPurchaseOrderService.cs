@@ -68,7 +68,13 @@ namespace SapApi.Infrastructure.Services.Sap
             SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, data, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Create);
             if (policyApproval.PendingApproval)
             {
-                return policyApproval as SapPurchaseOrdersResponse;
+                // CheckApprovalPolicy returns SapInventoryTransferRequestResponse — never cast it
+                // to SapPurchaseOrdersResponse (that always yields null and hides pending state).
+                return new SapPurchaseOrdersResponse
+                {
+                    PendingApproval = true,
+                    PendingApprovalRequestId = policyApproval.PendingApprovalRequestId,
+                };
             }
             return await requestHandler.PostAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.GetAllSapPurchaseOrders, data);
         }
@@ -78,7 +84,11 @@ namespace SapApi.Infrastructure.Services.Sap
             SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, data, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Update);
             if (policyApproval.PendingApproval)
             {
-                return policyApproval as SapPurchaseOrdersResponse;
+                return new SapPurchaseOrdersResponse
+                {
+                    PendingApproval = true,
+                    PendingApprovalRequestId = policyApproval.PendingApprovalRequestId,
+                };
             }
             return await requestHandler.PatchAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.UpdateSapPurchaseOrders(data.DocEntry), data);
         }

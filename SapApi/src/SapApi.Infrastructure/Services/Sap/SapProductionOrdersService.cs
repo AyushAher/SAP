@@ -60,7 +60,11 @@ namespace SapApi.Infrastructure.Services.Sap
             SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, addedLines, ApprovalDocumentType.ProductionOrder, ApprovalAction.Update);
             if (policyApproval.PendingApproval)
             {
-                return policyApproval as SapProductionOrdersResponse;
+                return new SapProductionOrdersResponse
+                {
+                    PendingApproval = true,
+                    PendingApprovalRequestId = policyApproval.PendingApprovalRequestId,
+                };
             }
 
             var payload = PrepareProductionOrderForSapPut(addedLines);
@@ -96,7 +100,11 @@ namespace SapApi.Infrastructure.Services.Sap
             SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, addedLines, ApprovalDocumentType.ProductionOrder, ApprovalAction.Create);
             if (policyApproval.PendingApproval)
             {
-                return policyApproval as SapProductionOrdersResponse;
+                return new SapProductionOrdersResponse
+                {
+                    PendingApproval = true,
+                    PendingApprovalRequestId = policyApproval.PendingApprovalRequestId,
+                };
             }
             return await httpRequestHandler.PostAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 Constants.SapApiUrls.CreateProductionOrder, addedLines);

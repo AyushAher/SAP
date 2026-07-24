@@ -10,6 +10,7 @@ using SapApi.Infrastructure.Services;
 using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Requests;
+using SapApi.Shared.Responses.Sap;
 
 namespace SapApi.Tests.Services;
 
@@ -344,5 +345,33 @@ public class ApprovalServiceTests
 
         // Group would have matched (100 > 1), but user policy is preferred and its rule fails (100 !> 999999).
         result.PendingApproval.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task CheckApprovalPolicy_PurchaseOrderDocTotalAboveThreshold_RequiresApproval()
+    {
+        _context.ApprovalPolicies.Add(new ApprovalPolicy
+        {
+            CompanyDb = CompanyDb,
+            DocumentType = ApprovalDocumentType.PurchaseOrder,
+            RequesterUserId = RequesterId,
+            IsActive = true,
+            Approvers = [new ApprovalPolicyApprover { ApproverUserId = ApproverId, Priority = 1 }],
+            Rules = [new ApprovalPolicyRule { FieldName = "DocTotal", Operator = "GreaterThan", Value = "1000000" }],
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var po = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            DocTotal = 1_500_000,
+        };
+
+        var result = await _sut.CheckApprovalPolicy(
+            null, po, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Create);
+
+        result.PendingApproval.Should().BeTrue();
+        result.PendingApprovalRequestId.Should().NotBeNull();
     }
 }

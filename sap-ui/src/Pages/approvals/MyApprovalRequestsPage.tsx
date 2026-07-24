@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { AlertTriangle, Eye } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
@@ -22,7 +23,11 @@ const STATUS_FILTER_OPTIONS = [
 ]
 
 export function MyApprovalRequestsPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const flashMessage = (location.state as { message?: string } | null)?.message
   const [viewRow, setViewRow] = useState<ApprovalRequest | null>(null)
+  const [banner, setBanner] = useState<string | null>(flashMessage ?? null)
 
   const fetchRequests = useCallback(
     (request: Parameters<typeof listMyApprovalRequests>[0]) => listMyApprovalRequests(request),
@@ -82,6 +87,24 @@ export function MyApprovalRequestsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="My Approval Requests" description="Track your submitted approval requests" />
+      {banner ? (
+        <div
+          className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+          role="status"
+        >
+          {banner}
+          <button
+            type="button"
+            className="ml-3 underline"
+            onClick={() => {
+              setBanner(null)
+              navigate(location.pathname, { replace: true, state: {} })
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
       <DataTable columns={columns} fetchData={fetchData} getRowKey={(r) => r.id} initialSorts={[{ field: 'createdAt', direction: 'desc' }]} />
       <RequestViewDialog
         request={viewRow}

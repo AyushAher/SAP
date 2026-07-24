@@ -73,6 +73,12 @@ public class ApprovalExecutionService(
                     ApprovalAction.Update => await sapPurchaseOrderService.UpdatePurchaseOrder(body, request.Id),
                     _ => sapBaseResponse
                 };
+                if (sapBaseResponse is SapPurchaseOrdersResponse poResponse
+                    && string.IsNullOrEmpty(poResponse.Error?.Message?.Value))
+                {
+                    sapBaseResponse.ApprovalDocEntry = poResponse.DocEntry?.ToString();
+                    sapBaseResponse.ApprovalDocNumber = poResponse.DocNum?.ToString();
+                }
                 break;
             }
             case ApprovalDocumentType.StagewisePayments_DP:

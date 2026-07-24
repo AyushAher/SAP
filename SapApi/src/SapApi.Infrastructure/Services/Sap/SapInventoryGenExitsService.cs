@@ -16,7 +16,11 @@ namespace SapApi.Infrastructure.Services.Sap
             SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, request, SapApi.Shared.Enums.ApprovalDocumentType.IssueForProduction, ApprovalAction.Create);
             if (policyApproval.PendingApproval)
             {
-                return policyApproval as SapInventoryTransferRequestResponse;
+                return new SapBaseResponse
+                {
+                    PendingApproval = true,
+                    PendingApprovalRequestId = policyApproval.PendingApprovalRequestId,
+                };
             }
 
             return await httpRequestHandler.PostAsync<SapInventoryGenExitRequestOrderRequest, SapBaseResponse>(Constants.SapApiUrls.CreateInventoryGenExits, request);

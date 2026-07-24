@@ -11,6 +11,9 @@ export interface PurchaseOrder {
   DocumentStatus?: string
   VatSum?: number
   DocumentLines?: unknown[]
+  /** Set when create/update is deferred pending approval (not yet in SAP). */
+  pendingApproval?: boolean
+  pendingApprovalRequestId?: number
   [key: string]: unknown
 }
 

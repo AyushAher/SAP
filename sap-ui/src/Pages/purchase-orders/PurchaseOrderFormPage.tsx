@@ -263,8 +263,22 @@ export function PurchaseOrderFormPage() {
     setError(null)
     try {
       const payload = buildPayload()
-      if (id) await updatePurchaseOrder(Number(id), payload)
-      else await createPurchaseOrder(payload)
+      const result = id
+        ? await updatePurchaseOrder(Number(id), payload)
+        : await createPurchaseOrder(payload)
+      // Above-threshold POs are stored as approval requests until approved — not created in SAP yet.
+      if (result?.pendingApproval) {
+        await invalidatePurchaseOrders(id)
+        navigate(ROUTES.MY_APPROVAL_REQUESTS, {
+          state: {
+            message: id
+              ? 'Purchase order update submitted for approval. It will sync to SAP after approval.'
+              : 'Purchase order submitted for approval. It will appear in SAP after approval.',
+            approvalRequestId: result.pendingApprovalRequestId,
+          },
+        })
+        return
+      }
       await invalidatePurchaseOrders(id)
       navigate(ROUTES.PURCHASE_ORDERS)
     } catch (err) {

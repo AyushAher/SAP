@@ -20,9 +20,15 @@
         [JsonIgnore] public int? BaseDocNum { get; set; }
         [JsonIgnore] public string? ApprovalDocEntry { get; set; }
         [JsonIgnore] public string? ApprovalDocNumber { get; set; }
-        [JsonIgnore] public bool PendingApproval { get; set; } = false;
+        /// <summary>
+        /// Serialized so React clients can detect approval deferral. WhenWritingDefault keeps
+        /// false out of SAP Service Layer payloads.
+        /// </summary>
+        [JsonPropertyName("pendingApproval"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool PendingApproval { get; set; } = false;
         [JsonIgnore] public string? SupportingData { get; set; }
-        [JsonIgnore] public int? PendingApprovalRequestId { get; set; }
+        [JsonPropertyName("pendingApprovalRequestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? PendingApprovalRequestId { get; set; }
         [JsonIgnore] public bool HasNextPage => !string.IsNullOrEmpty(ODataNextLink);
 
         public long? GetTotalCount() => ODataCount ?? ODataCountV4;
