@@ -65,7 +65,8 @@ namespace SapApi.Infrastructure.Services.Sap
 
         public async Task<SapPurchaseOrdersResponse?> CreatePurchaseOrder(SapPurchaseOrdersResponse data, int? policyRequestId = null)
         {
-            SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, data, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Create);
+            var payload = SapPurchaseOrderPayloadBuilder.Prepare(data, isUpdate: false);
+            SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, payload, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Create);
             if (policyApproval.PendingApproval)
             {
                 // CheckApprovalPolicy returns SapInventoryTransferRequestResponse — never cast it
@@ -76,12 +77,13 @@ namespace SapApi.Infrastructure.Services.Sap
                     PendingApprovalRequestId = policyApproval.PendingApprovalRequestId,
                 };
             }
-            return await requestHandler.PostAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.GetAllSapPurchaseOrders, data);
+            return await requestHandler.PostAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.GetAllSapPurchaseOrders, payload);
         }
 
         public async Task<SapPurchaseOrdersResponse?> UpdatePurchaseOrder(SapPurchaseOrdersResponse data, int? policyRequestId = null)
         {
-            SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, data, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Update);
+            var payload = SapPurchaseOrderPayloadBuilder.Prepare(data, isUpdate: true);
+            SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, payload, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Update);
             if (policyApproval.PendingApproval)
             {
                 return new SapPurchaseOrdersResponse
@@ -90,7 +92,7 @@ namespace SapApi.Infrastructure.Services.Sap
                     PendingApprovalRequestId = policyApproval.PendingApprovalRequestId,
                 };
             }
-            return await requestHandler.PatchAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.UpdateSapPurchaseOrders(data.DocEntry), data);
+            return await requestHandler.PatchAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(Constants.SapApiUrls.UpdateSapPurchaseOrders(payload.DocEntry), payload);
         }
 
         public Task<SapGetAllProjectDetailsResponse?> GetAllProjectDetailsResponse()

@@ -19,7 +19,7 @@ export function useItemMasterMap(itemCodes: Array<string | undefined | null>) {
     let cancelled = false
     void Promise.all(codes.map(async (code) => {
       const item = await resolveItem(code)
-      return [code, { name: item?.ItemName, uom: item?.InventoryUom }] as const
+      return [code, { name: item?.ItemName, uom: item?.PurchaseUnit || item?.InventoryUom }] as const
     })).then((entries) => {
       if (cancelled) return
       setItemMap(Object.fromEntries(entries))

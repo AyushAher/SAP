@@ -2,6 +2,7 @@
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
+using SapApi.Shared.Exceptions;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 
@@ -637,19 +638,30 @@ public class StageWisePaymentService(
                }, 0);
         }
 
-        var sapResponse = await sapVendorPaymentService.CreateVendorPayments(new SapVendorPaymentRequests
+        SapVendorPaymentsResponse? sapResponse;
+        try
         {
-            CardCode = purchaseOrder?.CardCode ?? "",
-            TransferAccount = bank ?? "_SYS00000000980",
-            TransferDate = DateTime.UtcNow,
-            TransferSum = transferSum.ToString("F2"),
-            ProjectCode = purchaseOrder?.Project,
-            PoNumber = purchaseOrder?.DocNum?.ToString() ?? "",
-            Remarks = Constants.PaymentRemarks.Build(
-                userRemark, purchaseOrder?.BPLId, purchaseOrder?.DocNum?.ToString()),
-            PaymentInvoices = paymentInvoices.ToList(),
-            BPLId = purchaseOrder?.BPLId ?? 1,
-        }, supportingData: purchaseOrder?.DocEntry.ToString());
+            sapResponse = await sapVendorPaymentService.CreateVendorPayments(new SapVendorPaymentRequests
+            {
+                CardCode = purchaseOrder?.CardCode ?? "",
+                TransferAccount = bank ?? "_SYS00000000980",
+                TransferDate = DateTime.UtcNow,
+                TransferSum = transferSum.ToString("F2"),
+                ProjectCode = purchaseOrder?.Project,
+                PoNumber = purchaseOrder?.DocNum?.ToString() ?? "",
+                Remarks = Constants.PaymentRemarks.Build(
+                    userRemark, purchaseOrder?.BPLId, purchaseOrder?.DocNum?.ToString()),
+                PaymentInvoices = paymentInvoices.ToList(),
+                BPLId = purchaseOrder?.BPLId ?? 1,
+            }, supportingData: purchaseOrder?.DocEntry.ToString());
+        }
+        catch (ApiErrorException ex)
+        {
+            return (new SapBaseResponse
+            {
+                Error = new SapError { Message = new SapMessage { Value = ex.Message } },
+            }, 0);
+        }
 
         if (sapResponse is not null)
         {
@@ -701,7 +713,18 @@ public class StageWisePaymentService(
             ];
         }
 
-        var sapResponse = await sapPurchaseDownPaymentService.SaveDownPayment(req, supportingData: purchaseOrder?.DocEntry.ToString());
+        SapPurchaseDownPaymentResponse? sapResponse;
+        try
+        {
+            sapResponse = await sapPurchaseDownPaymentService.SaveDownPayment(req, supportingData: purchaseOrder?.DocEntry.ToString());
+        }
+        catch (ApiErrorException ex)
+        {
+            return (new SapBaseResponse
+            {
+                Error = new SapError { Message = new SapMessage { Value = ex.Message } },
+            }, 0);
+        }
         double tdsAmount = 0;
         if (sapResponse is not null)
         {

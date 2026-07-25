@@ -75,7 +75,7 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions Items => new()
     {
-        Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM",
+        Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit",
         KeyFields = ["ItemCode"],
         DefaultSortField = "ItemCode",
         DefaultSortDirection = "asc",

@@ -139,9 +139,10 @@ public class HttpRequestHandler(
             return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
         }
 
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
         if (typeof(T).IsAssignableTo(typeof(SapBaseResponse)))
         {
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
             var sapResult = JsonSerializer.Deserialize<SapBaseResponse>(json);
             if (sapResult?.Error?.Code == 301)
             {
@@ -156,11 +157,21 @@ public class HttpRequestHandler(
                 response = await client.SendAsync(request, cancellationToken);
                 if (response.IsSuccessStatusCode)
                     return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+
+                json = await response.Content.ReadAsStringAsync(cancellationToken);
+                sapResult = JsonSerializer.Deserialize<SapBaseResponse>(json);
             }
-            return JsonSerializer.Deserialize<T>(json);
+
+            // Never treat SAP error payloads as successful typed responses — callers would
+            // wrap them in ApiResponse.Ok and the UI would redirect as if the document existed.
+            throw new ApiErrorException(
+                BaseErrorCodes.ValidationFailed,
+                SapErrorFormatter.Format(sapResult, json, response.StatusCode));
         }
 
-        throw new ApiErrorException(await response.Content.ReadAsStringAsync(cancellationToken));
+        throw new ApiErrorException(
+            BaseErrorCodes.ValidationFailed,
+            SapErrorFormatter.TryExtractMessage(json) ?? $"SAP Service Layer request failed ({(int)response.StatusCode}).");
     }
 
     private async Task<SapQueryBaseResponse?> GetSqlQueryDetailsAsync(string queryName, CancellationToken cancellationToken)

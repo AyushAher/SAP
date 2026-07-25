@@ -35,6 +35,14 @@ public class MastersController(SapMasterDataService masterDataService) : Control
     public async Task<IActionResult> ListProjects([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchProjectsAsync(PaginationRequest.Normalize(request), cancellationToken));
 
+    [HttpPost("hsn-codes/list")]
+    public async Task<IActionResult> ListHsnCodes([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
+        Ok(await masterDataService.SearchHsnCodesAsync(PaginationRequest.Normalize(request), cancellationToken));
+
+    [HttpPost("sac-codes/list")]
+    public async Task<IActionResult> ListSacCodes([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
+        Ok(await masterDataService.SearchSacCodesAsync(PaginationRequest.Normalize(request), cancellationToken));
+
     [HttpGet("projects/{projectCode}")]
     public async Task<IActionResult> GetProject(string projectCode, [FromQuery] string? fields, CancellationToken cancellationToken)
     {

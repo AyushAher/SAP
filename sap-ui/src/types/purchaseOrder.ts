@@ -2,9 +2,25 @@ import type { DocumentLineItem } from '@/types/production'
 
 export interface PurchaseOrderLineItem extends DocumentLineItem {
   UomName?: string
+  UoMCode?: string
+  UoMEntry?: number
   StockQty?: number
   WeightKg?: number
   TaxableAmount?: number
+  DiscountPercent?: number
+  /** India GST AbsEntry (OCHP). */
+  HSNEntry?: number
+  /** Display label for HSN (not sent to SAP). */
+  HsnLabel?: string
+  /** India GST SAC AbsEntry. */
+  SACEntry?: number
+  SacLabel?: string
+  ProjectCode?: string
+  CostingCode?: string
+  CostingCode2?: string
+  CostingCode3?: string
+  CostingCode4?: string
+  CostingCode5?: string
 }
 
 export interface PaymentTermRow {

@@ -62,6 +62,98 @@ public class SapMasterDataService(
             r => r?.Value,
             cancellationToken);
 
+    public async Task<PaginationResponse<List<IndiaHsnCodeResponse>>> SearchHsnCodesAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+        var normalized = PaginationRequest.Normalize(request);
+        var all = await GetCachedIndiaHsnListAsync(cancellationToken);
+        return FilterAndPage(
+            all,
+            normalized,
+            item => string.Join(' ', item.AbsEntry, item.ChapterID, item.Chapter, item.Heading, item.SubHeading, item.Description, item.Dscription));
+    }
+
+    public async Task<PaginationResponse<List<IndiaSacCodeResponse>>> SearchSacCodesAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+        var normalized = PaginationRequest.Normalize(request);
+        var all = await GetCachedIndiaSacListAsync(cancellationToken);
+        return FilterAndPage(
+            all,
+            normalized,
+            item => string.Join(' ', item.AbsEntry, item.ServiceCode, item.Description));
+    }
+
+    private async Task<List<IndiaHsnCodeResponse>> GetCachedIndiaHsnListAsync(CancellationToken cancellationToken) =>
+        await cache.GetOrCreateAsync(
+            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:IndiaHsnService_GetList",
+            async () =>
+            {
+                try
+                {
+                    var envelope = await http.PostAsync<object, IndiaHsnListEnvelope>(
+                        Constants.SapApiUrls.IndiaHsnServiceGetList,
+                        new { },
+                        cancellationToken);
+                    return envelope?.Value ?? envelope?.IndiaHsn ?? [];
+                }
+                catch (Exception)
+                {
+                    // Company may not expose India HSN service — UI still allows manual AbsEntry.
+                    return [];
+                }
+            },
+            MasterDataCacheTtl,
+            cancellationToken) ?? [];
+
+    private async Task<List<IndiaSacCodeResponse>> GetCachedIndiaSacListAsync(CancellationToken cancellationToken) =>
+        await cache.GetOrCreateAsync(
+            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:IndiaSacService_GetList",
+            async () =>
+            {
+                try
+                {
+                    var envelope = await http.PostAsync<object, IndiaSacListEnvelope>(
+                        Constants.SapApiUrls.IndiaSacServiceGetList,
+                        new { },
+                        cancellationToken);
+                    return envelope?.Value ?? envelope?.IndiaSac ?? [];
+                }
+                catch (Exception)
+                {
+                    return [];
+                }
+            },
+            MasterDataCacheTtl,
+            cancellationToken) ?? [];
+
+    private static PaginationResponse<List<TItem>> FilterAndPage<TItem>(
+        IReadOnlyList<TItem> all,
+        PaginationRequest request,
+        Func<TItem, string> searchText)
+    {
+        IEnumerable<TItem> query = all;
+        var search = request.Filters
+            .FirstOrDefault(f => f.Field.Equals("__search", StringComparison.OrdinalIgnoreCase))
+            ?.Value?.ToString()
+            ?.Trim();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(item =>
+                searchText(item).Contains(search, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var filtered = query.ToList();
+        var page = Math.Max(1, request.PageNumber);
+        var size = Math.Clamp(request.PageSize ?? 20, 1, 200);
+        var items = filtered.Skip((page - 1) * size).Take(size).ToList();
+        return PaginationResponseFactory.Create(request, items, filtered.Count);
+    }
+
     public Task<PaginationResponse<List<SapBranchesResponse>>> SearchBusinessPlacesAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>
         SearchAsync<SapGetAllBranchesResponse, SapBranchesResponse>(
             Constants.SapApiUrls.BusinessPlacesCollection,
@@ -155,7 +247,9 @@ public class SapMasterDataService(
         {
             Filter = $"ItemCode eq '{safeCode}'",
             Select = SapPaginationBuilder.ResolveSelect(
-                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight", ItemLookupKeyFields, fields),
+                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit",
+                ItemLookupKeyFields,
+                fields),
             Top = "1",
         };
         var response = await GetCachedAsync<SapItemsResponse>(
@@ -245,7 +339,7 @@ public class SapMasterDataService(
     {
         // Match sap-ui Requests/masters.ts default field constants so cache keys align with live traffic.
         string[] itemDropdown = ["ItemCode", "ItemName"];
-        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM"];
+        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "InventoryWeight"];
         string[] warehouseDropdown = ["WarehouseCode", "City"];
         string[] taxDropdown = ["Code", "Name", "Rate"];
         string[] projectDropdown = ["Code", "Name"];

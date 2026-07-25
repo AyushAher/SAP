@@ -12,9 +12,15 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("LineNum"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? LineNum { get; set; }
 
-        [JsonPropertyName("Quantity")] public double Quantity { get; set; }
-        [JsonPropertyName("UnitPrice")] public double UnitPrice { get; set; }
-        [JsonPropertyName("DiscountPercent")] public double DiscountPercent { get; set; }
+        [JsonPropertyName("Quantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? Quantity { get; set; }
+
+        [JsonPropertyName("UnitPrice"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? UnitPrice { get; set; }
+
+        [JsonPropertyName("DiscountPercent"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? DiscountPercent { get; set; }
+
         [JsonPropertyName("BaseType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public object? BaseType { get; set; }
         [JsonPropertyName("BaseEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? BaseEntry { get; set; }
         [JsonPropertyName("BaseLine"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? BaseLine { get; set; }
@@ -48,13 +54,46 @@ namespace SapApi.Shared.Requests
 
         [JsonPropertyName("ItemDescription"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ItemDescription { get; set; }
+
         [JsonPropertyName("AccountCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? AccountCode { get; set; }
-        
+
+        /// <summary>India GST — AbsEntry from India HSN (OCHP) master.</summary>
+        [JsonPropertyName("HSNEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? HSNEntry { get; set; }
+
+        /// <summary>India GST — AbsEntry from India SAC master (service items).</summary>
+        [JsonPropertyName("SACEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? SACEntry { get; set; }
+
+        [JsonPropertyName("UoMCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UoMCode { get; set; }
+
+        [JsonPropertyName("UoMEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? UoMEntry { get; set; }
+
+        [JsonPropertyName("ProjectCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ProjectCode { get; set; }
+
+        [JsonPropertyName("CostingCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CostingCode { get; set; }
+
+        [JsonPropertyName("CostingCode2"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CostingCode2 { get; set; }
+
+        [JsonPropertyName("CostingCode3"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CostingCode3 { get; set; }
+
+        [JsonPropertyName("CostingCode4"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CostingCode4 { get; set; }
+
+        [JsonPropertyName("CostingCode5"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CostingCode5 { get; set; }
+
         [JsonIgnore]
-        public double RowTotalAfterDisc => UnitPrice * Quantity;
+        public double RowTotalAfterDisc => (UnitPrice ?? 0) * (Quantity ?? 0) * (1 - (DiscountPercent ?? 0) / 100);
         [JsonIgnore]
-        public double RowTaxAmount => RowTotalAfterDisc * TaxPercentagePerRow ?? 0;
+        public double RowTaxAmount => RowTotalAfterDisc * (TaxPercentagePerRow ?? 0) / 100;
         [JsonIgnore]
         public double LineGrandTotal => RowTotalAfterDisc + RowTaxAmount;
         public string GetWTLiableValue() =>

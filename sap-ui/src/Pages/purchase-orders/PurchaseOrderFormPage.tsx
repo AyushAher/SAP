@@ -41,6 +41,7 @@ import {
   useInvalidatePurchaseOrders,
   usePurchaseOrder,
 } from '@/hooks/usePurchaseOrders'
+import { toast } from '@/helpers/toast'
 import type { SelectOption } from '@/types'
 import type { PaymentTermRow, PurchaseOrderLineItem, PurchaseOrderLogistics, PurchaseOrderOtherTerms } from '@/types/purchaseOrder'
 import { PAYMENT_TERM_TYPE_OPTIONS } from '@/types/purchaseOrder'
@@ -82,12 +83,15 @@ export function PurchaseOrderFormPage() {
     CardName: '',
     Project: '',
     Comments: '',
+    NumAtCard: '',
     U_Owner: '',
     U_Stage: '',
     U_Warehouse: '',
     DocDate: todayIsoDate(),
     PostingDate: todayIsoDate(),
+    TaxDate: todayIsoDate(),
     DocDueDate: todayIsoDate(),
+    DueDate: todayIsoDate(),
     BPLId: authBranchId ?? 1,
     RoundingDiffAmount: 0,
     DocumentLines: [],
@@ -116,13 +120,14 @@ export function PurchaseOrderFormPage() {
 
   const summaryColumns: SapColumn<PurchaseOrderLineItem>[] = [
     { key: 'ItemCode', header: 'Item', accessor: (r) => formatCodeWithName(r.ItemCode, r.ItemDescription) },
+    { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
+    { key: 'Quantity', header: 'Qty', accessor: (r) => r.Quantity },
+    { key: 'UoMCode', header: 'UoM', accessor: (r) => r.UoMCode ?? r.UomName ?? '—' },
     { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoAmount(r.UnitPrice) },
-    { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => r.Quantity },
-    { key: 'UomName', header: 'Uom Name', accessor: (r) => r.UomName ?? '—' },
-    { key: 'StockQty', header: 'Stock Qty', accessor: (r) => r.StockQty ?? '—' },
-    { key: 'Uom', header: 'Uom', accessor: (r) => r.UomName ?? '—' },
-    { key: 'WeightKg', header: 'Weight (Kg)', accessor: (r) => formatPoAmount(r.WeightKg) },
-    { key: 'TaxableAmount', header: 'Taxable Amount', accessor: (r) => formatPoAmount(r.TaxableAmount ?? r.LineTotal) },
+    { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => r.DiscountPercent ?? '—' },
+    { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
+    { key: 'HSNEntry', header: 'HSN', accessor: (r) => r.HsnLabel ?? (r.HSNEntry != null ? String(r.HSNEntry) : '—') },
+    { key: 'TaxableAmount', header: 'Taxable', accessor: (r) => formatPoAmount(r.TaxableAmount ?? r.LineTotal) },
   ]
 
   const searchVendorOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
@@ -228,20 +233,43 @@ export function PurchaseOrderFormPage() {
   }
 
   const buildPayload = (): PurchaseOrder => {
+    const docDate = String(form.DocDate ?? form.PostingDate ?? todayIsoDate()).slice(0, 10)
+    const docDue = String(form.DocDueDate ?? form.DueDate ?? docDate).slice(0, 10)
+    const taxDate = String(form.TaxDate ?? docDate).slice(0, 10)
     let payload: Record<string, unknown> = {
       ...form,
-      DocumentLines: lines,
-      PostingDate: form.PostingDate ?? new Date().toISOString(),
-      DocDueDate: form.DocDueDate ?? form.DueDate,
+      DocumentLines: lines.map((line) => ({
+        ItemCode: line.ItemCode,
+        ItemDescription: line.ItemDescription,
+        Quantity: line.Quantity,
+        UnitPrice: line.UnitPrice,
+        DiscountPercent: line.DiscountPercent,
+        WarehouseCode: line.WarehouseCode,
+        TaxCode: line.TaxCode,
+        HSNEntry: line.HSNEntry,
+        SACEntry: line.SACEntry,
+        UoMCode: line.UoMCode ?? line.UomName,
+        ProjectCode: line.ProjectCode || form.Project || undefined,
+        CostingCode: line.CostingCode,
+        LineNum: line.LineNum,
+      })),
+      DocDate: docDate,
+      DocDueDate: docDue,
+      TaxDate: taxDate,
+      BPL_IDAssignedToInvoice: form.BPLId ?? authBranchId ?? 1,
       BPLId: form.BPLId ?? authBranchId ?? 1,
-      DocTotal: totals.totalPaymentDue,
-      VatSum: totals.tax,
-      RoundingDiffAmount: totals.roundingOff,
+      NumAtCard: form.NumAtCard || undefined,
       Comments: form.Comments,
       U_Owner: form.U_Owner,
       U_Stage: form.U_Stage,
       U_Warehouse: form.U_Warehouse,
+      RoundingDiffAmount: totals.roundingOff,
     }
+    // Do not send client-calculated totals — SAP computes them.
+    delete payload.DocTotal
+    delete payload.VatSum
+    delete payload.PostingDate
+    delete payload.DueDate
     payload = applyPaymentTermsToPo(payload, paymentTerms)
     payload = applyLogisticsToPo(payload, logistics)
     payload = applyOtherTermsToPo(payload, otherTerms)
@@ -253,10 +281,12 @@ export function PurchaseOrderFormPage() {
     if (!lines.length) {
       setError('Add at least one line item.')
       setActiveTab('items')
+      toast.error('Add at least one line item.')
       return
     }
     if (!form.CardCode) {
       setError('Select a business partner.')
+      toast.error('Select a business partner.')
       return
     }
     setSaving(true)
@@ -266,8 +296,14 @@ export function PurchaseOrderFormPage() {
       const result = id
         ? await updatePurchaseOrder(Number(id), payload)
         : await createPurchaseOrder(payload)
+
       // Above-threshold POs are stored as approval requests until approved — not created in SAP yet.
       if (result?.pendingApproval) {
+        toast.info(
+          id
+            ? 'Purchase order update submitted for approval.'
+            : 'Purchase order submitted for approval. It will appear in SAP after approval.',
+        )
         await invalidatePurchaseOrders(id)
         navigate(ROUTES.MY_APPROVAL_REQUESTS, {
           state: {
@@ -279,10 +315,36 @@ export function PurchaseOrderFormPage() {
         })
         return
       }
+
+      // Never redirect on create unless SAP returned a DocNum.
+      const sapError =
+        typeof result?.error === 'object' && result.error !== null
+          ? ((result.error as { message?: { value?: string } }).message?.value
+            ?? 'SAP rejected the purchase order.')
+          : null
+      if (sapError) {
+        setError(sapError)
+        toast.error(sapError)
+        return
+      }
+      if (!id && result?.DocNum == null) {
+        const message = 'Purchase order was not created in SAP (missing document number).'
+        setError(message)
+        toast.error(message)
+        return
+      }
+
+      toast.success(
+        result?.DocNum != null
+          ? `Purchase order ${result.DocNum} saved.`
+          : 'Purchase order saved.',
+      )
       await invalidatePurchaseOrders(id)
       navigate(ROUTES.PURCHASE_ORDERS)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed')
+      const message = err instanceof Error ? err.message : 'Save failed'
+      setError(message)
+      toast.error(message)
     } finally {
       setSaving(false)
     }
@@ -325,8 +387,14 @@ export function PurchaseOrderFormPage() {
                 <Input
                   label="Posting Date"
                   type="date"
-                  value={String(form.PostingDate ?? form.DocDate ?? '').slice(0, 10)}
-                  onChange={(e) => updateForm({ PostingDate: e.target.value, DocDate: e.target.value })}
+                  value={String(form.DocDate ?? form.PostingDate ?? '').slice(0, 10)}
+                  onChange={(e) => updateForm({ DocDate: e.target.value, PostingDate: e.target.value })}
+                />
+                <Input
+                  label="Document Date"
+                  type="date"
+                  value={String(form.TaxDate ?? form.DocDate ?? '').slice(0, 10)}
+                  onChange={(e) => updateForm({ TaxDate: e.target.value })}
                 />
                 <SearchableSelect
                   label="Project"
@@ -345,6 +413,11 @@ export function PurchaseOrderFormPage() {
                   type="date"
                   value={String(form.DocDueDate ?? form.DueDate ?? '').slice(0, 10)}
                   onChange={(e) => updateForm({ DocDueDate: e.target.value, DueDate: e.target.value })}
+                />
+                <Input
+                  label="Vendor Ref."
+                  value={String(form.NumAtCard ?? '')}
+                  onChange={(e) => updateForm({ NumAtCard: e.target.value })}
                 />
                 <Input
                   label="Stage"
@@ -368,6 +441,17 @@ export function PurchaseOrderFormPage() {
                   value={String(form.BPLId ?? authBranchId ?? '')}
                   onChange={(value) => updateForm({ BPLId: Number(value) })}
                   placeholder="Select branch"
+                />
+                <Input
+                  label="Owner"
+                  value={String(form.U_Owner ?? '')}
+                  onChange={(e) => updateForm({ U_Owner: e.target.value })}
+                />
+                <Input
+                  label="Comments"
+                  value={String(form.Comments ?? '')}
+                  onChange={(e) => updateForm({ Comments: e.target.value })}
+                  className="md:col-span-2 xl:col-span-2"
                 />
               </div>
             </section>
@@ -408,6 +492,7 @@ export function PurchaseOrderFormPage() {
                     lines={lines}
                     onChange={setLines}
                     defaultWarehouse={defaultWarehouse}
+                    defaultProject={String(form.Project ?? '')}
                   />
                 </TabsContent>
 

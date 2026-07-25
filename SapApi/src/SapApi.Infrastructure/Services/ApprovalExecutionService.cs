@@ -5,6 +5,7 @@ using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Enums;
+using SapApi.Shared.Exceptions;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 
@@ -27,6 +28,27 @@ public class ApprovalExecutionService(
         if (string.IsNullOrEmpty(request.RequestBody))
             return null;
 
+        try
+        {
+            return await ExecuteInternalAsync(request, data, cancellationToken);
+        }
+        catch (ApiErrorException ex)
+        {
+            // Final approval already mutated DB state — mark request Failed so it is visible
+            // instead of leaving "Approved" with no SAP document.
+            await approvalService.FailedAsync(request.Id, ex.Message);
+            return new SapBaseResponse
+            {
+                Error = new SapError
+                {
+                    Message = new SapMessage { Value = ex.Message },
+                },
+            };
+        }
+    }
+
+    private async Task<SapBaseResponse?> ExecuteInternalAsync(ApprovalRequest request, ApprovalActionData? data, CancellationToken cancellationToken)
+    {
         SapBaseResponse? sapBaseResponse = null;
         var utrNo = data?.UtrNo;
         var utrDate = data?.UtrDate;

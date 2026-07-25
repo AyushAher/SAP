@@ -6,7 +6,10 @@ export interface MasterItem {
   ItemCode?: string
   ItemName?: string
   InventoryUom?: string
+  PurchaseUnit?: string
   InventoryWeight?: number
+  ChapterID?: string
+  PurchaseVatGroup?: string
 }
 
 export interface MasterWarehouse {
@@ -24,6 +27,23 @@ export interface MasterTaxCode {
 export interface MasterProject {
   Code?: string
   Name?: string
+}
+
+export interface MasterHsnCode {
+  AbsEntry?: number
+  ChapterID?: string
+  Chapter?: string
+  Heading?: string
+  SubHeading?: string
+  Description?: string
+  DisplayLabel?: string
+}
+
+export interface MasterSacCode {
+  AbsEntry?: number
+  ServiceCode?: string
+  Description?: string
+  DisplayLabel?: string
 }
 
 export interface MasterBusinessPartner {
@@ -50,7 +70,49 @@ function normalizeItem(raw: Record<string, unknown> | MasterItem | undefined): M
     ItemCode: String(source.ItemCode ?? source.itemCode ?? ''),
     ItemName: String(source.ItemName ?? source.itemName ?? ''),
     InventoryUom: String(source.InventoryUom ?? source.inventoryUom ?? source.InventoryUOM ?? ''),
+    PurchaseUnit: String(source.PurchaseUnit ?? source.purchaseUnit ?? '') || undefined,
     InventoryWeight: Number(source.InventoryWeight ?? source.inventoryWeight ?? 0) || undefined,
+    ChapterID: source.ChapterID != null || source.chapterID != null
+      ? String(source.ChapterID ?? source.chapterID)
+      : undefined,
+    PurchaseVatGroup: String(source.PurchaseVatGroup ?? source.PurchaseVATGroup ?? source.purchaseVatGroup ?? '') || undefined,
+  }
+}
+
+function normalizeHsn(raw: Record<string, unknown> | MasterHsnCode | undefined): MasterHsnCode | undefined {
+  if (!raw) return undefined
+  const source = raw as Record<string, unknown>
+  const abs = Number(source.AbsEntry ?? source.absEntry)
+  if (!Number.isFinite(abs)) return undefined
+  const chapterID = String(source.ChapterID ?? source.chapterID ?? '')
+  const chapter = String(source.Chapter ?? source.chapter ?? '')
+  const heading = String(source.Heading ?? source.heading ?? '')
+  const sub = String(source.SubHeading ?? source.subHeading ?? '')
+  const desc = String(source.Description ?? source.description ?? source.Dscription ?? source.dscription ?? '')
+  const code = chapterID || [chapter, heading, sub].filter(Boolean).join('')
+  return {
+    AbsEntry: abs,
+    ChapterID: chapterID || undefined,
+    Chapter: chapter || undefined,
+    Heading: heading || undefined,
+    SubHeading: sub || undefined,
+    Description: desc || undefined,
+    DisplayLabel: desc ? `${code} - ${desc}` : code || String(abs),
+  }
+}
+
+function normalizeSac(raw: Record<string, unknown> | MasterSacCode | undefined): MasterSacCode | undefined {
+  if (!raw) return undefined
+  const source = raw as Record<string, unknown>
+  const abs = Number(source.AbsEntry ?? source.absEntry)
+  if (!Number.isFinite(abs)) return undefined
+  const serviceCode = String(source.ServiceCode ?? source.serviceCode ?? '')
+  const desc = String(source.Description ?? source.description ?? '')
+  return {
+    AbsEntry: abs,
+    ServiceCode: serviceCode || undefined,
+    Description: desc || undefined,
+    DisplayLabel: desc ? `${serviceCode || abs} - ${desc}` : (serviceCode || String(abs)),
   }
 }
 
@@ -87,21 +149,21 @@ async function searchMaster<T>(url: string, search: string, pageSize = 20, field
   return apiListPost<T>(url, createMasterSearchRequest(search, { pageSize, fields }))
 }
 
-/** Fields needed just to render a code+name dropdown option for an item. */
 export const ITEM_DROPDOWN_FIELDS = ['ItemCode', 'ItemName']
 /**
- * Fields needed by line editors that also resolve UOM for the selected item. Note: `InventoryWeight`
- * is intentionally not part of the items *list* endpoint's field set (see `SapPaginationProfiles.Items`)
- * — it's only available via the by-code lookup (`lookupItem`), so it's omitted here.
+ * Fields needed by line editors that also resolve UOM for the selected item.
  */
-export const ITEM_DETAIL_FIELDS = ['ItemCode', 'ItemName', 'InventoryUOM']
+export const ITEM_DETAIL_FIELDS = ['ItemCode', 'ItemName', 'InventoryUOM', 'PurchaseUnit', 'InventoryWeight']
 export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'City']
 export const TAX_CODE_DROPDOWN_FIELDS = ['Code', 'Name', 'Rate']
 export const PROJECT_DROPDOWN_FIELDS = ['Code', 'Name']
 export const BUSINESS_PARTNER_DROPDOWN_FIELDS = ['CardCode', 'CardName']
 
 export function searchItems(search: string, pageSize = 20, fields: string[] = ITEM_DROPDOWN_FIELDS) {
-  return searchMaster<MasterItem>('/masters/items/list', search, pageSize, fields)
+  return searchMaster<MasterItem>('/masters/items/list', search, pageSize, fields).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => normalizeItem(row as MasterItem)).filter(Boolean) as MasterItem[],
+  }))
 }
 
 export function searchWarehouses(search: string, pageSize = 20, fields: string[] = WAREHOUSE_DROPDOWN_FIELDS) {
@@ -114,6 +176,20 @@ export function searchTaxCodes(search: string, pageSize = 20, fields: string[] =
 
 export function searchProjects(search: string, pageSize = 20, fields: string[] = PROJECT_DROPDOWN_FIELDS) {
   return searchMaster<MasterProject>('/masters/projects/list', search, pageSize, fields)
+}
+
+export function searchHsnCodes(search: string, pageSize = 20) {
+  return searchMaster<MasterHsnCode>('/masters/hsn-codes/list', search, pageSize).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => normalizeHsn(row as MasterHsnCode)).filter(Boolean) as MasterHsnCode[],
+  }))
+}
+
+export function searchSacCodes(search: string, pageSize = 20) {
+  return searchMaster<MasterSacCode>('/masters/sac-codes/list', search, pageSize).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => normalizeSac(row as MasterSacCode)).filter(Boolean) as MasterSacCode[],
+  }))
 }
 
 export function searchVendors(search: string, pageSize = 20, fields: string[] = BUSINESS_PARTNER_DROPDOWN_FIELDS) {

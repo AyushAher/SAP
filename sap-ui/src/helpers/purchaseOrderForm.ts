@@ -136,17 +136,17 @@ export interface PurchaseOrderTotals {
 }
 
 export function calculateLineTotals(line: PurchaseOrderLineItem, taxRate = 0): PurchaseOrderLineItem {
-  const lineTotal = (line.UnitPrice ?? 0) * (line.Quantity ?? 0)
+  const qty = line.Quantity ?? 0
+  const price = line.UnitPrice ?? 0
+  const discountPct = line.DiscountPercent ?? 0
+  const lineTotal = price * qty * (1 - discountPct / 100)
   const taxTotal = line.TaxTotal ?? (lineTotal * taxRate) / 100
-  const taxableAmount = lineTotal
-  const weightKg = (line.WeightKg ?? 0) * (line.Quantity ?? 0)
   return {
     ...line,
     LineTotal: lineTotal,
     TaxTotal: taxTotal,
-    TaxableAmount: taxableAmount,
+    TaxableAmount: lineTotal,
     GrossTotal: lineTotal + taxTotal,
-    WeightKg: line.WeightKg ?? weightKg,
   }
 }
 

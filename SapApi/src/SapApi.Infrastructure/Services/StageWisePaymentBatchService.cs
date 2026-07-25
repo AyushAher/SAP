@@ -6,6 +6,7 @@ using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Enums;
+using SapApi.Shared.Exceptions;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses;
 using SapApi.Shared.Responses.Sap;
@@ -197,8 +198,17 @@ public class StageWisePaymentBatchService(
             ApplyAdditionalDetailsToVendorPayment(
                 vendorRequest, request, banks[0]!, po.BPLId, po.DocNum?.ToString());
 
-            var sapResponse = await vendorPaymentService.CreateVendorPayments(
-                vendorRequest, supportingData: po.DocEntry?.ToString());
+            // Never hold a DB transaction across SAP HTTP — convert SAP failures to tuple errors.
+            SapVendorPaymentsResponse? sapResponse;
+            try
+            {
+                sapResponse = await vendorPaymentService.CreateVendorPayments(
+                    vendorRequest, supportingData: po.DocEntry?.ToString());
+            }
+            catch (ApiErrorException ex)
+            {
+                return (false, $"SAP Error: {ex.Message}", null);
+            }
 
             if (sapResponse?.Error?.Message?.Value is not null)
                 return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null);
@@ -1239,8 +1249,16 @@ public class StageWisePaymentBatchService(
             ApplyAdditionalDetailsToVendorPayment(
                 vendorRequest, request, bank, po.BPLId, po.DocNum?.ToString());
 
-            var sapResponse = await vendorPaymentService.CreateVendorPayments(
-                vendorRequest, supportingData: po.DocEntry?.ToString());
+            SapVendorPaymentsResponse? sapResponse;
+            try
+            {
+                sapResponse = await vendorPaymentService.CreateVendorPayments(
+                    vendorRequest, supportingData: po.DocEntry?.ToString());
+            }
+            catch (ApiErrorException ex)
+            {
+                return (false, $"SAP Error: {ex.Message}", null, null, null, batchStatus);
+            }
 
             if (sapResponse?.Error?.Message?.Value is not null)
                 return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null, null, null, batchStatus);
