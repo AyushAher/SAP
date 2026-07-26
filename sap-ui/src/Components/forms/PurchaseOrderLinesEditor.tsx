@@ -13,7 +13,7 @@ import { isServicePoDocType, PO_TN } from '@/helpers/purchaseOrderTnValidation'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import {
-  ITEM_DETAIL_FIELDS,
+  lookupItem,
   searchGlAccounts,
   searchHsnCodes,
   searchItems,
@@ -133,7 +133,8 @@ export function PurchaseOrderLinesEditor({
   )
 
   const searchItemOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchItems(search, 20, ITEM_DETAIL_FIELDS)
+    // Keep list select narrow (ItemCode/ItemName) so SAP $select stays reliable.
+    const response = await searchItems(search, 20)
     return (response.data ?? []).map((item) => ({
       value: item.ItemCode ?? '',
       label: `${item.ItemCode ?? ''} - ${item.ItemName ?? ''}`.trim(),
@@ -432,25 +433,35 @@ export function PurchaseOrderLinesEditor({
                 onChange={(code, option) => {
                   const label = option?.label ?? code
                   const description = label.includes(' - ') ? label.split(' - ').slice(1).join(' - ') : ''
-                  const meta = option?.meta as MasterItem | undefined
-                  const uom = meta?.PurchaseUnit || meta?.InventoryUom || ''
-                  const taxCode = draft.TaxCode || meta?.PurchaseVatGroup || ''
                   setItemLabel(label)
                   setDraft({
                     ...draft,
                     ItemCode: code,
                     ItemDescription: description,
-                    UoMCode: uom || undefined,
-                    UomName: uom || undefined,
-                    WeightKg: meta?.InventoryWeight ?? 0,
-                    TaxCode: taxCode,
                     WarehouseCode: draft.WarehouseCode || defaultWarehouse,
                     ProjectCode: draft.ProjectCode || defaultProject,
                   })
-                  if (meta?.PurchaseVatGroup) setTaxLabel(meta.PurchaseVatGroup)
-                  const chapterId = meta?.ChapterID?.trim()
-                  if (chapterId) {
-                    void resolveHsnFromChapterId(chapterId).then((hsn) => {
+                  void (async () => {
+                    const meta = (await lookupItem(code)) ?? (option?.meta as MasterItem | undefined)
+                    if (!meta) return
+                    const uom = meta.PurchaseUnit || meta.InventoryUom || ''
+                    const taxCode = draft.TaxCode || meta.PurchaseVatGroup || ''
+                    setDraft((prev) => (
+                      prev.ItemCode === code
+                        ? {
+                            ...prev,
+                            ItemDescription: prev.ItemDescription || meta.ItemName || description,
+                            UoMCode: uom || prev.UoMCode,
+                            UomName: uom || prev.UomName,
+                            WeightKg: meta.InventoryWeight ?? prev.WeightKg,
+                            TaxCode: taxCode || prev.TaxCode,
+                          }
+                        : prev
+                    ))
+                    if (meta.PurchaseVatGroup) setTaxLabel(meta.PurchaseVatGroup)
+                    const chapterId = meta.ChapterID?.trim()
+                    if (chapterId) {
+                      const hsn = await resolveHsnFromChapterId(chapterId)
                       if (!hsn) return
                       setHsnLabel(hsn.HsnLabel ?? '')
                       setDraft((prev) => (
@@ -458,8 +469,8 @@ export function PurchaseOrderLinesEditor({
                           ? { ...prev, HSNEntry: hsn.HSNEntry, HsnLabel: hsn.HsnLabel }
                           : prev
                       ))
-                    })
-                  }
+                    }
+                  })()
                 }}
               />
               <Input

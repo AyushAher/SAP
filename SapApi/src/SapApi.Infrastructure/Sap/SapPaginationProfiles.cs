@@ -75,7 +75,7 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions Items => new()
     {
-        Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseVatGroup,ChapterID",
+        Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseVATGroup,ChapterID",
         KeyFields = ["ItemCode"],
         DefaultSortField = "ItemCode",
         DefaultSortDirection = "asc",
@@ -89,7 +89,9 @@ public static class SapPaginationProfiles
             ["InventoryUOM"] = "InventoryUOM",
             ["PurchaseUnit"] = "PurchaseUnit",
             ["InventoryWeight"] = "InventoryWeight",
-            ["PurchaseVatGroup"] = "PurchaseVatGroup",
+            // Service Layer property is PurchaseVATGroup (VAT capitalized).
+            ["PurchaseVATGroup"] = "PurchaseVATGroup",
+            ["PurchaseVatGroup"] = "PurchaseVATGroup",
             ["ChapterID"] = "ChapterID",
         },
     };

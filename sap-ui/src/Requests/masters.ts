@@ -180,7 +180,7 @@ export const ITEM_DETAIL_FIELDS = [
   'InventoryUOM',
   'PurchaseUnit',
   'InventoryWeight',
-  'PurchaseVatGroup',
+  'PurchaseVATGroup',
   'ChapterID',
 ]
 export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'City']

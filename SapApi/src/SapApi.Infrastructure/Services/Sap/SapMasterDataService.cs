@@ -277,9 +277,9 @@ public class SapMasterDataService(
         {
             Filter = $"ItemCode eq '{safeCode}'",
             Select = SapPaginationBuilder.ResolveSelect(
-                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit",
+                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseVATGroup,ChapterID",
                 ItemLookupKeyFields,
-                fields),
+                fields ?? ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID"]),
             Top = "1",
         };
         var response = await GetCachedAsync<SapItemsResponse>(
@@ -369,7 +369,7 @@ public class SapMasterDataService(
     {
         // Match sap-ui Requests/masters.ts default field constants so cache keys align with live traffic.
         string[] itemDropdown = ["ItemCode", "ItemName"];
-        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "InventoryWeight"];
+        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID"];
         string[] warehouseDropdown = ["WarehouseCode", "City"];
         string[] taxDropdown = ["Code", "Name", "Rate"];
         string[] projectDropdown = ["Code", "Name"];
