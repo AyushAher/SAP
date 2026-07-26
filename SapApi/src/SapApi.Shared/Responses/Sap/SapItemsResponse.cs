@@ -14,6 +14,8 @@
         [JsonPropertyName("InventoryItem"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? InventoryItem { get; set; }
         [JsonPropertyName("InventoryUOM"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? InventoryUom { get; set; }
         [JsonPropertyName("PurchaseUnit"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? PurchaseUnit { get; set; }
+        /// <summary>Items per purchase unit (NumInBuy) — used as default UnitsOfMeasurment on PO lines.</summary>
+        [JsonPropertyName("PurchaseItemsPerUnit"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double? PurchaseItemsPerUnit { get; set; }
         [JsonPropertyName("InventoryWeight"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double? InventoryWeight { get; set; }
         /// <summary>India GST — often the AbsEntry of the HSN chapter on the item master.</summary>
         [JsonPropertyName("ChapterID"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ChapterID { get; set; }

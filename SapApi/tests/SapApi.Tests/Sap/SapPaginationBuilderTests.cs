@@ -63,6 +63,23 @@ public class SapPaginationBuilderTests
     }
 
     [Test]
+    public void BuildSearchFilter_UsesUnquotedExactMatchForNumericCodeFields()
+    {
+        var request = new PaginationRequest
+        {
+            Filters = [new FilterModel { Field = "__search", Operator = "contains", Value = "18" }],
+        };
+
+        var salesQuery = SapPaginationBuilder.ToSapQueries(request, SapPaginationProfiles.SalesPersons);
+        salesQuery.Filter.Should().Contain("SalesEmployeeCode eq 18");
+        salesQuery.Filter.Should().NotContain("SalesEmployeeCode eq '18'");
+
+        var employeeQuery = SapPaginationBuilder.ToSapQueries(request, SapPaginationProfiles.EmployeesInfo);
+        employeeQuery.Filter.Should().Contain("EmployeeID eq 18");
+        employeeQuery.Filter.Should().NotContain("EmployeeID eq '18'");
+    }
+
+    [Test]
     public void ResolveTotalCount_UsesODataCountWhenPresent()
     {
         var response = new GetAllSapPurchaseOrdersResponse { ODataCount = 42 };

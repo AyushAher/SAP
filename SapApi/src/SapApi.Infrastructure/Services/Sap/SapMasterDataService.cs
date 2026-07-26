@@ -1,3 +1,4 @@
+using System.Globalization;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Sap;
 using SapApi.Shared;
@@ -212,6 +213,30 @@ public class SapMasterDataService(
             r => r?.Value,
             cancellationToken);
 
+    public async Task<SapSalesPersonResponse?> GetSalesPersonByCodeAsync(
+        int salesEmployeeCode,
+        CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+        try
+        {
+            return await GetCachedAsync<SapSalesPersonResponse>(
+                $"{Constants.SapApiUrls.SalesPersonsCollection}({salesEmployeeCode})",
+                cancellationToken);
+        }
+        catch
+        {
+            // Fall back to filtered list when key addressing is unavailable.
+            var page = await SearchSalesPersonsAsync(new PaginationRequest
+            {
+                PageNumber = 1,
+                PageSize = 5,
+                Filters = [new FilterModel { Field = "__search", Operator = "contains", Value = salesEmployeeCode.ToString(CultureInfo.InvariantCulture) }],
+            }, cancellationToken);
+            return page.Data?.FirstOrDefault(sp => sp.SalesEmployeeCode == salesEmployeeCode);
+        }
+    }
+
     public Task<PaginationResponse<List<SapEmployeeInfoResponse>>> SearchEmployeesAsync(
         PaginationRequest request,
         CancellationToken cancellationToken = default) =>
@@ -221,6 +246,29 @@ public class SapMasterDataService(
             request,
             r => r?.Value,
             cancellationToken);
+
+    public async Task<SapEmployeeInfoResponse?> GetEmployeeByIdAsync(
+        int employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+        try
+        {
+            return await GetCachedAsync<SapEmployeeInfoResponse>(
+                $"{Constants.SapApiUrls.EmployeesInfoCollection}({employeeId})",
+                cancellationToken);
+        }
+        catch
+        {
+            var page = await SearchEmployeesAsync(new PaginationRequest
+            {
+                PageNumber = 1,
+                PageSize = 5,
+                Filters = [new FilterModel { Field = "__search", Operator = "contains", Value = employeeId.ToString(CultureInfo.InvariantCulture) }],
+            }, cancellationToken);
+            return page.Data?.FirstOrDefault(emp => emp.EmployeeID == employeeId);
+        }
+    }
 
     public Task<PaginationResponse<List<SapBusinessPartner>>> SearchCustomersAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>
         SearchAsync<SapBusinessPartnerResponse, SapBusinessPartner>(
@@ -277,9 +325,9 @@ public class SapMasterDataService(
         {
             Filter = $"ItemCode eq '{safeCode}'",
             Select = SapPaginationBuilder.ResolveSelect(
-                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseVATGroup,ChapterID",
+                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseItemsPerUnit,PurchaseVATGroup,ChapterID",
                 ItemLookupKeyFields,
-                fields ?? ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID"]),
+                fields ?? ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID"]),
             Top = "1",
         };
         var response = await GetCachedAsync<SapItemsResponse>(
@@ -369,7 +417,7 @@ public class SapMasterDataService(
     {
         // Match sap-ui Requests/masters.ts default field constants so cache keys align with live traffic.
         string[] itemDropdown = ["ItemCode", "ItemName"];
-        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID"];
+        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID"];
         string[] warehouseDropdown = ["WarehouseCode", "City"];
         string[] taxDropdown = ["Code", "Name", "Rate"];
         string[] projectDropdown = ["Code", "Name"];

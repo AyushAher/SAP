@@ -72,6 +72,20 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("UoMEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? UoMEntry { get; set; }
 
+        /// <summary>SAP NumPerMsr — items per purchase unit (Inventory qty ÷ Purchase qty).</summary>
+        [JsonPropertyName("UnitsOfMeasurment"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? UnitsOfMeasurment { get; set; }
+
+        /// <summary>Inventory/stock quantity for the line (Quantity × UnitsOfMeasurment).</summary>
+        [JsonPropertyName("InventoryQuantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? InventoryQuantity { get; set; }
+
+        /// <summary>
+        /// SAP UseBaseUn — Inventory UoM Yes/No. tYES when UnitsOfMeasurment is 1, otherwise tNO.
+        /// </summary>
+        [JsonPropertyName("UseBaseUnits"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UseBaseUnits { get; set; }
+
         [JsonPropertyName("ProjectCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ProjectCode { get; set; }
 

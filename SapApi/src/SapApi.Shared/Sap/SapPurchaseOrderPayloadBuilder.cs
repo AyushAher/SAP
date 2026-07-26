@@ -191,6 +191,17 @@ public static class SapPurchaseOrderPayloadBuilder
                     SACEntry = line.SACEntry,
                     UoMCode = NullIfWhiteSpace(line.UoMCode),
                     UoMEntry = line.UoMEntry,
+                    UnitsOfMeasurment = line.UnitsOfMeasurment,
+                    InventoryQuantity = line.InventoryQuantity
+                        ?? (line.Quantity is > 0 && line.UnitsOfMeasurment is > 0
+                            ? line.Quantity * line.UnitsOfMeasurment
+                            : null),
+                    UseBaseUnits = NullIfWhiteSpace(line.UseBaseUnits)
+                        ?? (line.UnitsOfMeasurment is double per && Math.Abs(per - 1d) < 1e-9
+                            ? Constants.SapBoolean.SapTrue
+                            : line.UnitsOfMeasurment is not null
+                                ? Constants.SapBoolean.SapFalse
+                                : null),
                     ProjectCode = NullIfWhiteSpace(line.ProjectCode),
                     CostingCode = NullIfWhiteSpace(line.CostingCode),
                     CostingCode2 = NullIfWhiteSpace(line.CostingCode2),

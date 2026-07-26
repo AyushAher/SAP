@@ -141,13 +141,52 @@ export function calculateLineTotals(line: PurchaseOrderLineItem, taxRate = 0): P
   const discountPct = line.DiscountPercent ?? 0
   const lineTotal = price * qty * (1 - discountPct / 100)
   const taxTotal = line.TaxTotal ?? (lineTotal * taxRate) / 100
+  const withUom = applyStockPurchaseQty(line)
   return {
-    ...line,
+    ...withUom,
     LineTotal: lineTotal,
     TaxTotal: taxTotal,
     TaxableAmount: lineTotal,
     GrossTotal: lineTotal + taxTotal,
   }
+}
+
+/** Items per unit = Stock Qty ÷ Purchase Qty (SAP UnitsOfMeasurment). */
+export function calcItemsPerUnit(stockQty?: number | null, purchaseQty?: number | null): number | undefined {
+  if (purchaseQty == null || purchaseQty <= 0 || stockQty == null || !Number.isFinite(stockQty)) return undefined
+  return stockQty / purchaseQty
+}
+
+/** SAP UseBaseUnits: Inventory UoM Yes when items/unit is 1. */
+export function calcUseBaseUnits(itemsPerUnit?: number | null): 'tYES' | 'tNO' | undefined {
+  if (itemsPerUnit == null || !Number.isFinite(itemsPerUnit)) return undefined
+  return Math.abs(itemsPerUnit - 1) < 1e-9 ? 'tYES' : 'tNO'
+}
+
+/** Keep Quantity (purchase), StockQty, UnitsOfMeasurment, and UseBaseUnits in sync. */
+export function applyStockPurchaseQty(line: PurchaseOrderLineItem): PurchaseOrderLineItem {
+  const purchaseQty = line.Quantity ?? 0
+  const stockQty = line.StockQty
+  const itemsPerUnit = calcItemsPerUnit(stockQty, purchaseQty)
+  return {
+    ...line,
+    UnitsOfMeasurment: itemsPerUnit,
+    UseBaseUnits: calcUseBaseUnits(itemsPerUnit),
+  }
+}
+
+export function withPurchaseQty(line: PurchaseOrderLineItem, purchaseQty: number): PurchaseOrderLineItem {
+  return applyStockPurchaseQty({
+    ...line,
+    Quantity: purchaseQty,
+  })
+}
+
+export function withStockQty(line: PurchaseOrderLineItem, stockQty: number): PurchaseOrderLineItem {
+  return applyStockPurchaseQty({
+    ...line,
+    StockQty: stockQty,
+  })
 }
 
 export function calculatePurchaseOrderTotals(

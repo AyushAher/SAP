@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import { cn } from '@/helpers/lib/utils'
@@ -77,9 +77,12 @@ export function SearchableSelect({
 
   useClickOutside(containerRef, menuRef, () => setIsOpen(false))
 
-  const allOptions = mergeOptions(options, resolvedOptions)
+  const allOptions = useMemo(
+    () => mergeOptions(options, resolvedOptions),
+    [options, resolvedOptions],
+  )
   const selectedOption = allOptions.find((opt) => opt.value === value)
-  const displayLabel = getSelectDisplayLabel(value, allOptions, selectedLabel ?? selectedOption?.label)
+  const displayLabel = getSelectDisplayLabel(value, allOptions, selectedLabel || selectedOption?.label)
   const hasValue = Boolean(value && displayLabel)
 
   const handleSelect = useCallback((option: SelectOption) => {
@@ -120,7 +123,9 @@ export function SearchableSelect({
   }, [debouncedSearch, isOpen, loadOptions])
 
   useEffect(() => {
-    if (!value || selectedLabel) return
+    // When selectedLabel is only the raw code, still try to resolve a display name.
+    const labelIsRawValue = Boolean(selectedLabel && value && selectedLabel.trim() === String(value).trim())
+    if (!value || (selectedLabel && !labelIsRawValue)) return
 
     let cancelled = false
     void (async () => {
@@ -165,6 +170,7 @@ export function SearchableSelect({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder={searchPlaceholder}
           className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
           autoFocus

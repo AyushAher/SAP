@@ -7,6 +7,8 @@ export interface MasterItem {
   ItemName?: string
   InventoryUom?: string
   PurchaseUnit?: string
+  /** Items per purchase unit from item master (NumInBuy). */
+  PurchaseItemsPerUnit?: number
   InventoryWeight?: number
   ChapterID?: string
   PurchaseVatGroup?: string
@@ -89,6 +91,9 @@ function normalizeItem(raw: Record<string, unknown> | MasterItem | undefined): M
     ItemName: String(source.ItemName ?? source.itemName ?? ''),
     InventoryUom: String(source.InventoryUom ?? source.inventoryUom ?? source.InventoryUOM ?? ''),
     PurchaseUnit: String(source.PurchaseUnit ?? source.purchaseUnit ?? '') || undefined,
+    PurchaseItemsPerUnit: Number.isFinite(Number(source.PurchaseItemsPerUnit ?? source.purchaseItemsPerUnit))
+      ? Number(source.PurchaseItemsPerUnit ?? source.purchaseItemsPerUnit)
+      : undefined,
     InventoryWeight: Number(source.InventoryWeight ?? source.inventoryWeight ?? 0) || undefined,
     ChapterID: source.ChapterID != null || source.chapterID != null
       ? String(source.ChapterID ?? source.chapterID)
@@ -179,6 +184,7 @@ export const ITEM_DETAIL_FIELDS = [
   'ItemName',
   'InventoryUOM',
   'PurchaseUnit',
+  'PurchaseItemsPerUnit',
   'InventoryWeight',
   'PurchaseVATGroup',
   'ChapterID',
@@ -278,6 +284,45 @@ export function searchEmployees(search: string, pageSize = 20) {
       } satisfies MasterEmployee
     }).filter(Boolean) as MasterEmployee[],
   }))
+}
+
+export async function lookupSalesPerson(salesEmployeeCode: number | string): Promise<MasterSalesPerson | undefined> {
+  const code = Number(salesEmployeeCode)
+  if (!Number.isFinite(code)) return undefined
+  const { apiGet } = await import('@/helpers/api/client')
+  try {
+    const raw = await apiGet<Record<string, unknown>>(`/masters/sales-persons/${code}`)
+    const resolved = Number(raw.SalesEmployeeCode ?? raw.salesEmployeeCode)
+    if (!Number.isFinite(resolved)) return undefined
+    return {
+      SalesEmployeeCode: resolved,
+      SalesEmployeeName: String(raw.SalesEmployeeName ?? raw.salesEmployeeName ?? ''),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+export async function lookupEmployee(employeeId: number | string): Promise<MasterEmployee | undefined> {
+  const id = Number(employeeId)
+  if (!Number.isFinite(id)) return undefined
+  const { apiGet } = await import('@/helpers/api/client')
+  try {
+    const raw = await apiGet<Record<string, unknown>>(`/masters/employees/${id}`)
+    const resolved = Number(raw.EmployeeID ?? raw.employeeID)
+    if (!Number.isFinite(resolved)) return undefined
+    const first = String(raw.FirstName ?? raw.firstName ?? '')
+    const last = String(raw.LastName ?? raw.lastName ?? '')
+    const name = [first, last].filter(Boolean).join(' ')
+    return {
+      EmployeeID: resolved,
+      FirstName: first || undefined,
+      LastName: last || undefined,
+      DisplayName: name || String(resolved),
+    }
+  } catch {
+    return undefined
+  }
 }
 
 export function searchCustomers(search: string, pageSize = 20, fields: string[] = BUSINESS_PARTNER_DROPDOWN_FIELDS) {

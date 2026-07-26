@@ -8,7 +8,7 @@ import {
 } from '@/Components/shared/RowActions'
 import { Button, Input, Modal, SearchableSelect } from '@/Components/ui'
 import { formatCodeWithName } from '@/helpers/masterLookup'
-import { calculateLineTotals } from '@/helpers/purchaseOrderForm'
+import { applyStockPurchaseQty, calculateLineTotals, calcItemsPerUnit, calcUseBaseUnits, withPurchaseQty, withStockQty } from '@/helpers/purchaseOrderForm'
 import { isServicePoDocType, PO_TN } from '@/helpers/purchaseOrderTnValidation'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
@@ -45,6 +45,10 @@ const emptyLine = (): PurchaseOrderLineItem => ({
   ItemCode: '',
   ItemDescription: '',
   Quantity: 0,
+  StockQty: 0,
+  StockUom: '',
+  UoMCode: '',
+  UnitsOfMeasurment: undefined,
   UnitPrice: 0,
   DiscountPercent: undefined,
   TaxCode: '',
@@ -265,6 +269,12 @@ export function PurchaseOrderLinesEditor({
     } else if (!draft.ItemCode) {
       toast.error('Select an item.')
       return
+    } else if (!(draft.Quantity != null && draft.Quantity > 0)) {
+      toast.error('Purchase Qty must be greater than zero.')
+      return
+    } else if (!(draft.StockQty != null && draft.StockQty > 0)) {
+      toast.error('Stock Qty must be greater than zero.')
+      return
     }
 
     if (requireProdNo && !draft.U_ProdNo?.trim()) {
@@ -276,16 +286,19 @@ export function PurchaseOrderLinesEditor({
       return
     }
 
-    const nextLine = enrichLine({
+    const nextLine = enrichLine(applyStockPurchaseQty({
       ...draft,
       ItemCode: isService ? undefined : draft.ItemCode,
       WarehouseCode: isService ? undefined : (draft.WarehouseCode || defaultWarehouse),
       UoMCode: isService ? undefined : draft.UoMCode,
       UomName: isService ? undefined : draft.UomName,
+      StockUom: isService ? undefined : draft.StockUom,
+      StockQty: isService ? undefined : draft.StockQty,
+      UnitsOfMeasurment: isService ? undefined : draft.UnitsOfMeasurment,
       HSNEntry: isService ? undefined : draft.HSNEntry,
       AccountCode: isService ? draft.AccountCode : undefined,
       ProjectCode: draft.ProjectCode || defaultProject || undefined,
-    })
+    }))
 
     if (editingIndex != null) {
       const next = [...lines]
@@ -308,8 +321,29 @@ export function PurchaseOrderLinesEditor({
       accessor: (r) => formatCodeWithName(r.ItemCode, r.ItemDescription ?? itemMap[r.ItemCode ?? '']?.name),
     },
     { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
-    { key: 'Quantity', header: 'Qty', accessor: (r) => r.Quantity },
-    { key: 'UoMCode', header: 'UoM', accessor: (r) => r.UoMCode ?? r.UomName ?? itemMap[r.ItemCode ?? '']?.uom ?? '—' },
+    { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => r.Quantity },
+    { key: 'UoMCode', header: 'Purchase UoM', accessor: (r) => r.UoMCode ?? r.UomName ?? '—' },
+    { key: 'StockQty', header: 'Stock Qty', accessor: (r) => r.StockQty ?? '—' },
+    { key: 'StockUom', header: 'Stock UoM', accessor: (r) => r.StockUom ?? '—' },
+    {
+      key: 'UnitsOfMeasurment',
+      header: 'Items/Unit',
+      accessor: (r) => {
+        const factor = r.UnitsOfMeasurment ?? calcItemsPerUnit(r.StockQty, r.Quantity)
+        return factor != null ? formatPoCell(factor) : '—'
+      },
+    },
+    {
+      key: 'UseBaseUnits',
+      header: 'Inventory UoM',
+      accessor: (r) => {
+        const flag = r.UseBaseUnits
+          ?? calcUseBaseUnits(r.UnitsOfMeasurment ?? calcItemsPerUnit(r.StockQty, r.Quantity))
+        if (flag === 'tYES') return 'Yes'
+        if (flag === 'tNO') return 'No'
+        return '—'
+      },
+    },
     { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice) },
     { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => r.DiscountPercent ?? '—' },
     { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
@@ -444,18 +478,28 @@ export function PurchaseOrderLinesEditor({
                   void (async () => {
                     const meta = (await lookupItem(code)) ?? (option?.meta as MasterItem | undefined)
                     if (!meta) return
-                    const uom = meta.PurchaseUnit || meta.InventoryUom || ''
+                    const purchaseUom = meta.PurchaseUnit || meta.InventoryUom || ''
+                    const stockUom = meta.InventoryUom || meta.PurchaseUnit || ''
+                    const itemsPerUnit = meta.PurchaseItemsPerUnit != null && meta.PurchaseItemsPerUnit > 0
+                      ? meta.PurchaseItemsPerUnit
+                      : 1
+                    const purchaseQty = draft.Quantity && draft.Quantity > 0 ? draft.Quantity : 1
+                    const stockQty = purchaseQty * itemsPerUnit
                     const taxCode = draft.TaxCode || meta.PurchaseVatGroup || ''
                     setDraft((prev) => (
                       prev.ItemCode === code
-                        ? {
+                        ? applyStockPurchaseQty({
                             ...prev,
                             ItemDescription: prev.ItemDescription || meta.ItemName || description,
-                            UoMCode: uom || prev.UoMCode,
-                            UomName: uom || prev.UomName,
+                            UoMCode: purchaseUom || prev.UoMCode,
+                            UomName: purchaseUom || prev.UomName,
+                            StockUom: stockUom || prev.StockUom,
+                            Quantity: purchaseQty,
+                            StockQty: stockQty,
+                            UnitsOfMeasurment: itemsPerUnit,
                             WeightKg: meta.InventoryWeight ?? prev.WeightKg,
                             TaxCode: taxCode || prev.TaxCode,
-                          }
+                          })
                         : prev
                     ))
                     if (meta.PurchaseVatGroup) setTaxLabel(meta.PurchaseVatGroup)
@@ -490,21 +534,68 @@ export function PurchaseOrderLinesEditor({
                 }}
               />
               <Input
-                label="UoM"
+                label="Purchase Qty *"
+                type="number"
+                min="0"
+                nonNegative
+                value={String(draft.Quantity ?? 0)}
+                onChange={(e) => setDraft(withPurchaseQty(draft, Number(e.target.value)))}
+                required
+              />
+              <Input
+                label="Purchase UoM"
                 value={draft.UoMCode ?? draft.UomName ?? ''}
                 onChange={(e) => setDraft({ ...draft, UoMCode: e.target.value, UomName: e.target.value })}
               />
+              <Input
+                label="Stock Qty *"
+                type="number"
+                min="0"
+                nonNegative
+                value={String(draft.StockQty ?? 0)}
+                onChange={(e) => setDraft(withStockQty(draft, Number(e.target.value)))}
+                required
+              />
+              <Input
+                label="Stock UoM"
+                value={draft.StockUom ?? ''}
+                onChange={(e) => setDraft({ ...draft, StockUom: e.target.value })}
+              />
+              <Input
+                label="Items per Unit"
+                type="number"
+                value={(() => {
+                  const factor = draft.UnitsOfMeasurment ?? calcItemsPerUnit(draft.StockQty, draft.Quantity)
+                  return factor != null ? String(Number(factor.toFixed(6))) : ''
+                })()}
+                readOnly
+                hint="Stock Qty ÷ Purchase Qty (sent to SAP as UnitsOfMeasurment)."
+              />
+              <Input
+                label="Inventory UoM"
+                value={(() => {
+                  const flag = draft.UseBaseUnits
+                    ?? calcUseBaseUnits(draft.UnitsOfMeasurment ?? calcItemsPerUnit(draft.StockQty, draft.Quantity))
+                  if (flag === 'tYES') return 'Yes'
+                  if (flag === 'tNO') return 'No'
+                  return ''
+                })()}
+                readOnly
+                hint="Yes when Items per Unit is 1; otherwise No (SAP UseBaseUnits)."
+              />
             </>
           )}
-          <Input
-            label="Quantity"
-            type="number"
-            min="0"
-            nonNegative
-            value={String(draft.Quantity ?? 0)}
-            onChange={(e) => setDraft({ ...draft, Quantity: Number(e.target.value) })}
-            required
-          />
+          {isService ? (
+            <Input
+              label="Quantity"
+              type="number"
+              min="0"
+              nonNegative
+              value={String(draft.Quantity ?? 0)}
+              onChange={(e) => setDraft({ ...draft, Quantity: Number(e.target.value) })}
+              required
+            />
+          ) : null}
           <Input
             label="Unit Price"
             type="number"

@@ -51,9 +51,27 @@ public class MastersController(SapMasterDataService masterDataService) : Control
     public async Task<IActionResult> ListSalesPersons([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchSalesPersonsAsync(PaginationRequest.Normalize(request), cancellationToken));
 
+    [HttpGet("sales-persons/{salesEmployeeCode:int}")]
+    public async Task<IActionResult> GetSalesPerson(int salesEmployeeCode, CancellationToken cancellationToken)
+    {
+        var person = await masterDataService.GetSalesPersonByCodeAsync(salesEmployeeCode, cancellationToken);
+        return person is null
+            ? NotFound(ApiResponse<object>.Fail("SYS-02", "Sales person not found"))
+            : Ok(ApiResponse<object>.Ok(person));
+    }
+
     [HttpPost("employees/list")]
     public async Task<IActionResult> ListEmployees([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchEmployeesAsync(PaginationRequest.Normalize(request), cancellationToken));
+
+    [HttpGet("employees/{employeeId:int}")]
+    public async Task<IActionResult> GetEmployee(int employeeId, CancellationToken cancellationToken)
+    {
+        var employee = await masterDataService.GetEmployeeByIdAsync(employeeId, cancellationToken);
+        return employee is null
+            ? NotFound(ApiResponse<object>.Fail("SYS-02", "Employee not found"))
+            : Ok(ApiResponse<object>.Ok(employee));
+    }
 
     [HttpGet("projects/{projectCode}")]
     public async Task<IActionResult> GetProject(string projectCode, [FromQuery] string? fields, CancellationToken cancellationToken)

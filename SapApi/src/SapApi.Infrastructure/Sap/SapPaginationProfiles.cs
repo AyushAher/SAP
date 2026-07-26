@@ -75,7 +75,7 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions Items => new()
     {
-        Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseVATGroup,ChapterID",
+        Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseItemsPerUnit,PurchaseVATGroup,ChapterID",
         KeyFields = ["ItemCode"],
         DefaultSortField = "ItemCode",
         DefaultSortDirection = "asc",
@@ -88,6 +88,7 @@ public static class SapPaginationProfiles
             ["ItemName"] = "ItemName",
             ["InventoryUOM"] = "InventoryUOM",
             ["PurchaseUnit"] = "PurchaseUnit",
+            ["PurchaseItemsPerUnit"] = "PurchaseItemsPerUnit",
             ["InventoryWeight"] = "InventoryWeight",
             // Service Layer property is PurchaseVATGroup (VAT capitalized).
             ["PurchaseVATGroup"] = "PurchaseVATGroup",
@@ -202,6 +203,7 @@ public static class SapPaginationProfiles
         DefaultSortDirection = "asc",
         SearchOrFields = ["SalesEmployeeCode", "SalesEmployeeName"],
         SearchCodeFields = ["SalesEmployeeCode"],
+        NumericSearchCodeFields = ["SalesEmployeeCode"],
         SearchTextFields = ["SalesEmployeeName"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -218,6 +220,7 @@ public static class SapPaginationProfiles
         DefaultSortDirection = "asc",
         SearchOrFields = ["EmployeeID", "FirstName", "LastName"],
         SearchCodeFields = ["EmployeeID"],
+        NumericSearchCodeFields = ["EmployeeID"],
         SearchTextFields = ["FirstName", "LastName"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {

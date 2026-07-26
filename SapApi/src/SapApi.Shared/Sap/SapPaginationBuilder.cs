@@ -132,9 +132,19 @@ public static class SapPaginationBuilder
         foreach (var field in codeFields)
         {
             if (exactCode)
-                clauses.Add($"{field} eq '{escaped}'");
+            {
+                var isNumeric = options.NumericSearchCodeFields.Contains(field, StringComparer.OrdinalIgnoreCase)
+                    && long.TryParse(escaped, NumberStyles.Integer, CultureInfo.InvariantCulture, out _);
+                clauses.Add(isNumeric
+                    ? $"{field} eq {escaped}"
+                    : $"{field} eq '{escaped}'");
+            }
             else if (escaped.Length >= 1)
-                clauses.Add($"startswith({field},'{escaped}')");
+            {
+                // startswith is invalid on numeric SAP fields — skip those for free-text search.
+                if (!options.NumericSearchCodeFields.Contains(field, StringComparer.OrdinalIgnoreCase))
+                    clauses.Add($"startswith({field},'{escaped}')");
+            }
         }
 
         foreach (var field in textFields)
@@ -155,9 +165,18 @@ public static class SapPaginationBuilder
             foreach (var field in options.SearchOrFields)
             {
                 if (exactCode)
-                    clauses.Add($"{field} eq '{escaped}'");
-                else
+                {
+                    var isNumeric = options.NumericSearchCodeFields.Contains(field, StringComparer.OrdinalIgnoreCase)
+                        && long.TryParse(escaped, NumberStyles.Integer, CultureInfo.InvariantCulture, out _);
+                    if (isNumeric)
+                        clauses.Add($"{field} eq {escaped}");
+                    else if (!options.NumericSearchCodeFields.Contains(field, StringComparer.OrdinalIgnoreCase))
+                        clauses.Add($"{field} eq '{escaped}'");
+                }
+                else if (!options.NumericSearchCodeFields.Contains(field, StringComparer.OrdinalIgnoreCase))
+                {
                     clauses.Add($"startswith({field},'{escaped}')");
+                }
             }
         }
 

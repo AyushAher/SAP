@@ -2,9 +2,23 @@ import type { DocumentLineItem } from '@/types/production'
 
 export interface PurchaseOrderLineItem extends DocumentLineItem {
   UomName?: string
+  /** Purchase UoM (sent to SAP as UoMCode). */
   UoMCode?: string
   UoMEntry?: number
+  /** Stock / inventory UoM (from item master; display). */
+  StockUom?: string
+  /** Stock / inventory quantity. ItemsPerUnit = StockQty / PurchaseQty. */
   StockQty?: number
+  /**
+   * SAP UnitsOfMeasurment (NumPerMsr) — items per purchase unit.
+   * Computed as StockQty / Quantity (purchase qty).
+   */
+  UnitsOfMeasurment?: number
+  /**
+   * SAP UseBaseUnits — Inventory UoM Yes/No.
+   * tYES when Items per Unit is 1, otherwise tNO.
+   */
+  UseBaseUnits?: string
   WeightKg?: number
   TaxableAmount?: number
   DiscountPercent?: number

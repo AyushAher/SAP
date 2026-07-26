@@ -40,6 +40,8 @@ import {
   searchSalesPersons,
   searchVendors,
   searchWarehouses,
+  lookupEmployee,
+  lookupSalesPerson,
   type MasterBusinessPartner,
 } from '@/Requests/masters'
 import { createPurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '@/Requests/purchaseOrders'
@@ -111,8 +113,8 @@ export function PurchaseOrderFormPage() {
     DocDate: todayIsoDate(),
     PostingDate: todayIsoDate(),
     TaxDate: todayIsoDate(),
-    DocDueDate: todayIsoDate(),
-    DueDate: todayIsoDate(),
+    DocDueDate: '',
+    DueDate: '',
     BPLId: authBranchId ?? 1,
     RoundingDiffAmount: 0,
     DocumentLines: [],
@@ -215,45 +217,65 @@ export function PurchaseOrderFormPage() {
         ...record,
         DocType: record.DocType || PO_DOC_TYPE.items,
       })
-      setLines((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? [])
+      setLines(((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? []).map((line) => {
+        const purchaseQty = line.Quantity ?? 0
+        const unitsPer = line.UnitsOfMeasurment
+        const stockQty = line.StockQty
+          ?? (line as { InventoryQuantity?: number }).InventoryQuantity
+          ?? (purchaseQty > 0 && unitsPer != null ? purchaseQty * unitsPer : undefined)
+        return {
+          ...line,
+          StockQty: stockQty,
+          UnitsOfMeasurment: unitsPer ?? (stockQty != null && purchaseQty > 0 ? stockQty / purchaseQty : undefined),
+          StockUom: line.StockUom,
+          UoMCode: line.UoMCode ?? line.UomName,
+        }
+      }))
       setPaymentTerms(parsePaymentTermsFromPo(record))
       setLogistics(readLogisticsFromPo(record))
       setOtherTerms(readOtherTermsFromPo(record))
       const buyerCode = record.SalesPersonCode != null ? Number(record.SalesPersonCode) : null
       const approverId = record.DocumentsOwner != null ? Number(record.DocumentsOwner) : null
-      if (buyerCode != null && Number.isFinite(buyerCode)) setBuyerLabel(String(buyerCode))
-      if (approverId != null && Number.isFinite(approverId)) setApproverLabel(String(approverId))
+      // Do not set raw codes as labels — wait for master lookups so dropdowns show names.
+      setBuyerLabel('')
+      setApproverLabel('')
       try {
-        const labels = await resolveMasterSelectLabels({
-          vendorCode: purchaseOrder.CardCode,
-          projectCode: purchaseOrder.Project,
-        })
+        const [labels, buyer, approver, vendorMatch] = await Promise.all([
+          resolveMasterSelectLabels({
+            vendorCode: purchaseOrder.CardCode,
+            projectCode: purchaseOrder.Project,
+          }),
+          buyerCode != null && Number.isFinite(buyerCode) ? lookupSalesPerson(buyerCode) : Promise.resolve(undefined),
+          approverId != null && Number.isFinite(approverId) ? lookupEmployee(approverId) : Promise.resolve(undefined),
+          purchaseOrder.CardCode
+            ? searchVendors(purchaseOrder.CardCode, 5).then((res) =>
+              (res.data ?? []).find((v) => v.CardCode === purchaseOrder.CardCode))
+            : Promise.resolve(undefined),
+        ])
         if (cancelled) return
         if (purchaseOrder.CardCode) {
           setVendorLabel(labels.vendorLabel ?? formatCodeWithName(purchaseOrder.CardCode, purchaseOrder.CardName))
-          const vendorMatch = await searchVendors(purchaseOrder.CardCode, 5)
-          const matched = (vendorMatch.data ?? []).find((v) => v.CardCode === purchaseOrder.CardCode)
-          setVendorSeries(matched?.Series ?? null)
+          setVendorSeries(vendorMatch?.Series ?? null)
         } else {
           setVendorSeries(null)
         }
         if (purchaseOrder.Project) {
           setProjectLabel(labels.projectLabel ?? formatCodeWithName(purchaseOrder.Project))
         }
-        if (buyerCode != null && Number.isFinite(buyerCode)) {
-          const buyers = await searchSalesPersons(String(buyerCode), 20)
-          const match = (buyers.data ?? []).find((sp) => sp.SalesEmployeeCode === buyerCode)
-          if (match) {
-            setBuyerLabel(`${match.SalesEmployeeCode} - ${match.SalesEmployeeName ?? ''}`.trim())
-          }
+        if (buyer) {
+          setBuyerLabel(`${buyer.SalesEmployeeCode} - ${buyer.SalesEmployeeName ?? ''}`.trim())
+        } else if (buyerCode != null && Number.isFinite(buyerCode)) {
+          setBuyerLabel(String(buyerCode))
         }
-        if (approverId != null && Number.isFinite(approverId)) {
-          const employees = await searchEmployees(String(approverId), 20)
-          const match = (employees.data ?? []).find((emp) => emp.EmployeeID === approverId)
-          if (match?.DisplayName) setApproverLabel(match.DisplayName)
+        if (approver?.DisplayName) {
+          setApproverLabel(`${approver.EmployeeID} - ${approver.DisplayName}`.trim())
+        } else if (approverId != null && Number.isFinite(approverId)) {
+          setApproverLabel(String(approverId))
         }
       } catch {
         // labels are optional enrichments
+        if (buyerCode != null && Number.isFinite(buyerCode)) setBuyerLabel(String(buyerCode))
+        if (approverId != null && Number.isFinite(approverId)) setApproverLabel(String(approverId))
       }
       if (cancelled) return
       const wh = String(record.U_Warehouse ?? '')
@@ -297,8 +319,9 @@ export function PurchaseOrderFormPage() {
 
   const buildPayload = (): PurchaseOrder => {
     const docDate = String(form.DocDate ?? form.PostingDate ?? todayIsoDate()).slice(0, 10)
-    const docDue = String(form.DocDueDate ?? form.DueDate ?? docDate).slice(0, 10)
-    const taxDate = String(form.TaxDate ?? docDate).slice(0, 10)
+    const docDue = String(form.DocDueDate ?? form.DueDate ?? '').slice(0, 10)
+    // SAP Document Date (TaxDate) always matches Posting Date (DocDate).
+    const taxDate = docDate
     let payload: Record<string, unknown> = {
       ...form,
       DocumentLines: lines.map((line) => (
@@ -327,6 +350,20 @@ export function PurchaseOrderFormPage() {
               HSNEntry: line.HSNEntry,
               SACEntry: line.SACEntry,
               UoMCode: line.UoMCode ?? line.UomName,
+              UnitsOfMeasurment: line.UnitsOfMeasurment
+                ?? (line.StockQty != null && line.Quantity != null && line.Quantity > 0
+                  ? line.StockQty / line.Quantity
+                  : undefined),
+              InventoryQuantity: line.StockQty,
+              UseBaseUnits: line.UseBaseUnits
+                ?? (() => {
+                  const factor = line.UnitsOfMeasurment
+                    ?? (line.StockQty != null && line.Quantity != null && line.Quantity > 0
+                      ? line.StockQty / line.Quantity
+                      : undefined)
+                  if (factor == null || !Number.isFinite(factor)) return undefined
+                  return Math.abs(factor - 1) < 1e-9 ? 'tYES' : 'tNO'
+                })(),
               ProjectCode: line.ProjectCode || form.Project || undefined,
               CostingCode: line.CostingCode,
               U_ProdNo: line.U_ProdNo || undefined,
@@ -374,6 +411,12 @@ export function PurchaseOrderFormPage() {
     if (!form.CardCode) {
       setError('Select a business partner.')
       toast.error('Select a business partner.')
+      return
+    }
+    const deliveryDate = String(form.DocDueDate ?? form.DueDate ?? '').trim()
+    if (!deliveryDate) {
+      setError('Delivery Date is required.')
+      toast.error('Delivery Date is required.')
       return
     }
     const tnError = validatePurchaseOrderAgainstTn({
@@ -508,30 +551,6 @@ export function PurchaseOrderFormPage() {
                   }}
                   placeholder="Select type"
                 />
-                <SearchableSelect
-                  label="Buyer *"
-                  value={form.SalesPersonCode != null ? String(form.SalesPersonCode) : ''}
-                  selectedLabel={buyerLabel}
-                  placeholder="Search buyer..."
-                  onSearch={searchBuyerOptions}
-                  onChange={(value, option) => {
-                    const code = value ? Number(value) : undefined
-                    setBuyerLabel(option?.label ?? value)
-                    updateForm({ SalesPersonCode: Number.isFinite(code) ? code : undefined })
-                  }}
-                />
-                <SearchableSelect
-                  label="Approver *"
-                  value={form.DocumentsOwner != null ? String(form.DocumentsOwner) : ''}
-                  selectedLabel={approverLabel}
-                  placeholder="Search approver..."
-                  onSearch={searchApproverOptions}
-                  onChange={(value, option) => {
-                    const empId = value ? Number(value) : undefined
-                    setApproverLabel(option?.label ?? value)
-                    updateForm({ DocumentsOwner: Number.isFinite(empId) ? empId : undefined })
-                  }}
-                />
                 <Select
                   label="PO Type"
                   options={PO_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
@@ -544,13 +563,11 @@ export function PurchaseOrderFormPage() {
                   label="Posting Date"
                   type="date"
                   value={String(form.DocDate ?? form.PostingDate ?? '').slice(0, 10)}
-                  onChange={(e) => updateForm({ DocDate: e.target.value, PostingDate: e.target.value })}
-                />
-                <Input
-                  label="Document Date"
-                  type="date"
-                  value={String(form.TaxDate ?? form.DocDate ?? '').slice(0, 10)}
-                  onChange={(e) => updateForm({ TaxDate: e.target.value })}
+                  onChange={(e) => {
+                    const date = e.target.value
+                    updateForm({ DocDate: date, PostingDate: date, TaxDate: date })
+                  }}
+                  hint="Document Date is set to the same value."
                 />
                 <SearchableSelect
                   label="Project"
@@ -565,8 +582,9 @@ export function PurchaseOrderFormPage() {
                   }}
                 />
                 <Input
-                  label="Delivery Date"
+                  label="Delivery Date *"
                   type="date"
+                  required
                   value={String(form.DocDueDate ?? form.DueDate ?? '').slice(0, 10)}
                   onChange={(e) => updateForm({ DocDueDate: e.target.value, DueDate: e.target.value })}
                 />
@@ -629,6 +647,30 @@ export function PurchaseOrderFormPage() {
                   value={String(form.Comments ?? '')}
                   onChange={(e) => updateForm({ Comments: e.target.value })}
                   className="md:col-span-2 xl:col-span-2"
+                />
+                <SearchableSelect
+                  label="Buyer *"
+                  value={form.SalesPersonCode != null ? String(form.SalesPersonCode) : ''}
+                  selectedLabel={buyerLabel}
+                  placeholder="Search buyer..."
+                  onSearch={searchBuyerOptions}
+                  onChange={(value, option) => {
+                    const code = value ? Number(value) : undefined
+                    setBuyerLabel(option?.label ?? value)
+                    updateForm({ SalesPersonCode: Number.isFinite(code) ? code : undefined })
+                  }}
+                />
+                <SearchableSelect
+                  label="Approver *"
+                  value={form.DocumentsOwner != null ? String(form.DocumentsOwner) : ''}
+                  selectedLabel={approverLabel}
+                  placeholder="Search approver..."
+                  onSearch={searchApproverOptions}
+                  onChange={(value, option) => {
+                    const empId = value ? Number(value) : undefined
+                    setApproverLabel(option?.label ?? value)
+                    updateForm({ DocumentsOwner: Number.isFinite(empId) ? empId : undefined })
+                  }}
                 />
                 {isTransporterVendor ? (
                   <p className="md:col-span-2 xl:col-span-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">

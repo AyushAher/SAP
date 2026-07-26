@@ -14,10 +14,21 @@ export function useFloatingMenuPortal(isOpen: boolean, usePortal: boolean) {
   const updateMenuPosition = useCallback(() => {
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
-    setMenuPosition({
-      top: rect.bottom + 4,
-      left: rect.left,
-      width: rect.width,
+    setMenuPosition((prev) => {
+      const next = {
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      }
+      if (
+        prev
+        && prev.top === next.top
+        && prev.left === next.left
+        && prev.width === next.width
+      ) {
+        return prev
+      }
+      return next
     })
   }, [])
 
@@ -27,11 +38,20 @@ export function useFloatingMenuPortal(isOpen: boolean, usePortal: boolean) {
       return
     }
     updateMenuPosition()
+
+    const handleScroll = (event: Event) => {
+      // Ignore scrolls inside the dropdown itself — those must not reposition the menu
+      // (repositioning re-renders and was resetting list scroll / keyboard highlight).
+      const target = event.target
+      if (target instanceof Node && menuRef.current?.contains(target)) return
+      updateMenuPosition()
+    }
+
     window.addEventListener('resize', updateMenuPosition)
-    window.addEventListener('scroll', updateMenuPosition, true)
+    window.addEventListener('scroll', handleScroll, true)
     return () => {
       window.removeEventListener('resize', updateMenuPosition)
-      window.removeEventListener('scroll', updateMenuPosition, true)
+      window.removeEventListener('scroll', handleScroll, true)
     }
   }, [isOpen, usePortal, updateMenuPosition])
 

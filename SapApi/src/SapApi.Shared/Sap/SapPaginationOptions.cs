@@ -16,6 +16,11 @@ public class SapPaginationOptions
     public IReadOnlyList<string> SearchOrFields { get; init; } = [];
     /// <summary>Fields matched with eq/startswith during typeahead (e.g. ItemCode, CardCode).</summary>
     public IReadOnlyList<string> SearchCodeFields { get; init; } = [];
+    /// <summary>
+    /// Subset of <see cref="SearchCodeFields"/> that are numeric in Service Layer
+    /// (e.g. SalesEmployeeCode, EmployeeID). Exact-match filters must not quote these values.
+    /// </summary>
+    public IReadOnlyList<string> NumericSearchCodeFields { get; init; } = [];
     /// <summary>Fields matched with startswith/contains during typeahead (e.g. ItemName, CardName).</summary>
     public IReadOnlyList<string> SearchTextFields { get; init; } = [];
 }

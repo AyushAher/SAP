@@ -27,6 +27,11 @@ function findInitialHighlightIndex(options: SelectOption[], value?: string): num
   return findNextEnabledIndex(options, -1, 1)
 }
 
+/** Stable signature so highlight is not reset when callers pass a new array with the same options. */
+function optionsSignature(options: SelectOption[]): string {
+  return options.map((option) => `${option.value}\u0001${option.disabled ? '1' : '0'}`).join('\u0002')
+}
+
 export function useSelectListbox({
   isOpen,
   setIsOpen,
@@ -37,18 +42,24 @@ export function useSelectListbox({
 }: UseSelectListboxOptions) {
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
   const optionRefs = useRef<Array<HTMLLIElement | null>>([])
+  const optionsRef = useRef(options)
+  optionsRef.current = options
 
   useEffect(() => {
     optionRefs.current = optionRefs.current.slice(0, options.length)
   }, [options.length])
+
+  const signature = optionsSignature(options)
 
   useEffect(() => {
     if (!isOpen) {
       setHighlightedIndex(-1)
       return
     }
-    setHighlightedIndex(findInitialHighlightIndex(options, value))
-  }, [isOpen, options, value])
+    setHighlightedIndex(findInitialHighlightIndex(optionsRef.current, value))
+    // Reset only when the menu opens or the option set/value meaningfully changes —
+    // not on every new array reference from the parent.
+  }, [isOpen, signature, value])
 
   useEffect(() => {
     if (!isOpen || highlightedIndex < 0) return
@@ -56,15 +67,17 @@ export function useSelectListbox({
   }, [highlightedIndex, isOpen])
 
   const selectHighlighted = useCallback(() => {
-    const option = highlightedIndex >= 0 ? options[highlightedIndex] : undefined
+    const currentOptions = optionsRef.current
+    const option = highlightedIndex >= 0 ? currentOptions[highlightedIndex] : undefined
     if (option && !option.disabled) {
       onSelect(option)
       setIsOpen(false)
     }
-  }, [highlightedIndex, onSelect, options, setIsOpen])
+  }, [highlightedIndex, onSelect, setIsOpen])
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
     if (disabled) return
+    const currentOptions = optionsRef.current
 
     if (!isOpen) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
@@ -77,19 +90,19 @@ export function useSelectListbox({
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault()
-        setHighlightedIndex((current) => findNextEnabledIndex(options, current < 0 ? -1 : current, 1))
+        setHighlightedIndex((current) => findNextEnabledIndex(currentOptions, current < 0 ? -1 : current, 1))
         break
       case 'ArrowUp':
         event.preventDefault()
-        setHighlightedIndex((current) => findNextEnabledIndex(options, current < 0 ? options.length : current, -1))
+        setHighlightedIndex((current) => findNextEnabledIndex(currentOptions, current < 0 ? currentOptions.length : current, -1))
         break
       case 'Home':
         event.preventDefault()
-        setHighlightedIndex(findNextEnabledIndex(options, -1, 1))
+        setHighlightedIndex(findNextEnabledIndex(currentOptions, -1, 1))
         break
       case 'End':
         event.preventDefault()
-        setHighlightedIndex(findNextEnabledIndex(options, 0, -1))
+        setHighlightedIndex(findNextEnabledIndex(currentOptions, 0, -1))
         break
       case 'Enter':
         event.preventDefault()
@@ -105,7 +118,7 @@ export function useSelectListbox({
       default:
         break
     }
-  }, [disabled, isOpen, options, selectHighlighted, setIsOpen])
+  }, [disabled, isOpen, selectHighlighted, setIsOpen])
 
   const getOptionRef = useCallback((index: number) => (element: HTMLLIElement | null) => {
     optionRefs.current[index] = element
