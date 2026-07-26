@@ -23,6 +23,7 @@
         [JsonPropertyName("CardName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CardName { get; set; }
         [JsonPropertyName("CardType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CardType { get; set; }
         [JsonPropertyName("GroupCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? GroupCode { get; set; }
+        [JsonPropertyName("Series"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Series { get; set; }
         [JsonPropertyName("BPWithholdingTaxCollection"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<SapWithholdingTaxDataCollectionResponse>? WithholdingTaxDataCollectionResponse { get; set; }
     }
 }

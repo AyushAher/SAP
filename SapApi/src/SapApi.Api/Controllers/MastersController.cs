@@ -31,6 +31,10 @@ public class MastersController(SapMasterDataService masterDataService) : Control
     public async Task<IActionResult> ListTaxCodes([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchTaxCodesAsync(PaginationRequest.Normalize(request), cancellationToken));
 
+    [HttpPost("gl-accounts/list")]
+    public async Task<IActionResult> ListGlAccounts([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
+        Ok(await masterDataService.SearchChartOfAccountsAsync(PaginationRequest.Normalize(request), cancellationToken));
+
     [HttpPost("projects/list")]
     public async Task<IActionResult> ListProjects([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchProjectsAsync(PaginationRequest.Normalize(request), cancellationToken));
@@ -42,6 +46,14 @@ public class MastersController(SapMasterDataService masterDataService) : Control
     [HttpPost("sac-codes/list")]
     public async Task<IActionResult> ListSacCodes([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchSacCodesAsync(PaginationRequest.Normalize(request), cancellationToken));
+
+    [HttpPost("sales-persons/list")]
+    public async Task<IActionResult> ListSalesPersons([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
+        Ok(await masterDataService.SearchSalesPersonsAsync(PaginationRequest.Normalize(request), cancellationToken));
+
+    [HttpPost("employees/list")]
+    public async Task<IActionResult> ListEmployees([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
+        Ok(await masterDataService.SearchEmployeesAsync(PaginationRequest.Normalize(request), cancellationToken));
 
     [HttpGet("projects/{projectCode}")]
     public async Task<IActionResult> GetProject(string projectCode, [FromQuery] string? fields, CancellationToken cancellationToken)

@@ -90,6 +90,10 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("CostingCode5"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? CostingCode5 { get; set; }
 
+        /// <summary>Production order no. UDF — mandatory on lines when header U_PO_Type = JOB.</summary>
+        [JsonPropertyName("U_ProdNo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UProdNo { get; set; }
+
         [JsonIgnore]
         public double RowTotalAfterDisc => (UnitPrice ?? 0) * (Quantity ?? 0) * (1 - (DiscountPercent ?? 0) / 100);
         [JsonIgnore]

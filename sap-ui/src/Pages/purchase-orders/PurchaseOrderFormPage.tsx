@@ -4,7 +4,6 @@ import { Banknote, ClipboardList, Package, Truck } from 'lucide-react'
 import { PurchaseOrderLinesEditor } from '@/Components/forms/PurchaseOrderLinesEditor'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
-import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
 import {
   BlockingLoader,
   Button,
@@ -35,13 +34,28 @@ import {
 } from '@/helpers/purchaseOrderForm'
 import { useAppSelector } from '@/store/hooks'
 import { getBranchesApi } from '@/Requests/auth'
-import { searchProjects, searchVendors, searchWarehouses } from '@/Requests/masters'
+import {
+  searchEmployees,
+  searchProjects,
+  searchSalesPersons,
+  searchVendors,
+  searchWarehouses,
+  type MasterBusinessPartner,
+} from '@/Requests/masters'
 import { createPurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '@/Requests/purchaseOrders'
 import {
   useInvalidatePurchaseOrders,
   usePurchaseOrder,
 } from '@/hooks/usePurchaseOrders'
 import { toast } from '@/helpers/toast'
+import {
+  PO_DOC_TYPE,
+  PO_DOC_TYPE_OPTIONS,
+  PO_TN,
+  PO_TYPE_OPTIONS,
+  isServicePoDocType,
+  validatePurchaseOrderAgainstTn,
+} from '@/helpers/purchaseOrderTnValidation'
 import type { SelectOption } from '@/types'
 import type { PaymentTermRow, PurchaseOrderLineItem, PurchaseOrderLogistics, PurchaseOrderOtherTerms } from '@/types/purchaseOrder'
 import { PAYMENT_TERM_TYPE_OPTIONS } from '@/types/purchaseOrder'
@@ -84,6 +98,13 @@ export function PurchaseOrderFormPage() {
     Project: '',
     Comments: '',
     NumAtCard: '',
+    DocType: PO_DOC_TYPE.items,
+    SalesPersonCode: undefined,
+    DocumentsOwner: undefined,
+    U_PO_Type: '',
+    U_TRN: '',
+    U_DisID: '',
+    U_DispachAdd: '',
     U_Owner: '',
     U_Stage: '',
     U_Warehouse: '',
@@ -103,8 +124,11 @@ export function PurchaseOrderFormPage() {
   const [otherTerms, setOtherTerms] = useState<PurchaseOrderOtherTerms>({})
 
   const [vendorLabel, setVendorLabel] = useState('')
+  const [vendorSeries, setVendorSeries] = useState<number | null>(null)
   const [projectLabel, setProjectLabel] = useState('')
   const [warehouseLabel, setWarehouseLabel] = useState('')
+  const [buyerLabel, setBuyerLabel] = useState('')
+  const [approverLabel, setApproverLabel] = useState('')
   const [branchOptions, setBranchOptions] = useState<SelectOption[]>([])
 
   const loading = Boolean(id) && (queryLoading || hydratedId !== String(id))
@@ -112,29 +136,44 @@ export function PurchaseOrderFormPage() {
     ?? (queryError instanceof Error ? queryError.message : queryError ? 'Failed to load purchase order' : null)
 
   const defaultWarehouse = String(form.U_Warehouse ?? '')
+  const docType = String(form.DocType ?? PO_DOC_TYPE.items)
+  const isServiceDoc = isServicePoDocType(docType)
+  const isJobPo = String(form.U_PO_Type ?? '').trim().toUpperCase() === PO_TN.jobPoType
+  const isTransporterVendor = !isServiceDoc && vendorSeries === PO_TN.transporterBpSeries
+  const usesDrpWarehouse = !isServiceDoc && lines.some((line) => {
+    const wh = (line.WarehouseCode ?? '').trim().toUpperCase()
+    return wh === 'DRP' || wh === 'DRP2'
+  })
 
   const totals = useMemo(
     () => calculatePurchaseOrderTotals(lines, Number(form.RoundingDiffAmount ?? 0)),
     [lines, form.RoundingDiffAmount],
   )
 
-  const summaryColumns: SapColumn<PurchaseOrderLineItem>[] = [
-    { key: 'ItemCode', header: 'Item', accessor: (r) => formatCodeWithName(r.ItemCode, r.ItemDescription) },
-    { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
-    { key: 'Quantity', header: 'Qty', accessor: (r) => r.Quantity },
-    { key: 'UoMCode', header: 'UoM', accessor: (r) => r.UoMCode ?? r.UomName ?? '—' },
-    { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoAmount(r.UnitPrice) },
-    { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => r.DiscountPercent ?? '—' },
-    { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
-    { key: 'HSNEntry', header: 'HSN', accessor: (r) => r.HsnLabel ?? (r.HSNEntry != null ? String(r.HSNEntry) : '—') },
-    { key: 'TaxableAmount', header: 'Taxable', accessor: (r) => formatPoAmount(r.TaxableAmount ?? r.LineTotal) },
-  ]
-
   const searchVendorOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
     const response = await searchVendors(search)
     return (response.data ?? []).map((v) => ({
       value: v.CardCode ?? '',
       label: `${v.CardCode ?? ''} - ${v.CardName ?? ''}`.trim(),
+      meta: v,
+    })).filter((o) => o.value)
+  }, [])
+
+  const searchBuyerOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
+    const response = await searchSalesPersons(search)
+    return (response.data ?? [])
+      .filter((sp) => sp.SalesEmployeeCode != null && sp.SalesEmployeeCode !== PO_TN.noBuyerCode)
+      .map((sp) => ({
+        value: String(sp.SalesEmployeeCode),
+        label: `${sp.SalesEmployeeCode} - ${sp.SalesEmployeeName ?? ''}`.trim(),
+      }))
+  }, [])
+
+  const searchApproverOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
+    const response = await searchEmployees(search)
+    return (response.data ?? []).map((emp) => ({
+      value: String(emp.EmployeeID),
+      label: emp.DisplayName ?? String(emp.EmployeeID),
     })).filter((o) => o.value)
   }, [])
 
@@ -172,11 +211,18 @@ export function PurchaseOrderFormPage() {
     let cancelled = false
     void (async () => {
       const record = purchaseOrder as Record<string, unknown>
-      setForm(record)
+      setForm({
+        ...record,
+        DocType: record.DocType || PO_DOC_TYPE.items,
+      })
       setLines((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? [])
       setPaymentTerms(parsePaymentTermsFromPo(record))
       setLogistics(readLogisticsFromPo(record))
       setOtherTerms(readOtherTermsFromPo(record))
+      const buyerCode = record.SalesPersonCode != null ? Number(record.SalesPersonCode) : null
+      const approverId = record.DocumentsOwner != null ? Number(record.DocumentsOwner) : null
+      if (buyerCode != null && Number.isFinite(buyerCode)) setBuyerLabel(String(buyerCode))
+      if (approverId != null && Number.isFinite(approverId)) setApproverLabel(String(approverId))
       try {
         const labels = await resolveMasterSelectLabels({
           vendorCode: purchaseOrder.CardCode,
@@ -185,9 +231,26 @@ export function PurchaseOrderFormPage() {
         if (cancelled) return
         if (purchaseOrder.CardCode) {
           setVendorLabel(labels.vendorLabel ?? formatCodeWithName(purchaseOrder.CardCode, purchaseOrder.CardName))
+          const vendorMatch = await searchVendors(purchaseOrder.CardCode, 5)
+          const matched = (vendorMatch.data ?? []).find((v) => v.CardCode === purchaseOrder.CardCode)
+          setVendorSeries(matched?.Series ?? null)
+        } else {
+          setVendorSeries(null)
         }
         if (purchaseOrder.Project) {
           setProjectLabel(labels.projectLabel ?? formatCodeWithName(purchaseOrder.Project))
+        }
+        if (buyerCode != null && Number.isFinite(buyerCode)) {
+          const buyers = await searchSalesPersons(String(buyerCode), 20)
+          const match = (buyers.data ?? []).find((sp) => sp.SalesEmployeeCode === buyerCode)
+          if (match) {
+            setBuyerLabel(`${match.SalesEmployeeCode} - ${match.SalesEmployeeName ?? ''}`.trim())
+          }
+        }
+        if (approverId != null && Number.isFinite(approverId)) {
+          const employees = await searchEmployees(String(approverId), 20)
+          const match = (employees.data ?? []).find((emp) => emp.EmployeeID === approverId)
+          if (match?.DisplayName) setApproverLabel(match.DisplayName)
         }
       } catch {
         // labels are optional enrichments
@@ -238,26 +301,50 @@ export function PurchaseOrderFormPage() {
     const taxDate = String(form.TaxDate ?? docDate).slice(0, 10)
     let payload: Record<string, unknown> = {
       ...form,
-      DocumentLines: lines.map((line) => ({
-        ItemCode: line.ItemCode,
-        ItemDescription: line.ItemDescription,
-        Quantity: line.Quantity,
-        UnitPrice: line.UnitPrice,
-        DiscountPercent: line.DiscountPercent,
-        WarehouseCode: line.WarehouseCode,
-        TaxCode: line.TaxCode,
-        HSNEntry: line.HSNEntry,
-        SACEntry: line.SACEntry,
-        UoMCode: line.UoMCode ?? line.UomName,
-        ProjectCode: line.ProjectCode || form.Project || undefined,
-        CostingCode: line.CostingCode,
-        LineNum: line.LineNum,
-      })),
+      DocumentLines: lines.map((line) => (
+        isServiceDoc
+          ? {
+              ItemDescription: line.ItemDescription,
+              AccountCode: line.AccountCode,
+              Quantity: line.Quantity,
+              UnitPrice: line.UnitPrice,
+              DiscountPercent: line.DiscountPercent,
+              TaxCode: line.TaxCode,
+              SACEntry: line.SACEntry,
+              ProjectCode: line.ProjectCode || form.Project || undefined,
+              CostingCode: line.CostingCode,
+              U_ProdNo: line.U_ProdNo || undefined,
+              LineNum: line.LineNum,
+            }
+          : {
+              ItemCode: line.ItemCode,
+              ItemDescription: line.ItemDescription,
+              Quantity: line.Quantity,
+              UnitPrice: line.UnitPrice,
+              DiscountPercent: line.DiscountPercent,
+              WarehouseCode: line.WarehouseCode,
+              TaxCode: line.TaxCode,
+              HSNEntry: line.HSNEntry,
+              SACEntry: line.SACEntry,
+              UoMCode: line.UoMCode ?? line.UomName,
+              ProjectCode: line.ProjectCode || form.Project || undefined,
+              CostingCode: line.CostingCode,
+              U_ProdNo: line.U_ProdNo || undefined,
+              LineNum: line.LineNum,
+            }
+      )),
+      DocType: docType,
       DocDate: docDate,
       DocDueDate: docDue,
       TaxDate: taxDate,
       BPL_IDAssignedToInvoice: form.BPLId ?? authBranchId ?? 1,
       BPLId: form.BPLId ?? authBranchId ?? 1,
+      SalesPersonCode: form.SalesPersonCode != null ? Number(form.SalesPersonCode) : undefined,
+      DocumentsOwner: form.DocumentsOwner != null ? Number(form.DocumentsOwner) : undefined,
+      U_PO_Type: form.U_PO_Type || undefined,
+      U_TRN: form.U_TRN || undefined,
+      U_DisID: form.U_DisID || undefined,
+      U_DispachAdd: form.U_DispachAdd || undefined,
       NumAtCard: form.NumAtCard || undefined,
       Comments: form.Comments,
       U_Owner: form.U_Owner,
@@ -279,14 +366,30 @@ export function PurchaseOrderFormPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!lines.length) {
-      setError('Add at least one line item.')
+      setError(isServiceDoc ? 'Add at least one service line.' : 'Add at least one line item.')
       setActiveTab('items')
-      toast.error('Add at least one line item.')
+      toast.error(isServiceDoc ? 'Add at least one service line.' : 'Add at least one line item.')
       return
     }
     if (!form.CardCode) {
       setError('Select a business partner.')
       toast.error('Select a business partner.')
+      return
+    }
+    const tnError = validatePurchaseOrderAgainstTn({
+      salesPersonCode: form.SalesPersonCode != null ? Number(form.SalesPersonCode) : null,
+      documentsOwner: form.DocumentsOwner != null ? Number(form.DocumentsOwner) : null,
+      poType: String(form.U_PO_Type ?? ''),
+      docType,
+      trn: String(form.U_TRN ?? ''),
+      disId: String(form.U_DisID ?? ''),
+      dispachAdd: String(form.U_DispachAdd ?? ''),
+      vendorSeries,
+      lines,
+    })
+    if (tnError) {
+      setError(tnError)
+      toast.error(tnError)
       return
     }
     setSaving(true)
@@ -380,9 +483,62 @@ export function PurchaseOrderFormPage() {
                   onChange={(cardCode, option) => {
                     const label = option?.label ?? cardCode
                     const cardName = label.includes(' - ') ? label.split(' - ').slice(1).join(' - ') : ''
+                    const meta = option?.meta as MasterBusinessPartner | undefined
                     setVendorLabel(label)
+                    setVendorSeries(meta?.Series ?? null)
                     updateForm({ CardCode: cardCode, CardName: cardName })
                   }}
+                />
+                <Select
+                  label="Type"
+                  options={PO_DOC_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                  value={docType}
+                  disabled={!!id}
+                  onChange={(value) => {
+                    const next = value || PO_DOC_TYPE.items
+                    if (next === docType) return
+                    if (lines.length > 0) {
+                      const ok = window.confirm(
+                        'Switching between Item and Service clears existing lines. Continue?',
+                      )
+                      if (!ok) return
+                      setLines([])
+                    }
+                    updateForm({ DocType: next })
+                  }}
+                  placeholder="Select type"
+                />
+                <SearchableSelect
+                  label="Buyer *"
+                  value={form.SalesPersonCode != null ? String(form.SalesPersonCode) : ''}
+                  selectedLabel={buyerLabel}
+                  placeholder="Search buyer..."
+                  onSearch={searchBuyerOptions}
+                  onChange={(value, option) => {
+                    const code = value ? Number(value) : undefined
+                    setBuyerLabel(option?.label ?? value)
+                    updateForm({ SalesPersonCode: Number.isFinite(code) ? code : undefined })
+                  }}
+                />
+                <SearchableSelect
+                  label="Approver *"
+                  value={form.DocumentsOwner != null ? String(form.DocumentsOwner) : ''}
+                  selectedLabel={approverLabel}
+                  placeholder="Search approver..."
+                  onSearch={searchApproverOptions}
+                  onChange={(value, option) => {
+                    const empId = value ? Number(value) : undefined
+                    setApproverLabel(option?.label ?? value)
+                    updateForm({ DocumentsOwner: Number.isFinite(empId) ? empId : undefined })
+                  }}
+                />
+                <Select
+                  label="PO Type"
+                  options={PO_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                  value={String(form.U_PO_Type ?? '')}
+                  onChange={(value) => updateForm({ U_PO_Type: value })}
+                  placeholder="Select PO type"
+                  hint={isJobPo ? 'JOB: Production Order No is required on every line.' : undefined}
                 />
                 <Input
                   label="Posting Date"
@@ -420,6 +576,12 @@ export function PurchaseOrderFormPage() {
                   onChange={(e) => updateForm({ NumAtCard: e.target.value })}
                 />
                 <Input
+                  label={isTransporterVendor ? 'Open Order / TRN *' : 'Open Order / TRN'}
+                  value={String(form.U_TRN ?? '')}
+                  onChange={(e) => updateForm({ U_TRN: e.target.value })}
+                  hint={isTransporterVendor ? 'Required for transporter vendors (BP series 124).' : undefined}
+                />
+                <Input
                   label="Stage"
                   value={String(form.U_Stage ?? '')}
                   onChange={(e) => updateForm({ U_Stage: e.target.value })}
@@ -442,8 +604,23 @@ export function PurchaseOrderFormPage() {
                   onChange={(value) => updateForm({ BPLId: Number(value) })}
                   placeholder="Select branch"
                 />
+                {usesDrpWarehouse ? (
+                  <>
+                    <Input
+                      label="Dispatch ID (U_DisID) *"
+                      value={String(form.U_DisID ?? '')}
+                      onChange={(e) => updateForm({ U_DisID: e.target.value })}
+                      hint="Required when any line uses DRP / DRP2 warehouse."
+                    />
+                    <Input
+                      label="Dispatch Address (U_DispachAdd) *"
+                      value={String(form.U_DispachAdd ?? '')}
+                      onChange={(e) => updateForm({ U_DispachAdd: e.target.value })}
+                    />
+                  </>
+                ) : null}
                 <Input
-                  label="Owner"
+                  label="Owner (UDF)"
                   value={String(form.U_Owner ?? '')}
                   onChange={(e) => updateForm({ U_Owner: e.target.value })}
                 />
@@ -453,24 +630,19 @@ export function PurchaseOrderFormPage() {
                   onChange={(e) => updateForm({ Comments: e.target.value })}
                   className="md:col-span-2 xl:col-span-2"
                 />
+                {isTransporterVendor ? (
+                  <p className="md:col-span-2 xl:col-span-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                    Transporter vendor (series 124): add item <strong>{PO_TN.transporterMandatoryItem}</strong> and fill Open Order / TRN.
+                  </p>
+                ) : null}
               </div>
-            </section>
-
-            <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-slate-700">Items Summary</h3>
-              <SapDataGrid
-                columns={summaryColumns}
-                data={lines}
-                getRowKey={(row) => `${row.ItemCode}-${row.WarehouseCode}-${lines.indexOf(row)}`}
-                emptyMessage="No items added yet."
-              />
             </section>
 
             <section>
               <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FormTab)}>
                 <TabsList aria-label="Purchase order sections" className="-mx-1 px-1">
                   <TabsTrigger value="items" icon={<Package className="h-4 w-4" />} badge={lines.length}>
-                    Item Details
+                    {isServiceDoc ? 'Service Details' : 'Item Details'}
                   </TabsTrigger>
                   <TabsTrigger value="logistics" icon={<Truck className="h-4 w-4" />}>
                     Logistics
@@ -485,14 +657,18 @@ export function PurchaseOrderFormPage() {
 
                 <TabsContent
                   value="items"
-                  title={FORM_TABS[0].label}
-                  description={FORM_TABS[0].description}
+                  title={isServiceDoc ? 'Service Details' : FORM_TABS[0].label}
+                  description={isServiceDoc
+                    ? 'Add and manage G/L service lines for this purchase order.'
+                    : FORM_TABS[0].description}
                 >
                   <PurchaseOrderLinesEditor
                     lines={lines}
                     onChange={setLines}
                     defaultWarehouse={defaultWarehouse}
                     defaultProject={String(form.Project ?? '')}
+                    docType={docType}
+                    requireProdNo={isJobPo}
                   />
                 </TabsContent>
 

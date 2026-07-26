@@ -75,7 +75,7 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions Items => new()
     {
-        Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit",
+        Select = "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseVatGroup,ChapterID",
         KeyFields = ["ItemCode"],
         DefaultSortField = "ItemCode",
         DefaultSortDirection = "asc",
@@ -86,6 +86,11 @@ public static class SapPaginationProfiles
         {
             ["ItemCode"] = "ItemCode",
             ["ItemName"] = "ItemName",
+            ["InventoryUOM"] = "InventoryUOM",
+            ["PurchaseUnit"] = "PurchaseUnit",
+            ["InventoryWeight"] = "InventoryWeight",
+            ["PurchaseVatGroup"] = "PurchaseVatGroup",
+            ["ChapterID"] = "ChapterID",
         },
     };
 
@@ -102,6 +107,23 @@ public static class SapPaginationProfiles
         {
             ["WarehouseCode"] = "WarehouseCode",
             ["City"] = "City",
+        },
+    };
+
+    public static SapPaginationOptions ChartOfAccounts => new()
+    {
+        BaseFilter = "ActiveAccount eq 'tYES'",
+        Select = "Code,Name,ActiveAccount",
+        KeyFields = ["Code"],
+        DefaultSortField = "Code",
+        DefaultSortDirection = "asc",
+        SearchOrFields = ["Code", "Name"],
+        SearchCodeFields = ["Code"],
+        SearchTextFields = ["Name"],
+        FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Code"] = "Code",
+            ["Name"] = "Name",
         },
     };
 
@@ -155,7 +177,7 @@ public static class SapPaginationProfiles
     public static SapPaginationOptions Vendors => new()
     {
         BaseFilter = "CardType eq 'cSupplier'",
-        Select = "CardCode,CardName,CardType",
+        Select = "CardCode,CardName,CardType,Series",
         KeyFields = ["CardCode"],
         DefaultSortField = "CardCode",
         DefaultSortDirection = "asc",
@@ -166,6 +188,40 @@ public static class SapPaginationProfiles
         {
             ["CardCode"] = "CardCode",
             ["CardName"] = "CardName",
+            ["Series"] = "Series",
+        },
+    };
+
+    public static SapPaginationOptions SalesPersons => new()
+    {
+        Select = "SalesEmployeeCode,SalesEmployeeName,Active",
+        KeyFields = ["SalesEmployeeCode"],
+        DefaultSortField = "SalesEmployeeName",
+        DefaultSortDirection = "asc",
+        SearchOrFields = ["SalesEmployeeCode", "SalesEmployeeName"],
+        SearchCodeFields = ["SalesEmployeeCode"],
+        SearchTextFields = ["SalesEmployeeName"],
+        FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SalesEmployeeCode"] = "SalesEmployeeCode",
+            ["SalesEmployeeName"] = "SalesEmployeeName",
+        },
+    };
+
+    public static SapPaginationOptions EmployeesInfo => new()
+    {
+        Select = "EmployeeID,FirstName,LastName,Active",
+        KeyFields = ["EmployeeID"],
+        DefaultSortField = "EmployeeID",
+        DefaultSortDirection = "asc",
+        SearchOrFields = ["EmployeeID", "FirstName", "LastName"],
+        SearchCodeFields = ["EmployeeID"],
+        SearchTextFields = ["FirstName", "LastName"],
+        FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["EmployeeID"] = "EmployeeID",
+            ["FirstName"] = "FirstName",
+            ["LastName"] = "LastName",
         },
     };
 

@@ -1,3 +1,4 @@
+using SapApi.Shared;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 
@@ -31,6 +32,7 @@ public static class SapPurchaseOrderPayloadBuilder
             DocRate = source.DocRate,
             JournalMemo = NullIfWhiteSpace(source.JournalMemo),
             SalesPersonCode = source.SalesPersonCode,
+            DocumentsOwner = source.DocumentsOwner,
             ContactPersonCode = source.ContactPersonCode,
             TransportationCode = source.TransportationCode,
             ShipToCode = NullIfWhiteSpace(source.ShipToCode),
@@ -39,6 +41,11 @@ public static class SapPurchaseOrderPayloadBuilder
             UStage = NullIfWhiteSpace(source.UStage),
             UWarehouse = NullIfWhiteSpace(source.UWarehouse),
             UOwner = NullIfWhiteSpace(source.UOwner),
+            UPoType = NullIfWhiteSpace(source.UPoType),
+            UTrn = NullIfWhiteSpace(source.UTrn),
+            UDisId = NullIfWhiteSpace(source.UDisId),
+            UDispachAdd = NullIfWhiteSpace(source.UDispachAdd),
+            URemark = NullIfWhiteSpace(source.URemark),
             UDispatchTo = NullIfWhiteSpace(source.UDispatchTo),
             UContactPerson = NullIfWhiteSpace(source.UContactPerson),
             UPriceBasis = NullIfWhiteSpace(source.UPriceBasis),
@@ -114,7 +121,7 @@ public static class SapPurchaseOrderPayloadBuilder
             UType9 = NullIfWhiteSpace(source.UType9),
             UType10 = NullIfWhiteSpace(source.UType10),
             UType11 = NullIfWhiteSpace(source.UType11),
-            DocumentLines = PrepareLines(source.DocumentLines, isUpdate),
+            DocumentLines = PrepareLines(source.DocumentLines, isUpdate, IsServiceDocument(source.DocType)),
         };
 
         if (isUpdate)
@@ -131,41 +138,72 @@ public static class SapPurchaseOrderPayloadBuilder
         return payload;
     }
 
+    static bool IsServiceDocument(string? docType) =>
+        string.Equals(docType, Constants.PurchaseOrderDocType.Document_Service, StringComparison.OrdinalIgnoreCase);
+
     static List<SapInventoryTransferItemsRequests>? PrepareLines(
         List<SapInventoryTransferItemsRequests>? lines,
-        bool isUpdate)
+        bool isUpdate,
+        bool isService)
     {
         if (lines is null || lines.Count == 0)
             return null;
 
         return lines
-            .Where(l => !string.IsNullOrWhiteSpace(l.ItemCode))
-            .Select((line, index) => new SapInventoryTransferItemsRequests
-            {
-                LineNum = isUpdate ? line.LineNum ?? index : null,
-                ItemCode = NullIfWhiteSpace(line.ItemCode),
-                ItemDescription = NullIfWhiteSpace(line.ItemDescription),
-                Quantity = line.Quantity,
-                UnitPrice = line.UnitPrice,
-                DiscountPercent = line.DiscountPercent,
-                WarehouseCode = NullIfWhiteSpace(line.WarehouseCode),
-                TaxCode = NullIfWhiteSpace(line.TaxCode),
-                HSNEntry = line.HSNEntry,
-                SACEntry = line.SACEntry,
-                UoMCode = NullIfWhiteSpace(line.UoMCode),
-                UoMEntry = line.UoMEntry,
-                ProjectCode = NullIfWhiteSpace(line.ProjectCode),
-                CostingCode = NullIfWhiteSpace(line.CostingCode),
-                CostingCode2 = NullIfWhiteSpace(line.CostingCode2),
-                CostingCode3 = NullIfWhiteSpace(line.CostingCode3),
-                CostingCode4 = NullIfWhiteSpace(line.CostingCode4),
-                CostingCode5 = NullIfWhiteSpace(line.CostingCode5),
-                BaseType = line.BaseType,
-                BaseEntry = line.BaseEntry,
-                BaseLine = line.BaseLine,
-                WTLiable = NullIfWhiteSpace(line.WTLiable),
-                TaxLiable = NullIfWhiteSpace(line.TaxLiable),
-            })
+            .Where(l => isService
+                ? !string.IsNullOrWhiteSpace(l.AccountCode)
+                : !string.IsNullOrWhiteSpace(l.ItemCode))
+            .Select((line, index) => isService
+                ? new SapInventoryTransferItemsRequests
+                {
+                    LineNum = isUpdate ? line.LineNum ?? index : null,
+                    ItemDescription = NullIfWhiteSpace(line.ItemDescription),
+                    AccountCode = NullIfWhiteSpace(line.AccountCode),
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    DiscountPercent = line.DiscountPercent,
+                    TaxCode = NullIfWhiteSpace(line.TaxCode),
+                    SACEntry = line.SACEntry,
+                    ProjectCode = NullIfWhiteSpace(line.ProjectCode),
+                    CostingCode = NullIfWhiteSpace(line.CostingCode),
+                    CostingCode2 = NullIfWhiteSpace(line.CostingCode2),
+                    CostingCode3 = NullIfWhiteSpace(line.CostingCode3),
+                    CostingCode4 = NullIfWhiteSpace(line.CostingCode4),
+                    CostingCode5 = NullIfWhiteSpace(line.CostingCode5),
+                    UProdNo = NullIfWhiteSpace(line.UProdNo),
+                    BaseType = line.BaseType,
+                    BaseEntry = line.BaseEntry,
+                    BaseLine = line.BaseLine,
+                    WTLiable = NullIfWhiteSpace(line.WTLiable),
+                    TaxLiable = NullIfWhiteSpace(line.TaxLiable),
+                }
+                : new SapInventoryTransferItemsRequests
+                {
+                    LineNum = isUpdate ? line.LineNum ?? index : null,
+                    ItemCode = NullIfWhiteSpace(line.ItemCode),
+                    ItemDescription = NullIfWhiteSpace(line.ItemDescription),
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    DiscountPercent = line.DiscountPercent,
+                    WarehouseCode = NullIfWhiteSpace(line.WarehouseCode),
+                    TaxCode = NullIfWhiteSpace(line.TaxCode),
+                    HSNEntry = line.HSNEntry,
+                    SACEntry = line.SACEntry,
+                    UoMCode = NullIfWhiteSpace(line.UoMCode),
+                    UoMEntry = line.UoMEntry,
+                    ProjectCode = NullIfWhiteSpace(line.ProjectCode),
+                    CostingCode = NullIfWhiteSpace(line.CostingCode),
+                    CostingCode2 = NullIfWhiteSpace(line.CostingCode2),
+                    CostingCode3 = NullIfWhiteSpace(line.CostingCode3),
+                    CostingCode4 = NullIfWhiteSpace(line.CostingCode4),
+                    CostingCode5 = NullIfWhiteSpace(line.CostingCode5),
+                    UProdNo = NullIfWhiteSpace(line.UProdNo),
+                    BaseType = line.BaseType,
+                    BaseEntry = line.BaseEntry,
+                    BaseLine = line.BaseLine,
+                    WTLiable = NullIfWhiteSpace(line.WTLiable),
+                    TaxLiable = NullIfWhiteSpace(line.TaxLiable),
+                })
             .ToList();
     }
 

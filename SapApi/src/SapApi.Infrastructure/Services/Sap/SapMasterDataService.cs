@@ -54,6 +54,16 @@ public class SapMasterDataService(
             r => r?.Value,
             cancellationToken);
 
+    public Task<PaginationResponse<List<SapChartOfAccountResponse>>> SearchChartOfAccountsAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken = default) =>
+        SearchAsync<GetAllSapChartOfAccountsResponse, SapChartOfAccountResponse>(
+            Constants.SapApiUrls.ChartOfAccountsCollection,
+            SapPaginationProfiles.ChartOfAccounts,
+            request,
+            r => r?.Value,
+            cancellationToken);
+
     public Task<PaginationResponse<List<SapProjectDetailsResponse>>> SearchProjectsAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>
         SearchAsync<SapGetAllProjectDetailsResponse, SapProjectDetailsResponse>(
             Constants.SapApiUrls.ProjectsCollection,
@@ -188,6 +198,26 @@ public class SapMasterDataService(
         SearchAsync<SapBusinessPartnerResponse, SapBusinessPartner>(
             Constants.SapApiUrls.BusinessPartnersCollection,
             SapPaginationProfiles.Vendors,
+            request,
+            r => r?.Value,
+            cancellationToken);
+
+    public Task<PaginationResponse<List<SapSalesPersonResponse>>> SearchSalesPersonsAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken = default) =>
+        SearchAsync<GetAllSapSalesPersonsResponse, SapSalesPersonResponse>(
+            Constants.SapApiUrls.SalesPersonsCollection,
+            SapPaginationProfiles.SalesPersons,
+            request,
+            r => r?.Value,
+            cancellationToken);
+
+    public Task<PaginationResponse<List<SapEmployeeInfoResponse>>> SearchEmployeesAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken = default) =>
+        SearchAsync<GetAllSapEmployeesInfoResponse, SapEmployeeInfoResponse>(
+            Constants.SapApiUrls.EmployeesInfoCollection,
+            SapPaginationProfiles.EmployeesInfo,
             request,
             r => r?.Value,
             cancellationToken);

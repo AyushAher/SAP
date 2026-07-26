@@ -187,6 +187,9 @@ namespace SapApi.Shared
             public static string ProjectsCollection = SapServiceLayerUrl + SapBaseUrl + "/Projects";
             public static string BusinessPlacesCollection = SapServiceLayerUrl + SapBaseUrl + "/BusinessPlaces";
             public static string BusinessPartnersCollection = SapServiceLayerUrl + SapBaseUrl + "/BusinessPartners";
+            public static string SalesPersonsCollection = SapServiceLayerUrl + SapBaseUrl + "/SalesPersons";
+            public static string EmployeesInfoCollection = SapServiceLayerUrl + SapBaseUrl + "/EmployeesInfo";
+            public static string ChartOfAccountsCollection = SapServiceLayerUrl + SapBaseUrl + "/ChartOfAccounts";
             public static string OrdersCollection = SapServiceLayerUrl + SapBaseUrl + "/Orders";
             public static string WithholdingTaxCodesCollection = SapServiceLayerUrl + SapBaseUrl + "/WithholdingTaxCodes";
             public static string IndiaHsnServiceGetList = SapServiceLayerUrl + SapBaseUrl + "/IndiaHsnService_GetList";

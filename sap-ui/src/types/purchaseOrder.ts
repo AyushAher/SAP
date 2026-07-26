@@ -15,12 +15,17 @@ export interface PurchaseOrderLineItem extends DocumentLineItem {
   /** India GST SAC AbsEntry. */
   SACEntry?: number
   SacLabel?: string
+  /** G/L account — required on service document lines. */
+  AccountCode?: string
+  AccountLabel?: string
   ProjectCode?: string
   CostingCode?: string
   CostingCode2?: string
   CostingCode3?: string
   CostingCode4?: string
   CostingCode5?: string
+  /** Production order no. — required when header U_PO_Type = JOB. */
+  U_ProdNo?: string
 }
 
 export interface PaymentTermRow {

@@ -52,6 +52,10 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("SalesPersonCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? SalesPersonCode { get; set; }
 
+        /// <summary>SAP OPOR.OwnerCode — employee who owns/approves the document.</summary>
+        [JsonPropertyName("DocumentsOwner"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? DocumentsOwner { get; set; }
+
         [JsonPropertyName("TransportationCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? TransportationCode { get; set; }
 
@@ -94,6 +98,26 @@ namespace SapApi.Shared.Responses.Sap
 
         [JsonPropertyName("U_Owner"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UOwner { get; set; }
+
+        /// <summary>PO type UDF — TN requires U_ProdNo on lines when value is JOB.</summary>
+        [JsonPropertyName("U_PO_Type"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UPoType { get; set; }
+
+        /// <summary>Open order / transporter ref UDF — required when vendor BP Series = 124.</summary>
+        [JsonPropertyName("U_TRN"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UTrn { get; set; }
+
+        /// <summary>DRP dispatch id — required with U_DispachAdd when any line warehouse is DRP/DRP2.</summary>
+        [JsonPropertyName("U_DisID"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UDisId { get; set; }
+
+        /// <summary>Note: SAP UDF name is misspelled Dispach (not Dispatch).</summary>
+        [JsonPropertyName("U_DispachAdd"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UDispachAdd { get; set; }
+
+        /// <summary>User remark — mandatory when cancelling a PO (TN).</summary>
+        [JsonPropertyName("U_REMARK"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? URemark { get; set; }
 
         [JsonPropertyName("U_DispatchTo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UDispatchTo { get; set; }

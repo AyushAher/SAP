@@ -92,4 +92,40 @@ public class SapPurchaseOrderPayloadBuilderTests
         payload.DocEntry.Should().Be(100);
         payload.DocumentLines![0].LineNum.Should().Be(0);
     }
+
+    [Test]
+    public void Prepare_ServiceDocument_MapsAccountCode_WithoutItemCode()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            DocType = "dDocument_Service",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    ItemDescription = "Transport",
+                    AccountCode = "600000",
+                    Quantity = 1,
+                    UnitPrice = 500,
+                    TaxCode = "IGST18",
+                    SACEntry = 11,
+                    ItemCode = "SHOULD_IGNORE",
+                    WarehouseCode = "01",
+                },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.DocType.Should().Be("dDocument_Service");
+        payload.DocumentLines.Should().HaveCount(1);
+        var line = payload.DocumentLines![0];
+        line.AccountCode.Should().Be("600000");
+        line.ItemDescription.Should().Be("Transport");
+        line.SACEntry.Should().Be(11);
+        line.ItemCode.Should().BeNull();
+        line.WarehouseCode.Should().BeNull();
+        line.HSNEntry.Should().BeNull();
+    }
 }

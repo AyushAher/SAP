@@ -29,6 +29,11 @@ export interface MasterProject {
   Name?: string
 }
 
+export interface MasterGlAccount {
+  Code?: string
+  Name?: string
+}
+
 export interface MasterHsnCode {
   AbsEntry?: number
   ChapterID?: string
@@ -49,6 +54,19 @@ export interface MasterSacCode {
 export interface MasterBusinessPartner {
   CardCode?: string
   CardName?: string
+  Series?: number
+}
+
+export interface MasterSalesPerson {
+  SalesEmployeeCode?: number
+  SalesEmployeeName?: string
+}
+
+export interface MasterEmployee {
+  EmployeeID?: number
+  FirstName?: string
+  LastName?: string
+  DisplayName?: string
 }
 
 export interface MasterLookupPayload {
@@ -130,9 +148,12 @@ function normalizeBusinessPartner(raw: Record<string, unknown> | MasterBusinessP
   const source = raw as Record<string, unknown>
   const cardCode = source.CardCode ?? source.cardCode
   if (!cardCode) return undefined
+  const seriesRaw = source.Series ?? source.series
+  const series = seriesRaw == null || seriesRaw === '' ? undefined : Number(seriesRaw)
   return {
     CardCode: String(cardCode),
     CardName: String(source.CardName ?? source.cardName ?? ''),
+    Series: Number.isFinite(series) ? series : undefined,
   }
 }
 
@@ -153,11 +174,19 @@ export const ITEM_DROPDOWN_FIELDS = ['ItemCode', 'ItemName']
 /**
  * Fields needed by line editors that also resolve UOM for the selected item.
  */
-export const ITEM_DETAIL_FIELDS = ['ItemCode', 'ItemName', 'InventoryUOM', 'PurchaseUnit', 'InventoryWeight']
+export const ITEM_DETAIL_FIELDS = [
+  'ItemCode',
+  'ItemName',
+  'InventoryUOM',
+  'PurchaseUnit',
+  'InventoryWeight',
+  'PurchaseVatGroup',
+  'ChapterID',
+]
 export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'City']
 export const TAX_CODE_DROPDOWN_FIELDS = ['Code', 'Name', 'Rate']
 export const PROJECT_DROPDOWN_FIELDS = ['Code', 'Name']
-export const BUSINESS_PARTNER_DROPDOWN_FIELDS = ['CardCode', 'CardName']
+export const GL_ACCOUNT_DROPDOWN_FIELDS = ['Code', 'Name']
 
 export function searchItems(search: string, pageSize = 20, fields: string[] = ITEM_DROPDOWN_FIELDS) {
   return searchMaster<MasterItem>('/masters/items/list', search, pageSize, fields).then((res) => ({
@@ -178,6 +207,21 @@ export function searchProjects(search: string, pageSize = 20, fields: string[] =
   return searchMaster<MasterProject>('/masters/projects/list', search, pageSize, fields)
 }
 
+export function searchGlAccounts(search: string, pageSize = 20, fields: string[] = GL_ACCOUNT_DROPDOWN_FIELDS) {
+  return searchMaster<MasterGlAccount>('/masters/gl-accounts/list', search, pageSize, fields).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => {
+      const source = row as Record<string, unknown>
+      const code = String(source.Code ?? source.code ?? '')
+      if (!code) return undefined
+      return {
+        Code: code,
+        Name: String(source.Name ?? source.name ?? '') || undefined,
+      } satisfies MasterGlAccount
+    }).filter(Boolean) as MasterGlAccount[],
+  }))
+}
+
 export function searchHsnCodes(search: string, pageSize = 20) {
   return searchMaster<MasterHsnCode>('/masters/hsn-codes/list', search, pageSize).then((res) => ({
     ...res,
@@ -192,8 +236,48 @@ export function searchSacCodes(search: string, pageSize = 20) {
   }))
 }
 
+export const BUSINESS_PARTNER_DROPDOWN_FIELDS = ['CardCode', 'CardName', 'Series']
+
 export function searchVendors(search: string, pageSize = 20, fields: string[] = BUSINESS_PARTNER_DROPDOWN_FIELDS) {
-  return searchMaster<MasterBusinessPartner>('/business-partner/list', search, pageSize, fields)
+  return searchMaster<MasterBusinessPartner>('/business-partner/list', search, pageSize, fields).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => normalizeBusinessPartner(row as MasterBusinessPartner)).filter(Boolean) as MasterBusinessPartner[],
+  }))
+}
+
+export function searchSalesPersons(search: string, pageSize = 20) {
+  return searchMaster<MasterSalesPerson>('/masters/sales-persons/list', search, pageSize).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => {
+      const source = row as Record<string, unknown>
+      const code = Number(source.SalesEmployeeCode ?? source.salesEmployeeCode)
+      if (!Number.isFinite(code)) return undefined
+      return {
+        SalesEmployeeCode: code,
+        SalesEmployeeName: String(source.SalesEmployeeName ?? source.salesEmployeeName ?? ''),
+      } satisfies MasterSalesPerson
+    }).filter(Boolean) as MasterSalesPerson[],
+  }))
+}
+
+export function searchEmployees(search: string, pageSize = 20) {
+  return searchMaster<MasterEmployee>('/masters/employees/list', search, pageSize).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => {
+      const source = row as Record<string, unknown>
+      const id = Number(source.EmployeeID ?? source.employeeID)
+      if (!Number.isFinite(id)) return undefined
+      const first = String(source.FirstName ?? source.firstName ?? '')
+      const last = String(source.LastName ?? source.lastName ?? '')
+      const name = [first, last].filter(Boolean).join(' ')
+      return {
+        EmployeeID: id,
+        FirstName: first || undefined,
+        LastName: last || undefined,
+        DisplayName: name || String(id),
+      } satisfies MasterEmployee
+    }).filter(Boolean) as MasterEmployee[],
+  }))
 }
 
 export function searchCustomers(search: string, pageSize = 20, fields: string[] = BUSINESS_PARTNER_DROPDOWN_FIELDS) {
