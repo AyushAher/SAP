@@ -6,6 +6,8 @@ public class StageWisePaymentBatch
     public string CompanyDb { get; set; } = string.Empty;
     public int PoDocEntry { get; set; }
     public int? DocNumber { get; set; }
+    /// <summary>FK to local <see cref="PurchaseOrder.Id"/>.</summary>
+    public int? PurchaseOrderId { get; set; }
     public int? StageWisePaymentId { get; set; }
     public int? DownPaymentStageWisePaymentId { get; set; }
     public string? ApprovalRequestId { get; set; }
@@ -20,6 +22,7 @@ public class StageWisePaymentBatch
     public DateTime CreatedOn { get; set; }
     public DateTime LastModifiedOn { get; set; }
 
+    public PurchaseOrder? PurchaseOrder { get; set; }
     public StageWisePayment? StageWisePayment { get; set; }
     public StageWisePayment? DownPaymentStageWisePayment { get; set; }
     public ICollection<StageWisePaymentBatchLine> Lines { get; set; } = [];

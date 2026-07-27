@@ -97,6 +97,7 @@ public static class StageWisePaymentCalculations
                     Tds = null,
                     Status = record.Status,
                     DocNumber = record.DocNumber,
+                    PurchaseOrderId = record.PurchaseOrderId,
                     CreatedOn = record.CreatedOn,
                     LastModifiedOn = record.LastModifiedOn,
                 });

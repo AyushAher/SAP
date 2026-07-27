@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Banknote, ClipboardList, Package, Truck } from 'lucide-react'
+import { Banknote, ClipboardList, Truck } from 'lucide-react'
 import { PurchaseOrderLinesEditor } from '@/Components/forms/PurchaseOrderLinesEditor'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
@@ -40,6 +40,7 @@ import {
   searchSalesPersons,
   searchVendors,
   searchWarehouses,
+  formatWarehouseOptionLabel,
   lookupEmployee,
   lookupSalesPerson,
   type MasterBusinessPartner,
@@ -62,10 +63,9 @@ import type { SelectOption } from '@/types'
 import type { PaymentTermRow, PurchaseOrderLineItem, PurchaseOrderLogistics, PurchaseOrderOtherTerms } from '@/types/purchaseOrder'
 import { PAYMENT_TERM_TYPE_OPTIONS } from '@/types/purchaseOrder'
 
-type FormTab = 'items' | 'logistics' | 'payment' | 'other'
+type FormTab = 'logistics' | 'payment' | 'other'
 
 const FORM_TABS: Array<{ id: FormTab; label: string; description: string }> = [
-  { id: 'items', label: 'Item Details', description: 'Add and manage purchase order line items.' },
   { id: 'logistics', label: 'Logistics', description: 'Shipping, dispatch, and material movement references.' },
   { id: 'payment', label: 'Payment Terms', description: 'Define stage-wise payment terms for this order.' },
   { id: 'other', label: 'Other Terms', description: 'Commercial terms, warranty, and additional conditions.' },
@@ -93,7 +93,7 @@ export function PurchaseOrderFormPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hydratedId, setHydratedId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<FormTab>('items')
+  const [activeTab, setActiveTab] = useState<FormTab>('logistics')
   const [form, setForm] = useState<Record<string, unknown>>({
     CardCode: '',
     CardName: '',
@@ -191,7 +191,7 @@ export function PurchaseOrderFormPage() {
     const response = await searchWarehouses(search)
     return (response.data ?? []).map((wh) => ({
       value: wh.WarehouseCode ?? '',
-      label: `${wh.WarehouseCode ?? ''}${wh.City ? ` - ${wh.City}` : ''}`.trim(),
+      label: formatWarehouseOptionLabel(wh),
     })).filter((o) => o.value)
   }, [])
 
@@ -404,7 +404,6 @@ export function PurchaseOrderFormPage() {
     e.preventDefault()
     if (!lines.length) {
       setError(isServiceDoc ? 'Add at least one service line.' : 'Add at least one line item.')
-      setActiveTab('items')
       toast.error(isServiceDoc ? 'Add at least one service line.' : 'Add at least one line item.')
       return
     }
@@ -582,7 +581,7 @@ export function PurchaseOrderFormPage() {
                   }}
                 />
                 <Input
-                  label="Delivery Date *"
+                  label="Delivery Date"
                   type="date"
                   required
                   value={String(form.DocDueDate ?? form.DueDate ?? '').slice(0, 10)}
@@ -678,14 +677,30 @@ export function PurchaseOrderFormPage() {
                   </p>
                 ) : null}
               </div>
+
+              <div className="space-y-3 border-t border-slate-200 pt-4">
+                <h4 className="text-sm font-semibold text-slate-700">
+                  {isServiceDoc ? 'Service Details' : 'Item Details'}
+                </h4>
+                <p className="text-sm text-slate-500">
+                  {isServiceDoc
+                    ? 'Add and manage G/L service lines for this purchase order.'
+                    : 'Add and manage purchase order line items.'}
+                </p>
+                <PurchaseOrderLinesEditor
+                  lines={lines}
+                  onChange={setLines}
+                  defaultWarehouse={defaultWarehouse}
+                  defaultProject={String(form.Project ?? '')}
+                  docType={docType}
+                  requireProdNo={isJobPo}
+                />
+              </div>
             </section>
 
             <section>
               <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FormTab)}>
                 <TabsList aria-label="Purchase order sections" className="-mx-1 px-1">
-                  <TabsTrigger value="items" icon={<Package className="h-4 w-4" />} badge={lines.length}>
-                    {isServiceDoc ? 'Service Details' : 'Item Details'}
-                  </TabsTrigger>
                   <TabsTrigger value="logistics" icon={<Truck className="h-4 w-4" />}>
                     Logistics
                   </TabsTrigger>
@@ -698,26 +713,9 @@ export function PurchaseOrderFormPage() {
                 </TabsList>
 
                 <TabsContent
-                  value="items"
-                  title={isServiceDoc ? 'Service Details' : FORM_TABS[0].label}
-                  description={isServiceDoc
-                    ? 'Add and manage G/L service lines for this purchase order.'
-                    : FORM_TABS[0].description}
-                >
-                  <PurchaseOrderLinesEditor
-                    lines={lines}
-                    onChange={setLines}
-                    defaultWarehouse={defaultWarehouse}
-                    defaultProject={String(form.Project ?? '')}
-                    docType={docType}
-                    requireProdNo={isJobPo}
-                  />
-                </TabsContent>
-
-                <TabsContent
                   value="logistics"
-                  title={FORM_TABS[1].label}
-                  description={FORM_TABS[1].description}
+                  title={FORM_TABS[0].label}
+                  description={FORM_TABS[0].description}
                 >
                   <div className="grid gap-4 md:grid-cols-2">
                   <Input
@@ -765,8 +763,8 @@ export function PurchaseOrderFormPage() {
 
                 <TabsContent
                   value="payment"
-                  title={FORM_TABS[2].label}
-                  description={FORM_TABS[2].description}
+                  title={FORM_TABS[1].label}
+                  description={FORM_TABS[1].description}
                 >
                 <div className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -849,8 +847,8 @@ export function PurchaseOrderFormPage() {
 
                 <TabsContent
                   value="other"
-                  title={FORM_TABS[3].label}
-                  description={FORM_TABS[3].description}
+                  title={FORM_TABS[2].label}
+                  description={FORM_TABS[2].description}
                 >
                 <div className="grid gap-4 md:grid-cols-2">
                   <Input label="Delivery Terms" value={otherTerms.deliveryTerms ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, deliveryTerms: e.target.value })} />

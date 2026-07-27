@@ -1,5 +1,6 @@
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
+using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Exceptions;
@@ -13,6 +14,7 @@ public class StageWisePaymentPageService(
     SapPurchaseOrderService purchaseOrderService,
     SapVendorPaymentService vendorPaymentService,
     SapMasterDataService masterDataService,
+    PurchaseOrderLinkResolver purchaseOrderLinks,
     ISapLoginService sapLogin,
     ICurrentCompanyDbAccessor companyDbAccessor)
 {
@@ -29,9 +31,13 @@ public class StageWisePaymentPageService(
             return null;
 
         var docNum = po.DocNum ?? poDocEntry;
+        var purchaseOrderId = await purchaseOrderLinks.EnsureIdFromSapPoAsync(po, cancellationToken);
         var tableRecords = await db.StageWisePayments
             .AsNoTracking()
-            .Where(x => x.CompanyDb == CompanyDb && x.DocNumber == docNum)
+            .Where(x => x.CompanyDb == CompanyDb
+                && (purchaseOrderId != null
+                    ? x.PurchaseOrderId == purchaseOrderId
+                    : x.DocNumber == docNum))
             .OrderByDescending(x => x.Id)
             .ToListAsync(cancellationToken);
 

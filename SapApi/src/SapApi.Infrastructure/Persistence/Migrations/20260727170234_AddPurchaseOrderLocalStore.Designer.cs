@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SapApi.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SapApi.Infrastructure.Persistence;
 namespace SapApi.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260727170234_AddPurchaseOrderLocalStore")]
+    partial class AddPurchaseOrderLocalStore
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -409,9 +412,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Property<int>("PolicyId")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("PurchaseOrderId")
-                        .HasColumnType("integer");
-
                     b.Property<string>("RequestBody")
                         .HasColumnType("text");
 
@@ -430,8 +430,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PolicyId");
-
-                    b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("RequesterUserId");
 
@@ -1002,9 +1000,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Property<int?>("PaymentTermsType")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("PurchaseOrderId")
-                        .HasColumnType("integer");
-
                     b.Property<int>("Stage")
                         .HasColumnType("integer");
 
@@ -1027,8 +1022,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("CompanyDb", "DocNumber");
 
@@ -1081,9 +1074,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("PostingDate")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int?>("PurchaseOrderId")
-                        .HasColumnType("integer");
-
                     b.Property<string>("ReferenceNo")
                         .HasColumnType("text");
 
@@ -1102,8 +1092,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("DownPaymentStageWisePaymentId")
                         .IsUnique();
-
-                    b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("StageWisePaymentId")
                         .IsUnique();
@@ -1401,11 +1389,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("SapApi.Domain.Entities.PurchaseOrder", "PurchaseOrder")
-                        .WithMany("ApprovalRequests")
-                        .HasForeignKey("PurchaseOrderId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("SapApi.Domain.Entities.ApplicationUser", "RequesterUser")
                         .WithMany("ApprovalRequest")
                         .HasForeignKey("RequesterUserId")
@@ -1413,8 +1396,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Policy");
-
-                    b.Navigation("PurchaseOrder");
 
                     b.Navigation("RequesterUser");
                 });
@@ -1441,26 +1422,11 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Navigation("PurchaseOrder");
                 });
 
-            modelBuilder.Entity("SapApi.Domain.Entities.StageWisePayment", b =>
-                {
-                    b.HasOne("SapApi.Domain.Entities.PurchaseOrder", "PurchaseOrder")
-                        .WithMany("StageWisePayments")
-                        .HasForeignKey("PurchaseOrderId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("PurchaseOrder");
-                });
-
             modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatch", b =>
                 {
                     b.HasOne("SapApi.Domain.Entities.StageWisePayment", "DownPaymentStageWisePayment")
                         .WithOne()
                         .HasForeignKey("SapApi.Domain.Entities.StageWisePaymentBatch", "DownPaymentStageWisePaymentId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("SapApi.Domain.Entities.PurchaseOrder", "PurchaseOrder")
-                        .WithMany("StageWisePaymentBatches")
-                        .HasForeignKey("PurchaseOrderId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("SapApi.Domain.Entities.StageWisePayment", "StageWisePayment")
@@ -1469,8 +1435,6 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("DownPaymentStageWisePayment");
-
-                    b.Navigation("PurchaseOrder");
 
                     b.Navigation("StageWisePayment");
                 });
@@ -1558,15 +1522,9 @@ namespace SapApi.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("SapApi.Domain.Entities.PurchaseOrder", b =>
                 {
-                    b.Navigation("ApprovalRequests");
-
                     b.Navigation("Lines");
 
                     b.Navigation("PaymentTerms");
-
-                    b.Navigation("StageWisePaymentBatches");
-
-                    b.Navigation("StageWisePayments");
                 });
 
             modelBuilder.Entity("SapApi.Domain.Entities.StageWisePaymentBatch", b =>

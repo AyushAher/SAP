@@ -5,7 +5,6 @@ import {
   listPurchaseOrders,
   type PurchaseOrder,
 } from '@/Requests/purchaseOrders'
-import { API_CACHE_TTL_MS } from '@/helpers/api/requestCache'
 import type { PaginationRequest, PaginationResponse } from '@/types/api'
 
 export const purchaseOrderKeys = {
@@ -18,27 +17,24 @@ export const purchaseOrderKeys = {
     [...purchaseOrderKeys.details(), String(id)] as const,
 }
 
+/** Always fetch fresh from API — POs are DB-backed; no client TTL cache. */
 export function usePurchaseOrder(id?: string | number) {
   const enabled = id != null && String(id).length > 0
   return useQuery<PurchaseOrder>({
     queryKey: purchaseOrderKeys.detail(id ?? ''),
     queryFn: () => getPurchaseOrder(id!),
     enabled,
-    staleTime: API_CACHE_TTL_MS,
+    staleTime: 0,
+    gcTime: 0,
   })
 }
 
-/** DataTable-compatible fetcher backed by React Query (5 min stale). */
+/** DataTable-compatible fetcher — always hits API (DB-backed, no client TTL). */
 export function usePurchaseOrderListFetcher() {
-  const queryClient = useQueryClient()
   return useCallback(
     (request: PaginationRequest): Promise<PaginationResponse<PurchaseOrder[]>> =>
-      queryClient.fetchQuery({
-        queryKey: purchaseOrderKeys.list(request),
-        queryFn: () => listPurchaseOrders(request),
-        staleTime: API_CACHE_TTL_MS,
-      }),
-    [queryClient],
+      listPurchaseOrders(request),
+    [],
   )
 }
 

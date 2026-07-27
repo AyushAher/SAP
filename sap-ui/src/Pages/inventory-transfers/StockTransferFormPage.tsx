@@ -7,7 +7,7 @@ import { Button, Card, CardContent, Input, SearchableSelect, Select, Textarea } 
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName, resolveMasterSelectLabels } from '@/helpers/masterLookup'
 import { createInventoryTransfer, getInventoryTransfer, updateInventoryTransfer } from '@/Requests/inventoryTransfers'
-import { searchVendors, searchWarehouses } from '@/Requests/masters'
+import { searchVendors, searchWarehouses, formatWarehouseOptionLabel } from '@/Requests/masters'
 import type { SelectOption } from '@/types'
 import type { DocumentLineItem } from '@/types/production'
 
@@ -44,7 +44,7 @@ export function StockTransferFormPage() {
     const response = await searchWarehouses(search)
     return (response.data ?? []).map((wh) => ({
       value: wh.WarehouseCode ?? '',
-      label: `${wh.WarehouseCode ?? ''}${wh.City ? ` - ${wh.City}` : ''}`.trim(),
+      label: formatWarehouseOptionLabel(wh),
     })).filter((o) => o.value)
   }, [])
 

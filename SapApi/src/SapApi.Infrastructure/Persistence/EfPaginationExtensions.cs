@@ -106,6 +106,9 @@ public static class EfPaginationExtensions
         if (underlying == typeof(decimal) && decimal.TryParse(text, out var decimalValue))
             return decimalValue;
 
+        if (underlying == typeof(double) && double.TryParse(text, out var doubleValue))
+            return doubleValue;
+
         return text;
     }
 

@@ -166,7 +166,7 @@ namespace SapApi.Shared
             public static string SapInventoryTransferRequests =
                 SapServiceLayerUrl + SapBaseUrl + "/InventoryTransferRequests";
             public static string GetAllWarehouses = SapServiceLayerUrl + SapBaseUrl +
-                                                    "/Warehouses?$select=WarehouseCode,State,City,Location";
+                                                    "/Warehouses?$select=WarehouseCode,WarehouseName,State,City,Location";
             public static string GetAllBusinessPartners = SapServiceLayerUrl + SapBaseUrl + "/BusinessPartners";
             public static string GetPurchaseDownPaymentByDocNum(string docEntry) => SapServiceLayerUrl + SapBaseUrl + $"/PurchaseDownPayments?$filter=DocNum eq {docEntry}";
 

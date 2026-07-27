@@ -82,11 +82,17 @@ public class ApprovalRequestViewService(
                 cancellationToken);
 
         var poDocNum = po?.DocNum;
-        var stagePayments = poDocNum is not null
+        var stagePayments = request.PurchaseOrderId is not null
             ? await db.StageWisePayments.AsNoTracking()
-                .Where(x => x.CompanyDb == CompanyDb && x.DocNumber == poDocNum && x.Status != StageWisePaymentStatus.Cancelled)
+                .Where(x => x.CompanyDb == CompanyDb
+                    && x.PurchaseOrderId == request.PurchaseOrderId
+                    && x.Status != StageWisePaymentStatus.Cancelled)
                 .ToListAsync(cancellationToken)
-            : [];
+            : poDocNum is not null
+                ? await db.StageWisePayments.AsNoTracking()
+                    .Where(x => x.CompanyDb == CompanyDb && x.DocNumber == poDocNum && x.Status != StageWisePaymentStatus.Cancelled)
+                    .ToListAsync(cancellationToken)
+                : [];
 
         var paymentTerms = po?.CreateUdfList() ?? [];
 

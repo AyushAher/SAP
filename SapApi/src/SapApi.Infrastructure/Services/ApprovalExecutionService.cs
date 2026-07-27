@@ -21,7 +21,8 @@ public class ApprovalExecutionService(
     SapPurchaseDownPaymentService sapPurchaseDownPaymentService,
     SapVendorPaymentService sapVendorPaymentService,
     StageWisePaymentService stageWisePaymentService,
-    ApprovalService approvalService)
+    ApprovalService approvalService,
+    PurchaseOrders.PurchaseOrderLinkResolver purchaseOrderLinks)
 {
     public async Task<SapBaseResponse?> ExecuteAsync(ApprovalRequest request, ApprovalActionData? data, CancellationToken cancellationToken = default)
     {
@@ -244,6 +245,22 @@ public class ApprovalExecutionService(
             result.SapResponseDocEntry = sapResponse.ApprovalDocEntry;
             result.SapResponseDocNum = sapResponse.ApprovalDocNumber;
 
+            if (result.PurchaseOrderId is null
+                && result.DocumentType is ApprovalDocumentType.PurchaseOrder
+                    or ApprovalDocumentType.StagewisePayments_DP
+                    or ApprovalDocumentType.Payments)
+            {
+                if (int.TryParse(sapResponse.ApprovalDocEntry, out var poDocEntry) && poDocEntry > 0
+                    && result.DocumentType == ApprovalDocumentType.PurchaseOrder)
+                {
+                    result.PurchaseOrderId = await purchaseOrderLinks.EnsureIdByDocEntryAsync(poDocEntry, cancellationToken);
+                }
+                else if (int.TryParse(result.SupportingData, out var supportDocEntry) && supportDocEntry > 0)
+                {
+                    result.PurchaseOrderId = await purchaseOrderLinks.EnsureIdByDocEntryAsync(supportDocEntry, cancellationToken);
+                }
+            }
+
             await unitOfWork.ExecuteInTransactionAsync(async _ =>
             {
                 if (result.DocumentType == ApprovalDocumentType.Payments)
@@ -253,6 +270,8 @@ public class ApprovalExecutionService(
                     {
                         record.UtrDate = data?.UtrDate;
                         record.UtrNo = data?.UtrNo;
+                        if (record.PurchaseOrderId is null && result.PurchaseOrderId is not null)
+                            record.PurchaseOrderId = result.PurchaseOrderId;
                         context.AttachModified(record);
                     }
                 }

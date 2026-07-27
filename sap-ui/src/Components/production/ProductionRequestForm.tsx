@@ -7,7 +7,7 @@ import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
 import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
 import { Button, Card, CardContent, Input, SearchableSelect } from '@/Components/ui'
-import { searchItems, searchWarehouses } from '@/Requests/masters'
+import { searchItems, searchWarehouses, formatWarehouseOptionLabel } from '@/Requests/masters'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import { addProductionOrderLine, getProductionOrderLines, selectProductionOrder } from '@/Requests/productionOrders'
@@ -85,7 +85,7 @@ export function ProductionRequestForm({
     const response = await searchWarehouses(search)
     return (response.data ?? []).map((wh) => ({
       value: wh.WarehouseCode ?? '',
-      label: `${wh.WarehouseCode ?? ''}${wh.City ? ` - ${wh.City}` : ''}`.trim(),
+      label: formatWarehouseOptionLabel(wh),
     })).filter((o) => o.value)
   }, [])
 

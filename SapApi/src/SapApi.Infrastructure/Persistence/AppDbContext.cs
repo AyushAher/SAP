@@ -22,6 +22,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<IssueForProductionRequests> IssueForProductionRequests => Set<IssueForProductionRequests>();
     public DbSet<ReceiptFromProductionRequests> ReceiptFromProductionRequests => Set<ReceiptFromProductionRequests>();
     public DbSet<CacheEntry> CacheEntries => Set<CacheEntry>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
+    public DbSet<PurchaseOrderPaymentTerm> PurchaseOrderPaymentTerms => Set<PurchaseOrderPaymentTerm>();
+    public DbSet<PurchaseOrderSyncState> PurchaseOrderSyncStates => Set<PurchaseOrderSyncState>();
 
     public override int SaveChanges()
     {
@@ -72,37 +76,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .Property(x => x.FullName)
             .HasMaxLength(150);
 
-        modelBuilder.Entity<ApprovalRequest>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).ValueGeneratedOnAdd();
-            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
-            entity.HasIndex(p => new { p.CompanyDb, p.OverallStatus });
-            entity.Property(e => e.RequestBody).HasConversion(EncryptedStringConverter.Instance);
-            entity.Property(e => e.SupportingData).HasConversion(EncryptedStringConverter.Instance);
-            entity.HasMany(r => r.UserApprovals).WithOne(u => u.ApprovalRequest).HasForeignKey(u => u.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<ApprovalLog>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).ValueGeneratedOnAdd();
-            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
-            entity.Property(e => e.Action).HasMaxLength(64).IsRequired();
-            entity.HasIndex(e => new { e.CompanyDb, e.ApprovalRequestId });
-            entity.Property(e => e.OldValue).HasConversion(EncryptedStringConverter.Instance);
-            entity.Property(e => e.NewValue).HasConversion(EncryptedStringConverter.Instance);
-            entity.HasOne(e => e.ApprovalRequest).WithMany().HasForeignKey(e => e.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
-        });
-
         modelBuilder.Entity<StageWisePayment>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(e => new { e.CompanyDb, e.DocNumber });
+            entity.HasIndex(e => e.PurchaseOrderId);
             entity.Property(e => e.UtrNo).HasConversion(EncryptedStringConverter.Instance);
             entity.Property(e => e.Bank).HasConversion(EncryptedStringConverter.Instance);
+            entity.HasOne(e => e.PurchaseOrder)
+                .WithMany(p => p.StageWisePayments)
+                .HasForeignKey(e => e.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<StageWisePaymentBatch>()
                 .WithOne(b => b.StageWisePayment)
                 .HasForeignKey<StageWisePaymentBatch>(b => b.StageWisePaymentId)
@@ -120,9 +106,42 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.Property(e => e.Account).HasConversion(EncryptedStringConverter.Instance);
             entity.HasIndex(e => new { e.CompanyDb, e.PoDocEntry });
+            entity.HasIndex(e => e.PurchaseOrderId);
             entity.HasIndex(e => e.ApprovalRequestId);
             entity.HasIndex(e => e.DownPaymentStageWisePaymentId);
+            entity.HasOne(e => e.PurchaseOrder)
+                .WithMany(p => p.StageWisePaymentBatches)
+                .HasForeignKey(e => e.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.SetNull);
             entity.HasMany(e => e.Lines).WithOne(l => l.Batch).HasForeignKey(l => l.BatchId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ApprovalRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.HasIndex(p => new { p.CompanyDb, p.OverallStatus });
+            entity.HasIndex(e => e.PurchaseOrderId);
+            entity.Property(e => e.RequestBody).HasConversion(EncryptedStringConverter.Instance);
+            entity.Property(e => e.SupportingData).HasConversion(EncryptedStringConverter.Instance);
+            entity.HasOne(e => e.PurchaseOrder)
+                .WithMany(p => p.ApprovalRequests)
+                .HasForeignKey(e => e.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasMany(r => r.UserApprovals).WithOne(u => u.ApprovalRequest).HasForeignKey(u => u.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ApprovalLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Action).HasMaxLength(64).IsRequired();
+            entity.HasIndex(e => new { e.CompanyDb, e.ApprovalRequestId });
+            entity.Property(e => e.OldValue).HasConversion(EncryptedStringConverter.Instance);
+            entity.Property(e => e.NewValue).HasConversion(EncryptedStringConverter.Instance);
+            entity.HasOne(e => e.ApprovalRequest).WithMany().HasForeignKey(e => e.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StageWisePaymentBatchLine>(entity =>
@@ -210,6 +229,50 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.Key).HasMaxLength(512);
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(e => new { e.CompanyDb, e.ExpiresAtUtc });
+        });
+
+        modelBuilder.Entity<PurchaseOrder>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.CardCode).HasMaxLength(50);
+            entity.Property(e => e.CardName).HasMaxLength(200);
+            entity.Property(e => e.Project).HasMaxLength(50);
+            entity.Property(e => e.DocumentStatus).HasMaxLength(32);
+            entity.Property(e => e.DocType).HasMaxLength(32);
+            entity.HasIndex(e => new { e.CompanyDb, e.DocEntry }).IsUnique();
+            entity.HasIndex(e => new { e.CompanyDb, e.DocNum });
+            entity.HasIndex(e => new { e.CompanyDb, e.DocDate });
+            entity.HasIndex(e => new { e.CompanyDb, e.CardCode });
+            entity.HasMany(e => e.Lines).WithOne(l => l.PurchaseOrder).HasForeignKey(l => l.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.PaymentTerms).WithOne(t => t.PurchaseOrder).HasForeignKey(t => t.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PurchaseOrderLine>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.ItemCode).HasMaxLength(50);
+            entity.Property(e => e.WarehouseCode).HasMaxLength(20);
+            entity.HasIndex(e => new { e.PurchaseOrderId, e.LineNum }).IsUnique();
+        });
+
+        modelBuilder.Entity<PurchaseOrderPaymentTerm>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.HasIndex(e => new { e.PurchaseOrderId, e.Slot }).IsUnique();
+        });
+
+        modelBuilder.Entity<PurchaseOrderSyncState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.HasIndex(e => e.CompanyDb).IsUnique();
         });
 
         // Npgsql rejects DateTime Kind=Unspecified for timestamptz. Convert at the model layer

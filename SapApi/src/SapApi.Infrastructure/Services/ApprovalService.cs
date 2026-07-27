@@ -2,6 +2,7 @@
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
+using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Shared;
 using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
@@ -17,10 +18,16 @@ public class ApprovalService
     private readonly int UserId;
     private readonly string CompanyDb;
     private readonly AppDbContext context;
+    private readonly PurchaseOrderLinkResolver purchaseOrderLinks;
 
-    public ApprovalService(AppDbContext dbContext, IHttpContextAccessor httpContext, ICurrentCompanyDbAccessor companyDbAccessor)
+    public ApprovalService(
+        AppDbContext dbContext,
+        IHttpContextAccessor httpContext,
+        ICurrentCompanyDbAccessor companyDbAccessor,
+        PurchaseOrderLinkResolver purchaseOrderLinks)
     {
         context = dbContext;
+        this.purchaseOrderLinks = purchaseOrderLinks;
 
         var userId = httpContext.GetUserIdAsync();
         if (!userId.HasValue)
@@ -113,7 +120,8 @@ public class ApprovalService
                 PolicyId = policy.Id,
                 Action = action,
                 SupportingData = supportingData,
-                RequestBody = JsonSerializer.Serialize(data)
+                RequestBody = JsonSerializer.Serialize(data),
+                PurchaseOrderId = await ResolvePurchaseOrderIdAsync(docType, data, supportingData),
             };
 
             await context.ApprovalRequests.AddAsync(approvalRequest);
@@ -136,6 +144,35 @@ public class ApprovalService
             await context.SaveChangesAsync();
 
             return approvalRequest.Id;
+        }
+
+        private async Task<int?> ResolvePurchaseOrderIdAsync<TData>(
+            ApprovalDocumentType docType,
+            TData data,
+            string? supportingData)
+        {
+            if (docType is not (
+                ApprovalDocumentType.PurchaseOrder
+                or ApprovalDocumentType.StagewisePayments_DP
+                or ApprovalDocumentType.Payments))
+                return null;
+
+            int? docEntry = null;
+            if (!string.IsNullOrWhiteSpace(supportingData)
+                && int.TryParse(supportingData.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var fromSupport)
+                && fromSupport > 0)
+            {
+                docEntry = fromSupport;
+            }
+            else if (data is SapPurchaseOrdersResponse po && po.DocEntry is > 0)
+            {
+                docEntry = po.DocEntry;
+            }
+
+            if (docEntry is null or <= 0)
+                return null;
+
+            return await purchaseOrderLinks.EnsureIdByDocEntryAsync(docEntry.Value);
         }
 
         #endregion

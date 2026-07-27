@@ -8,7 +8,7 @@ import { ROUTES } from '@/config/constants'
 import { formatCodeWithName, resolveMasterSelectLabels } from '@/helpers/masterLookup'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import { createProductionOrder, getProductionOrder, updateProductionOrder } from '@/Requests/productionOrders'
-import { listSalesOrders, searchCustomers, searchItems, searchProjects, searchWarehouses } from '@/Requests/masters'
+import { listSalesOrders, searchCustomers, searchItems, searchProjects, searchWarehouses, formatWarehouseOptionLabel } from '@/Requests/masters'
 import type { SelectOption } from '@/types'
 import type { ProductionOrder, ProductionOrderLine } from '@/types/production'
 
@@ -75,7 +75,7 @@ export function ProductionOrderFormPage() {
     const response = await searchWarehouses(search)
     return (response.data ?? []).map((wh) => ({
       value: wh.WarehouseCode ?? '',
-      label: `${wh.WarehouseCode ?? ''}${wh.City ? ` - ${wh.City}` : ''}`.trim(),
+      label: formatWarehouseOptionLabel(wh),
     })).filter((o) => o.value)
   }, [])
 

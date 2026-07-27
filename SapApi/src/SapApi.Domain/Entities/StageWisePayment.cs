@@ -24,8 +24,12 @@ namespace SapApi.Domain.Entities
         public double? Tds { get; set; }
         public StageWisePaymentStatus Status { get; set; } = StageWisePaymentStatus.Added;
         public int? DocNumber { get; set; }
+        /// <summary>FK to local <see cref="PurchaseOrder.Id"/> (SAP DocEntry remains in DocNumber/PoDocEntry elsewhere).</summary>
+        public int? PurchaseOrderId { get; set; }
         public DateTime CreatedOn { get; set; }
         public DateTime LastModifiedOn { get; set; }
+
+        public PurchaseOrder? PurchaseOrder { get; set; }
     }
 
     public enum StageWisePaymentStatus

@@ -21,6 +21,7 @@ import {
   searchSacCodes,
   searchTaxCodes,
   searchWarehouses,
+  formatWarehouseOptionLabel,
   type MasterItem,
 } from '@/Requests/masters'
 import type { SelectOption } from '@/types'
@@ -161,7 +162,7 @@ export function PurchaseOrderLinesEditor({
     const response = await searchWarehouses(search)
     return (response.data ?? []).map((wh) => ({
       value: wh.WarehouseCode ?? '',
-      label: `${wh.WarehouseCode ?? ''}${wh.City ? ` - ${wh.City}` : ''}`.trim(),
+      label: formatWarehouseOptionLabel(wh),
     })).filter((o) => o.value)
   }, [])
 

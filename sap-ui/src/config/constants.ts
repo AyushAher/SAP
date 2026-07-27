@@ -17,6 +17,8 @@ export const ROUTES = {
   FORGOT_PASSWORD: '/auth/forgot-password',
   HOME: '/',
   DASHBOARD: '/',
+  FORBIDDEN: '/forbidden',
+  NOT_FOUND: '/404',
   PURCHASE_ORDERS: '/purchase-orders',
   PURCHASE_ORDER_FORM: '/purchase-orders/form',
   PURCHASE_ORDER_EDIT: '/purchase-orders/form/:id',

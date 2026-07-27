@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
+using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Enums;
@@ -19,6 +20,7 @@ public class StageWisePaymentBatchService(
     StageWisePaymentPageService pageService,
     StageWisePaymentService stageWisePaymentService,
     SapVendorPaymentService vendorPaymentService,
+    PurchaseOrderLinkResolver purchaseOrderLinks,
     IHttpContextAccessor httpContextAccessor,
     ICurrentCompanyDbAccessor companyDbAccessor)
 {
@@ -166,6 +168,7 @@ public class StageWisePaymentBatchService(
             CompanyDb = CompanyDb,
             PoDocEntry = request.PoDocEntry,
             DocNumber = request.DocNumber ?? po.DocNum,
+            PurchaseOrderId = await purchaseOrderLinks.EnsureIdFromSapPoAsync(po, cancellationToken),
             WtCode = request.WtCode,
             ModeOfPayment = request.ModeOfPayment ?? Constants.SapPaymentMeansType.BankTransfer,
             Account = request.Account,
@@ -246,6 +249,7 @@ public class StageWisePaymentBatchService(
             {
                 CompanyDb = CompanyDb,
                 DocNumber = batch.DocNumber,
+                PurchaseOrderId = batch.PurchaseOrderId,
                 Bank = banks[0],
                 WtCode = request.WtCode,
                 GrossAmount = Math.Round(totalGross, 2),
@@ -553,7 +557,11 @@ public class StageWisePaymentBatchService(
         if (!validated || pageData?.PurchaseOrder is null)
             return (false, validationMessage, null);
 
-        ApplyBatchHeader(batch, request, pageData.PurchaseOrder.DocNum);
+        ApplyBatchHeader(
+            batch,
+            request,
+            pageData.PurchaseOrder.DocNum,
+            await purchaseOrderLinks.EnsureIdFromSapPoAsync(pageData.PurchaseOrder, cancellationToken));
         ReplaceBatchLines(batch, lineSnapshots, banks[0]!, pageData);
 
         batch.LastModifiedOn = DateTime.UtcNow;
@@ -992,9 +1000,14 @@ public class StageWisePaymentBatchService(
         IReadOnlyList<PaymentTermsUdf> paymentTerms,
         CancellationToken cancellationToken)
     {
+        var purchaseOrderId = await purchaseOrderLinks.GetIdByDocNumAsync(docNumber, cancellationToken);
         var activeRecords = await db.StageWisePayments
             .AsNoTracking()
-            .Where(x => x.CompanyDb == CompanyDb && x.DocNumber == docNumber && x.Status != StageWisePaymentStatus.Cancelled)
+            .Where(x => x.CompanyDb == CompanyDb
+                && x.Status != StageWisePaymentStatus.Cancelled
+                && (purchaseOrderId != null
+                    ? x.PurchaseOrderId == purchaseOrderId || x.DocNumber == docNumber
+                    : x.DocNumber == docNumber))
             .ToListAsync(cancellationToken);
 
         var batchPaymentIds = activeRecords
@@ -1137,10 +1150,13 @@ public class StageWisePaymentBatchService(
     private static void ApplyBatchHeader(
         StageWisePaymentBatch batch,
         CreateStageWisePaymentBatchRequest request,
-        int? poDocNum)
+        int? poDocNum,
+        int? purchaseOrderId = null)
     {
         batch.PoDocEntry = request.PoDocEntry;
         batch.DocNumber = request.DocNumber ?? poDocNum;
+        if (purchaseOrderId is not null)
+            batch.PurchaseOrderId = purchaseOrderId;
         batch.WtCode = request.WtCode;
         batch.ModeOfPayment = request.ModeOfPayment ?? Constants.SapPaymentMeansType.BankTransfer;
         batch.Account = request.Account;
@@ -1296,6 +1312,7 @@ public class StageWisePaymentBatchService(
             {
                 CompanyDb = CompanyDb,
                 DocNumber = batchDocNumber ?? request.DocNumber ?? po.DocNum,
+                PurchaseOrderId = await purchaseOrderLinks.EnsureIdFromSapPoAsync(po, cancellationToken),
                 Bank = bank,
                 WtCode = request.WtCode,
                 GrossAmount = Math.Round(totalGross, 2),

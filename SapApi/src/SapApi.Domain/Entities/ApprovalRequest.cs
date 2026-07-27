@@ -28,12 +28,16 @@ namespace SapApi.Domain.Entities
         public string? SapResponseDocNum { get; set; }
         public string? SapResponseDocEntry { get; set; }
 
+        /// <summary>FK to local <see cref="PurchaseOrder.Id"/> when the request relates to a PO / stage-wise payment.</summary>
+        public int? PurchaseOrderId { get; set; }
+
         public DateTime CreatedAt { get; set; }
             = DateTime.UtcNow;
 
         public ApplicationUser RequesterUser { get; set; }
 
         public ApprovalPolicy Policy { get; set; }
+        public PurchaseOrder? PurchaseOrder { get; set; }
         [NotMapped] public bool IsLastApproval { get; set; }
         public ICollection<UserApproval> UserApprovals { get; set; }
             = [];

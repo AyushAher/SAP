@@ -99,16 +99,17 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions Warehouses => new()
     {
-        Select = "WarehouseCode,State,City,Location",
+        Select = "WarehouseCode,WarehouseName,State,City,Location",
         KeyFields = ["WarehouseCode"],
         DefaultSortField = "WarehouseCode",
         DefaultSortDirection = "asc",
-        SearchOrFields = ["WarehouseCode", "City"],
+        SearchOrFields = ["WarehouseCode", "WarehouseName"],
         SearchCodeFields = ["WarehouseCode"],
-        SearchTextFields = ["City"],
+        SearchTextFields = ["WarehouseName"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["WarehouseCode"] = "WarehouseCode",
+            ["WarehouseName"] = "WarehouseName",
             ["City"] = "City",
         },
     };

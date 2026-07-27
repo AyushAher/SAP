@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { API_BASE_URL, API_ERROR_CODES, ROUTES, STORAGE_KEYS } from '@/config/constants'
 import { decrementApiLoading, incrementApiLoading } from '@/helpers/api/apiLoading'
+import { storeForbiddenMessage } from '@/helpers/forbiddenMessage'
 import { getLoginRefreshToken, getLoginToken, refreshTokenApi } from '@/Requests/auth'
 import type { ApiResponse } from '@/types/api'
 
@@ -30,16 +31,17 @@ function isSapSessionExpired(error: AxiosError): boolean {
   return body?.errorCode === API_ERROR_CODES.SAP_SESSION_UNAVAILABLE
 }
 
-function forceSessionExpiredRedirect() {
+function redirectToLogin() {
   clearStoredAuth()
   window.dispatchEvent(new Event('auth:session-expired'))
 }
 
-function redirectToLogin() {
-  forceSessionExpiredRedirect()
-  if (!window.location.pathname.startsWith('/auth')) {
-    window.location.href = ROUTES.LOGIN
-  }
+function redirectToForbidden(error: AxiosError) {
+  const body = error.response?.data as ApiResponse | undefined
+  const message = body?.message?.trim()
+    || 'You do not have permission to perform this action.'
+  storeForbiddenMessage(message)
+  window.dispatchEvent(new Event('app:forbidden'))
 }
 
 function readStoredBranchId(): number | null {
@@ -98,7 +100,9 @@ export function getApiErrorMessage(error: unknown): string {
     const body = error.response?.data as ApiResponse | undefined
     if (body?.message) return body.message
     if (body?.errorCode) return body.errorCode
-    if (error.response?.status === 401) return 'Invalid credentials'
+    if (error.response?.status === 401) return 'Your session has expired. Please sign in again.'
+    if (error.response?.status === 403) return 'You do not have permission to perform this action.'
+    if (error.response?.status === 404) return 'The requested resource was not found.'
     if (error.message) return error.message
   }
   if (error instanceof Error) return error.message
@@ -114,13 +118,14 @@ axiosInstance.interceptors.response.use(
     decrementApiLoading()
     const originalRequest = error.config as RetriableRequest | undefined
     const skipLogout = shouldSkipLogoutOn401(originalRequest?.url)
+    const status = error.response?.status
 
     if (isSapSessionExpired(error) && !skipLogout) {
       redirectToLogin()
       return Promise.reject(error)
     }
 
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !skipLogout && !isSapSessionExpired(error)) {
+    if (status === 401 && originalRequest && !originalRequest._retry && !skipLogout && !isSapSessionExpired(error)) {
       originalRequest._retry = true
       refreshInFlight ??= refreshAccessToken().finally(() => {
         refreshInFlight = null
@@ -133,8 +138,14 @@ axiosInstance.interceptors.response.use(
       }
     }
 
-    if (error.response?.status === 401 && !skipLogout) {
+    if (status === 401 && !skipLogout) {
       redirectToLogin()
+      return Promise.reject(error)
+    }
+
+    if (status === 403 && window.location.pathname !== ROUTES.FORBIDDEN) {
+      redirectToForbidden(error)
+      return Promise.reject(error)
     }
 
     return Promise.reject(error)

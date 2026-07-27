@@ -13,7 +13,8 @@ public class StageWisePaymentService(
     SapVendorPaymentService sapVendorPaymentService,
     AppDbContext context,
     IUnitOfWork unitOfWork,
-    ICurrentCompanyDbAccessor companyDbAccessor)
+    ICurrentCompanyDbAccessor companyDbAccessor,
+    PurchaseOrders.PurchaseOrderLinkResolver purchaseOrderLinks)
 {
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
     public async Task<(bool IsSuccess, string Message, int? PaymentId)> CreateStageWisePayment(
@@ -67,6 +68,7 @@ public class StageWisePaymentService(
 
         var entity1 = entity;
         entity1.CompanyDb = CompanyDb;
+        entity1.PurchaseOrderId ??= await purchaseOrderLinks.EnsureIdFromSapPoAsync(purchaseOrder);
 
         SapBaseResponse? sapResponse = null;
         double tdsAmount = 0;
@@ -291,6 +293,7 @@ public class StageWisePaymentService(
         {
             CompanyDb = CompanyDb,
             DocNumber = purchaseOrder.DocNum,
+            PurchaseOrderId = await purchaseOrderLinks.EnsureIdFromSapPoAsync(purchaseOrder),
             Bank = bank,
             WtCode = wtCode,
             GrossAmount = totalGross,

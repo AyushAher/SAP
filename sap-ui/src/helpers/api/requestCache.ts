@@ -24,12 +24,13 @@ export function buildApiCacheKey(
   return `${method.toUpperCase()}::${url}::${stableSerialize(paramsOrBody)}`
 }
 
-/** All GETs are cached except binary/download endpoints. */
+/** Cache GETs/lists except binary downloads and purchase-order endpoints (DB-backed, manual sync). */
 export function shouldCacheApiUrl(url: string): boolean {
   const path = (url.split('?')[0] ?? url).toLowerCase()
   if (path.includes('/download')) return false
   if (path.endsWith('/pdf')) return false
   if (path.includes('/pdf?')) return false
+  if (path.includes('/purchase-orders')) return false
   return true
 }
 

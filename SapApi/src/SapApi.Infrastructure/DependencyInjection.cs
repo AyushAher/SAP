@@ -10,6 +10,7 @@ using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Sap;
 using SapApi.Infrastructure.Security;
 using SapApi.Infrastructure.Services;
+using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Configuration;
@@ -128,6 +129,8 @@ public static class DependencyInjection
         services.AddScoped<SapVendorPaymentService>();
         services.AddScoped<InventoryItemsTransferService>();
         services.AddScoped<SapPurchaseOrderService>();
+        services.AddScoped<PurchaseOrderLocalStore>();
+        services.AddScoped<PurchaseOrderLinkResolver>();
         services.AddScoped<SapTaxCodesService>();
         services.AddScoped<SapProductionOrdersService>();
         services.AddScoped<SapInventoryGenExitsService>();

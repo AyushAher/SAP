@@ -16,6 +16,7 @@ export interface MasterItem {
 
 export interface MasterWarehouse {
   WarehouseCode?: string
+  WarehouseName?: string
   City?: string
   State?: string
 }
@@ -189,7 +190,7 @@ export const ITEM_DETAIL_FIELDS = [
   'PurchaseVATGroup',
   'ChapterID',
 ]
-export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'City']
+export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'WarehouseName']
 export const TAX_CODE_DROPDOWN_FIELDS = ['Code', 'Name', 'Rate']
 export const PROJECT_DROPDOWN_FIELDS = ['Code', 'Name']
 export const GL_ACCOUNT_DROPDOWN_FIELDS = ['Code', 'Name']
@@ -203,6 +204,15 @@ export function searchItems(search: string, pageSize = 20, fields: string[] = IT
 
 export function searchWarehouses(search: string, pageSize = 20, fields: string[] = WAREHOUSE_DROPDOWN_FIELDS) {
   return searchMaster<MasterWarehouse>('/masters/warehouses/list', search, pageSize, fields)
+}
+
+/** Dropdown label: WarehouseCode - WarehouseName */
+export function formatWarehouseOptionLabel(wh: MasterWarehouse): string {
+  const code = wh.WarehouseCode?.trim() ?? ''
+  const name = wh.WarehouseName?.trim()
+  if (!code) return name || ''
+  if (!name || name === code) return code
+  return `${code} - ${name}`
 }
 
 export function searchTaxCodes(search: string, pageSize = 20, fields: string[] = TAX_CODE_DROPDOWN_FIELDS) {
