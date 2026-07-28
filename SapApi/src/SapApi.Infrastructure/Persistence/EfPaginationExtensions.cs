@@ -48,22 +48,27 @@ public static class EfPaginationExtensions
         if (value is null)
             return query;
 
+        var textValue = filter.Value?.ToString() ?? string.Empty;
         Expression? predicate = filter.Operator.ToLowerInvariant() switch
         {
             "eq" => Expression.Equal(member, Expression.Constant(value, property.PropertyType)),
             "neq" => Expression.NotEqual(member, Expression.Constant(value, property.PropertyType)),
             "contains" when property.PropertyType == typeof(string) =>
-                Expression.Call(member, nameof(string.Contains), Type.EmptyTypes, Expression.Constant(value.ToString())),
+                BuildCaseInsensitiveStringContains(member, textValue),
+            "contains" when IsNumericOrDateType(property.PropertyType) =>
+                BuildToStringContains(member, property.PropertyType, textValue),
             "startswith" when property.PropertyType == typeof(string) =>
-                Expression.Call(member, nameof(string.StartsWith), Type.EmptyTypes, Expression.Constant(value.ToString())),
+                BuildCaseInsensitiveStringStartsWith(member, textValue),
             "endswith" when property.PropertyType == typeof(string) =>
-                Expression.Call(member, nameof(string.EndsWith), Type.EmptyTypes, Expression.Constant(value.ToString())),
+                BuildCaseInsensitiveStringEndsWith(member, textValue),
             "gt" => Expression.GreaterThan(member, Expression.Constant(value, property.PropertyType)),
             "gte" => Expression.GreaterThanOrEqual(member, Expression.Constant(value, property.PropertyType)),
             "lt" => Expression.LessThan(member, Expression.Constant(value, property.PropertyType)),
             "lte" => Expression.LessThanOrEqual(member, Expression.Constant(value, property.PropertyType)),
             _ when property.PropertyType == typeof(string) =>
-                Expression.Call(member, nameof(string.Contains), Type.EmptyTypes, Expression.Constant(filter.Value.ToString())),
+                BuildCaseInsensitiveStringContains(member, textValue),
+            _ when IsNumericOrDateType(property.PropertyType) =>
+                BuildToStringContains(member, property.PropertyType, textValue),
             _ => null,
         };
 
@@ -72,6 +77,79 @@ public static class EfPaginationExtensions
 
         var lambda = Expression.Lambda<Func<T, bool>>(predicate, parameter);
         return query.Where(lambda);
+    }
+
+    private static bool IsNumericOrDateType(Type type)
+    {
+        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+        return underlying == typeof(int)
+               || underlying == typeof(long)
+               || underlying == typeof(decimal)
+               || underlying == typeof(double)
+               || underlying == typeof(float)
+               || underlying == typeof(DateTime);
+    }
+
+    private static Expression BuildCaseInsensitiveStringContains(Expression member, string value)
+    {
+        var notNull = Expression.NotEqual(member, Expression.Constant(null, typeof(string)));
+        var loweredMember = Expression.Call(member, nameof(string.ToLower), Type.EmptyTypes);
+        var contains = Expression.Call(
+            loweredMember,
+            nameof(string.Contains),
+            Type.EmptyTypes,
+            Expression.Constant(value.ToLowerInvariant()));
+        return Expression.AndAlso(notNull, contains);
+    }
+
+    private static Expression BuildCaseInsensitiveStringStartsWith(Expression member, string value)
+    {
+        var notNull = Expression.NotEqual(member, Expression.Constant(null, typeof(string)));
+        var loweredMember = Expression.Call(member, nameof(string.ToLower), Type.EmptyTypes);
+        var startsWith = Expression.Call(
+            loweredMember,
+            nameof(string.StartsWith),
+            Type.EmptyTypes,
+            Expression.Constant(value.ToLowerInvariant()));
+        return Expression.AndAlso(notNull, startsWith);
+    }
+
+    private static Expression BuildCaseInsensitiveStringEndsWith(Expression member, string value)
+    {
+        var notNull = Expression.NotEqual(member, Expression.Constant(null, typeof(string)));
+        var loweredMember = Expression.Call(member, nameof(string.ToLower), Type.EmptyTypes);
+        var endsWith = Expression.Call(
+            loweredMember,
+            nameof(string.EndsWith),
+            Type.EmptyTypes,
+            Expression.Constant(value.ToLowerInvariant()));
+        return Expression.AndAlso(notNull, endsWith);
+    }
+
+    private static Expression BuildToStringContains(Expression member, Type propertyType, string searchValue)
+    {
+        if (Nullable.GetUnderlyingType(propertyType) is { } underlying)
+        {
+            var hasValue = Expression.Property(member, nameof(Nullable<int>.HasValue));
+            var valueMember = Expression.Property(member, "Value");
+            var toString = Expression.Call(valueMember, underlying.GetMethod(nameof(int.ToString), Type.EmptyTypes)!);
+            var contains = Expression.Call(
+                toString,
+                nameof(string.Contains),
+                Type.EmptyTypes,
+                Expression.Constant(searchValue));
+            return Expression.AndAlso(hasValue, contains);
+        }
+
+        var underlyingType = propertyType;
+        var memberToString = Expression.Call(
+            member,
+            underlyingType.GetMethod(nameof(int.ToString), Type.EmptyTypes)!);
+        return Expression.Call(
+            memberToString,
+            nameof(string.Contains),
+            Type.EmptyTypes,
+            Expression.Constant(searchValue));
     }
 
     private static object? ConvertFilterValue(object? raw, Type targetType)

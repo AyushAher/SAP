@@ -4,6 +4,8 @@ import type { PaginationRequest, PaginationResponse } from '@/types/api'
 export interface PurchaseOrder {
   DocEntry?: number
   DocNum?: number
+  DocDate?: string
+  BPLId?: number
   CardCode?: string
   CardName?: string
   Project?: string

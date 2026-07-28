@@ -3,17 +3,15 @@ import { Link } from 'react-router-dom'
 import { Banknote, Pencil, RefreshCw } from 'lucide-react'
 import { toast } from '@/helpers/toast'
 import { PageHeader } from '@/Components/shared/PageHeader'
-import {
-  RowActionButton,
-  RowActionLink,
-  RowActions,
-  rowActionIconClassName,
-} from '@/Components/shared/RowActions'
+import { RowActionsMenu } from '@/Components/shared/RowActionsMenu'
+import { rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Badge, Button, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { formatDate } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { usePurchaseOrderListFetcher } from '@/hooks/usePurchaseOrders'
+import { getBranchesApi } from '@/Requests/auth'
 import {
   getPurchaseOrderSyncStatus,
   syncNewPurchaseOrdersFromSap,
@@ -34,6 +32,11 @@ function formatSyncLabel(status: PurchaseOrderSyncResult | null): string {
   return `Last SAP sync: ${when} — ${status.message || `${status.upsertedCount} order(s)`}`
 }
 
+function formatPoValue(value?: number): string {
+  if (value == null) return '—'
+  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export function PurchaseOrderListPage() {
   const fetchOrders = usePurchaseOrderListFetcher()
   const { fetchData, lookupMaps } = useEnrichedListFetch(fetchOrders, extractors)
@@ -42,12 +45,25 @@ export function PurchaseOrderListPage() {
   const [syncingDocEntry, setSyncingDocEntry] = useState<number | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncStatus, setSyncStatus] = useState<PurchaseOrderSyncResult | null>(null)
+  const [branchMap, setBranchMap] = useState<Record<number, string>>({})
 
   useEffect(() => {
     void getPurchaseOrderSyncStatus()
       .then(setSyncStatus)
       .catch(() => setSyncStatus(null))
   }, [tableKey])
+
+  useEffect(() => {
+    void getBranchesApi()
+      .then((branches) => {
+        const map: Record<number, string> = {}
+        for (const branch of branches ?? []) {
+          map[branch.id] = branch.name
+        }
+        setBranchMap(map)
+      })
+      .catch(() => setBranchMap({}))
+  }, [])
 
   const handleSyncNew = useCallback(async () => {
     setSyncingNew(true)
@@ -82,9 +98,31 @@ export function PurchaseOrderListPage() {
     }
   }, [])
 
+  const resolveBranchLabel = useCallback(
+    (bplId?: number) => {
+      if (bplId == null) return '—'
+      return branchMap[bplId] ?? String(bplId)
+    },
+    [branchMap],
+  )
+
   const columns = useMemo<DataTableColumn<PurchaseOrder>[]>(() => [
     { key: 'DocEntry', header: 'Doc Entry', sortable: true, filterable: true, accessor: (r) => r.DocEntry },
     { key: 'DocNum', header: 'Doc Num', sortable: true, filterable: true, accessor: (r) => r.DocNum },
+    {
+      key: 'DocDate',
+      header: 'PO Date',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => (r.DocDate ? formatDate(r.DocDate) : '—'),
+    },
+    {
+      key: 'BPLId',
+      header: 'Branch',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => resolveBranchLabel(r.BPLId),
+    },
     {
       key: 'CardCode',
       header: 'Business Partner',
@@ -99,7 +137,14 @@ export function PurchaseOrderListPage() {
       filterable: true,
       accessor: (r) => formatCodeWithName(r.Project, lookupMaps.projects[r.Project ?? '']),
     },
-    { key: 'DocTotal', header: 'PO Value', sortable: true, accessor: (r) => r.DocTotal },
+    {
+      key: 'DocTotal',
+      header: 'PO Value',
+      sortable: true,
+      headerClassName: 'text-right',
+      cellClassName: 'text-right tabular-nums',
+      accessor: (r) => formatPoValue(r.DocTotal),
+    },
     {
       key: 'DocumentStatus',
       header: 'Status',
@@ -117,34 +162,40 @@ export function PurchaseOrderListPage() {
       render: (row) => {
         const docEntry = row.DocEntry
         const rowBusy = docEntry != null && syncingDocEntry === docEntry
+        const actionsDisabled = docEntry == null || syncingNew || syncingDocEntry != null
+
         return (
-          <RowActions>
-            <RowActionButton
-              title="Sync this PO from SAP"
-              disabled={docEntry == null || syncingNew || syncingDocEntry != null}
-              onClick={() => docEntry != null && void handleSyncRow(docEntry)}
-              icon={
-                <RefreshCw
-                  className={`${rowActionIconClassName}${rowBusy ? ' animate-spin' : ''}`}
-                />
-              }
-            />
-            <RowActionLink
-              to={`${ROUTES.PURCHASE_ORDER_FORM}/${row.DocEntry}`}
-              title="Edit purchase order"
-              icon={<Pencil className={rowActionIconClassName} />}
-            />
-            <RowActionLink
-              to={`/purchase-orders/${row.DocEntry}/payments`}
-              title="Payment stages"
-              variant="primary"
-              icon={<Banknote className={rowActionIconClassName} />}
-            />
-          </RowActions>
+          <RowActionsMenu
+            items={[
+              {
+                key: 'sync',
+                label: 'Sync from SAP',
+                disabled: actionsDisabled,
+                icon: (
+                  <RefreshCw
+                    className={`${rowActionIconClassName}${rowBusy ? ' animate-spin' : ''}`}
+                  />
+                ),
+                onClick: () => docEntry != null && void handleSyncRow(docEntry),
+              },
+              {
+                key: 'edit',
+                label: 'Edit',
+                to: `${ROUTES.PURCHASE_ORDER_FORM}/${row.DocEntry}`,
+                icon: <Pencil className={rowActionIconClassName} />,
+              },
+              {
+                key: 'payments',
+                label: 'Payment stages',
+                to: `/purchase-orders/${row.DocEntry}/payments`,
+                icon: <Banknote className={rowActionIconClassName} />,
+              },
+            ]}
+          />
         )
       },
     },
-  ], [lookupMaps, syncingDocEntry, syncingNew, handleSyncRow])
+  ], [lookupMaps, syncingDocEntry, syncingNew, handleSyncRow, resolveBranchLabel])
 
   return (
     <div className="space-y-6">
@@ -180,6 +231,8 @@ export function PurchaseOrderListPage() {
         fetchData={fetchData}
         getRowKey={(r) => r.DocEntry ?? r.DocNum ?? Math.random()}
         initialSorts={[{ field: 'DocEntry', direction: 'desc' }]}
+        defaultPageSize={100}
+        pageSizeOptions={[10, 20, 50, 100]}
       />
     </div>
   )

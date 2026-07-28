@@ -37,10 +37,21 @@ public class PurchaseOrderLocalStore(
             .AsNoTracking()
             .Where(x => x.CompanyDb == CompanyDb);
 
+        var (queryWithFilters, remainingFilters) = ApplyPurchaseOrderListFilters(query, request.Filters);
+        query = queryWithFilters;
+
         if (request.Sorts.Count == 0)
             query = query.OrderByDescending(x => x.DocEntry);
 
-        var (items, totalCount) = await query.ToPaginatedListAsync(request, cancellationToken);
+        var listRequest = new PaginationRequest
+        {
+            PageNumber = request.PageNumber,
+            PageSize = request.PageSize,
+            Sorts = request.Sorts,
+            Filters = remainingFilters,
+        };
+
+        var (items, totalCount) = await query.ToPaginatedListAsync(listRequest, cancellationToken);
         var data = items.Select(e => PurchaseOrderMapper.ToSapResponse(e, includeLines: false)).ToList();
         return PaginationResponseFactory.Create(request, data, totalCount);
     }
@@ -279,6 +290,35 @@ public class PurchaseOrderLocalStore(
         state.LastSyncedCount = count;
         state.LastSyncMessage = message;
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Business Partner column search matches CardCode or CardName so mid-name keywords work.
+    /// </summary>
+    private static (IQueryable<PurchaseOrder> Query, List<FilterModel> RemainingFilters) ApplyPurchaseOrderListFilters(
+        IQueryable<PurchaseOrder> query,
+        List<FilterModel> filters)
+    {
+        var remaining = new List<FilterModel>();
+
+        foreach (var filter in filters)
+        {
+            if (filter.Value is null || string.IsNullOrWhiteSpace(filter.Value.ToString()))
+                continue;
+
+            if (!filter.Field.Equals("CardCode", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining.Add(filter);
+                continue;
+            }
+
+            var term = filter.Value.ToString()!.Trim().ToLowerInvariant();
+            query = query.Where(x =>
+                (x.CardCode != null && x.CardCode.ToLower().Contains(term)) ||
+                (x.CardName != null && x.CardName.ToLower().Contains(term)));
+        }
+
+        return (query, remaining);
     }
 
     private static string BuildSyncStartUrl(int minDocEntryExclusive)
