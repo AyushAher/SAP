@@ -7,6 +7,8 @@ import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
 import { Button, Card, CardContent, Badge } from '@/Components/ui'
 import { getApprovalRequest, type ApprovalRequest } from '@/Requests/approvals'
 import { ROUTES } from '@/config/constants'
+import { isAdminUser } from '@/helpers/roles'
+import { useAppSelector } from '@/store/hooks'
 import {
   cancelStageWisePayment,
   deleteStageWisePayment,
@@ -65,6 +67,7 @@ export function StageWisePaymentPage() {
     error: queryError,
   } = useStageWisePaymentPageData(poDocEntry)
   const invalidatePageData = useInvalidateStageWisePaymentPageData()
+  const canCancelPayment = isAdminUser(useAppSelector((state) => state.auth.user))
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [viewApprovalRequest, setViewApprovalRequest] = useState<ApprovalRequest | null>(null)
@@ -307,6 +310,7 @@ export function StageWisePaymentPage() {
                   <th className="px-4 py-3 font-medium">Request ID</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">SAP Document No.</th>
+                  <th className="px-4 py-3 font-medium">Payment Stage ID</th>
                   <th className="px-4 py-3 font-medium">Payment Term</th>
                   <th className="px-4 py-3 text-right font-medium">Gross Amount</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
@@ -315,11 +319,11 @@ export function StageWisePaymentPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">Loading payment requests…</td>
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">Loading payment requests…</td>
                   </tr>
                 ) : tableRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">No payment requests yet.</td>
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">No payment requests yet.</td>
                   </tr>
                 ) : (
                   tableRecords.map((record) => {
@@ -352,6 +356,7 @@ export function StageWisePaymentPage() {
                           <Badge>{normalizeStatus(record.status)}</Badge>
                         </td>
                         <td className="px-4 py-3">{record.outgoingPaymentNumber || '—'}</td>
+                        <td className="px-4 py-3">{record.paymentStageId || '—'}</td>
                         <td className="px-4 py-3">{paymentTermForRecord(record)}</td>
                         <td className="px-4 py-3 text-right font-medium">{formatAmount(recordGrossAmount(record))}</td>
                         <td className="px-4 py-3">
@@ -377,12 +382,14 @@ export function StageWisePaymentPage() {
                               icon={<Trash2 className={rowActionIconClassName} />}
                               onClick={() => void handleDeletePayment(record)}
                             />
-                            <RowActionButton
-                              title="Cancel payment"
-                              disabled={busy}
-                              icon={<Ban className={rowActionIconClassName} />}
-                              onClick={() => void handleCancelPayment(record)}
-                            />
+                            {canCancelPayment && (
+                              <RowActionButton
+                                title="Cancel payment"
+                                disabled={busy}
+                                icon={<Ban className={rowActionIconClassName} />}
+                                onClick={() => void handleCancelPayment(record)}
+                              />
+                            )}
                           </RowActions>
                         </td>
                       </tr>
@@ -392,7 +399,7 @@ export function StageWisePaymentPage() {
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50 font-semibold">
-                  <td className="px-4 py-3" colSpan={4}>Total Gross</td>
+                  <td className="px-4 py-3" colSpan={5}>Total Gross</td>
                   <td className="px-4 py-3 text-right">{formatAmount(totalGross)}</td>
                   <td className="px-4 py-3" />
                 </tr>

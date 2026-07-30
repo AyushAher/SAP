@@ -86,7 +86,10 @@ export function MyApprovalRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="My Approval Requests" description="Track your submitted approval requests" />
+      <PageHeader
+        title="Approval Status Report"
+        description="Track the status of your submitted approval requests"
+      />
       {banner ? (
         <div
           className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"

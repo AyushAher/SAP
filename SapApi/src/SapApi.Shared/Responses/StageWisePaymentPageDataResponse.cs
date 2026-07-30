@@ -22,6 +22,8 @@ public class StageWisePaymentRecordDto
 {
     public int Id { get; set; }
     public int? PaymentTermsType { get; set; }
+    /// <summary>Payment Stage ID(s) shown on the Payment Request page and sent to SAP as U_BSC_3.</summary>
+    public string? PaymentStageId { get; set; }
     public string? StageDesc { get; set; }
     public string? Bank { get; set; }
     public string? UtrNo { get; set; }

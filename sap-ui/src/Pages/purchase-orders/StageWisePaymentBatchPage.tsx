@@ -14,6 +14,8 @@ import {
   Textarea,
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { isAdminUser } from '@/helpers/roles'
+import { useAppSelector } from '@/store/hooks'
 import type { SelectOption } from '@/types'
 import {
   approveRequest,
@@ -146,6 +148,7 @@ export function StageWisePaymentBatchPage() {
   const { id, batchId, approvalRequestId, stageWisePaymentId } = useParams()
   const poDocEntry = Number(id)
   const mode = resolveMode({ batchId, approvalRequestId, stageWisePaymentId })
+  const canCancelPayment = isAdminUser(useAppSelector((state) => state.auth.user))
 
   const [pageData, setPageData] = useState<StageWisePaymentPageData | null>(null)
   const [batch, setBatch] = useState<StageWisePaymentBatch | null>(null)
@@ -408,8 +411,8 @@ export function StageWisePaymentBatchPage() {
       return null
     }
 
-    if (!postingDate || !paymentDate) {
-      setError('Posting date and payment date are required.')
+    if (!postingDate) {
+      setError('Posting date is required.')
       return null
     }
 
@@ -730,7 +733,7 @@ export function StageWisePaymentBatchPage() {
               Withdraw & Edit
             </Button>
           )}
-          {batch.canCancel && !isApproval && (
+          {batch.canCancel && !isApproval && canCancelPayment && (
             <Button
               type="button"
               variant="outline"
@@ -814,6 +817,7 @@ export function StageWisePaymentBatchPage() {
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
                     <th className="px-3 py-2">Payment Type</th>
+                    <th className="px-3 py-2">Payment Stage ID</th>
                     <th className="px-3 py-2">AP Invoice</th>
                     <th className="px-3 py-2 text-right">AP Invoice Balance Due</th>
                     <th className="px-3 py-2 text-right">Payable</th>
@@ -831,6 +835,7 @@ export function StageWisePaymentBatchPage() {
                     const apLabel = readOnly
                       ? batchLine?.apInvoiceLabel
                       : undefined
+                    const paymentStageId = termIds.filter((id) => id > 0).join(', ') || '—'
                     return (
                       <tr key={row.key} className="border-b border-slate-100 align-top">
                         <td className="px-3 py-3 min-w-[240px] align-top">
@@ -851,6 +856,7 @@ export function StageWisePaymentBatchPage() {
                             />
                           )}
                         </td>
+                        <td className="px-3 py-3 whitespace-nowrap align-top">{paymentStageId}</td>
                         <td className="px-3 py-2 min-w-[220px]">
                           {readOnly ? (
                             <span>{apLabel ?? (row.apInvoiceDocEntry || '—')}</span>
@@ -908,7 +914,7 @@ export function StageWisePaymentBatchPage() {
                 </tbody>
                 <tfoot>
                   <tr className="bg-slate-50 font-medium">
-                    <td colSpan={readOnly ? 4 : 4} className="px-3 py-2 text-right">Total</td>
+                    <td colSpan={readOnly ? 5 : 5} className="px-3 py-2 text-right">Total</td>
                     <td className="px-3 py-2 text-right">{formatAmount(totalAmount)}</td>
                     {!readOnly && <td />}
                   </tr>
@@ -979,7 +985,10 @@ export function StageWisePaymentBatchPage() {
                   value={paymentDate}
                   onChange={(e) => setPaymentDate(e.target.value)}
                   disabled={sapPaymentDetailsReadOnly}
-                  required={canEditAdditionalDetails}
+                  required={needsPaymentDetails}
+                  hint={!needsPaymentDetails
+                    ? 'Optional when this payment request requires approval.'
+                    : undefined}
                 />
               </div>
               {showAdditionalDetailsSave && (

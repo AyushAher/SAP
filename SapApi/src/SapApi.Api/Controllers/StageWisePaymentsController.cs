@@ -135,6 +135,7 @@ public class StageWisePaymentsController(
     }
 
     [HttpPost("{id:int}/cancel")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> Cancel(int id, CancellationToken cancellationToken)
     {
         var record = await db.StageWisePayments.FirstOrDefaultAsync(x => x.Id == id && x.CompanyDb == CompanyDb, cancellationToken);

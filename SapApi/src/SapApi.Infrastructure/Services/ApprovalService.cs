@@ -92,6 +92,19 @@ public class ApprovalService
 
         #region CREATE REQUEST
 
+        /// <summary>
+        /// Checks whether the current request data will actually require approval without creating
+        /// an ApprovalRequest. This is used when validation depends on the final policy outcome.
+        /// </summary>
+        public async Task<bool> HasApplicablePolicyAsync<TData>(
+            ApprovalDocumentType docType,
+            TData data,
+            CancellationToken cancellationToken = default)
+        {
+            var policy = await ResolveApplicablePolicyAsync(docType, cancellationToken);
+            return policy is not null && EvaluatePolicyRules(policy, data);
+        }
+
         private async Task<int> CreateRequestAsync<TData>(
             ApprovalDocumentType docType,
             TData data,
@@ -184,7 +197,9 @@ public class ApprovalService
         /// User-targeted policies take priority over group-targeted policies.
         /// When multiple group policies match (user in several groups), the lowest policy Id wins.
         /// </summary>
-        private async Task<ApprovalPolicy?> ResolveApplicablePolicyAsync(ApprovalDocumentType docType)
+        private async Task<ApprovalPolicy?> ResolveApplicablePolicyAsync(
+            ApprovalDocumentType docType,
+            CancellationToken cancellationToken = default)
         {
             var userPolicy = await context.ApprovalPolicies
                 .Include(x => x.Approvers)
@@ -194,7 +209,8 @@ public class ApprovalService
                     x.DocumentType == docType &&
                     x.IsActive &&
                     x.RequesterType == ApprovalRequesterType.User &&
-                    x.RequesterUserId == UserId);
+                    x.RequesterUserId == UserId,
+                    cancellationToken);
 
             if (userPolicy != null)
                 return userPolicy;
@@ -216,7 +232,7 @@ public class ApprovalService
                         g.CompanyDb == CompanyDb &&
                         g.IsActive))
                 .OrderBy(x => x.Id)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
         }
 
         #endregion

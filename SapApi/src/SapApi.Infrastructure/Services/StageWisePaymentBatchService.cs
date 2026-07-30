@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
@@ -20,6 +21,7 @@ public class StageWisePaymentBatchService(
     StageWisePaymentPageService pageService,
     StageWisePaymentService stageWisePaymentService,
     SapVendorPaymentService vendorPaymentService,
+    ApprovalService approvalService,
     PurchaseOrderLinkResolver purchaseOrderLinks,
     IHttpContextAccessor httpContextAccessor,
     ICurrentCompanyDbAccessor companyDbAccessor)
@@ -77,8 +79,8 @@ public class StageWisePaymentBatchService(
         if (string.IsNullOrWhiteSpace(request.Account))
             return (false, "Please select an account.", null);
 
-        if (request.PostingDate is null || request.PaymentDate is null)
-            return (false, "Posting date and payment date are required.", null);
+        if (request.PostingDate is null)
+            return (false, "Posting date is required.", null);
 
         var activeRecords = await GetActiveRecordsForCalculationsAsync(
             request.DocNumber ?? po.DocNum ?? request.PoDocEntry,
@@ -163,6 +165,18 @@ public class StageWisePaymentBatchService(
             priorLines.Add(line);
         }
 
+        if (request.PaymentDate is null
+            && !await CanOmitPaymentDateAsync(
+                po,
+                pageData,
+                lineSnapshots,
+                totalTransfer,
+                activeRecords,
+                cancellationToken))
+        {
+            return (false, "Payment date is required when no approval policy applies.", null);
+        }
+
         var batch = new StageWisePaymentBatch
         {
             CompanyDb = CompanyDb,
@@ -197,6 +211,8 @@ public class StageWisePaymentBatchService(
                 PoNumber = po.DocNum?.ToString(),
                 BPLId = po.BPLId ?? 1,
                 PaymentInvoices = paymentInvoices,
+                PaymentStageId = StageWisePaymentService.FormatPaymentStageId(
+                    lineSnapshots.Where(s => s.RequiresAp).SelectMany(s => s.Line.PaymentTermsTypes)),
             };
             ApplyAdditionalDetailsToVendorPayment(
                 vendorRequest, request, banks[0]!, po.BPLId, po.DocNum?.ToString());
@@ -1072,8 +1088,8 @@ public class StageWisePaymentBatchService(
         if (string.IsNullOrWhiteSpace(request.Account))
             return (false, "Please select an account.", null, [], []);
 
-        if (request.PostingDate is null || request.PaymentDate is null)
-            return (false, "Posting date and payment date are required.", null, [], []);
+        if (request.PostingDate is null)
+            return (false, "Posting date is required.", null, [], []);
 
         var activeRecords = await GetActiveRecordsForCalculationsAsync(
             request.DocNumber ?? po.DocNum ?? request.PoDocEntry,
@@ -1251,6 +1267,24 @@ public class StageWisePaymentBatchService(
             });
         }
 
+        if (request.PaymentDate is null
+            && !await CanOmitPaymentDateAsync(
+                po,
+                pageData,
+                lineSnapshots,
+                totalTransfer,
+                activeRecords,
+                cancellationToken))
+        {
+            return (
+                false,
+                "Payment date is required when no approval policy applies.",
+                null,
+                null,
+                null,
+                batchStatus);
+        }
+
         if (paymentInvoices.Count > 0)
         {
             var vendorRequest = new SapVendorPaymentRequests
@@ -1261,6 +1295,8 @@ public class StageWisePaymentBatchService(
                 PoNumber = po.DocNum?.ToString(),
                 BPLId = po.BPLId ?? 1,
                 PaymentInvoices = paymentInvoices,
+                PaymentStageId = StageWisePaymentService.FormatPaymentStageId(
+                    lineSnapshots.Where(s => s.RequiresAp).SelectMany(s => s.Line.PaymentTermsTypes)),
             };
             ApplyAdditionalDetailsToVendorPayment(
                 vendorRequest, request, bank, po.BPLId, po.DocNum?.ToString());
@@ -1430,6 +1466,86 @@ public class StageWisePaymentBatchService(
 
         downPaymentStageWisePaymentId = downPaymentEntity?.Id;
         return (true, string.Empty, linkedStagePayment, downPaymentStageWisePaymentId, batchApprovalId, batchStatus);
+    }
+
+    /// <summary>
+    /// Payment Date can be deferred to the approver only when every SAP document produced by this
+    /// batch will actually enter approval. A configured policy whose rules do not match is treated
+    /// as no policy, because that document would otherwise be posted immediately without a date.
+    /// </summary>
+    private async Task<bool> CanOmitPaymentDateAsync(
+        SapPurchaseOrdersResponse po,
+        StageWisePaymentPageDataResponse pageData,
+        IReadOnlyList<BatchLineSnapshot> lineSnapshots,
+        double totalTransfer,
+        List<StageWisePayment> activeRecords,
+        CancellationToken cancellationToken)
+    {
+        var hasPayment = false;
+
+        if (lineSnapshots.Any(x => x.RequiresAp))
+        {
+            hasPayment = true;
+            var vendorRequest = new SapVendorPaymentRequests
+            {
+                CardCode = po.CardCode ?? string.Empty,
+                TransferSum = totalTransfer.ToString("F2", CultureInfo.InvariantCulture),
+                ProjectCode = po.Project,
+                PoNumber = po.DocNum?.ToString(),
+                BPLId = po.BPLId ?? 1,
+            };
+
+            if (!await approvalService.HasApplicablePolicyAsync(
+                    ApprovalDocumentType.Payments,
+                    vendorRequest,
+                    cancellationToken))
+            {
+                return false;
+            }
+        }
+
+        var downPaymentSnapshots = lineSnapshots.Where(x => !x.RequiresAp).ToList();
+        if (downPaymentSnapshots.Count > 0)
+        {
+            hasPayment = true;
+            var gross = 0.0;
+            var gst = 0.0;
+
+            foreach (var snapshot in downPaymentSnapshots)
+            {
+                var amounts = StageWisePaymentCalculations.SplitBatchLineAmount(
+                    po,
+                    pageData.PaymentTerms,
+                    snapshot.Line.PaymentTermsTypes,
+                    snapshot.Line.Amount,
+                    pageData.TotalBasic,
+                    activeRecords);
+                gross += amounts.GrossAmount;
+                gst += amounts.GstAmount;
+            }
+
+            foreach (var amount in new[] { gross, gst }.Where(x => x > 0))
+            {
+                var downPaymentRequest = new SapPurchaseDownPaymentRequest
+                {
+                    CardCode = po.CardCode,
+                    DownPayment = Math.Round(amount, 2),
+                    DocTotal = Math.Round(amount, 2),
+                    DocType = po.DocType,
+                    BPLId = po.BPLId ?? 1,
+                };
+
+                if (!await approvalService.HasApplicablePolicyAsync(
+                        ApprovalDocumentType.StagewisePayments_DP,
+                        downPaymentRequest,
+                        cancellationToken))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return hasPayment;
     }
 
     private sealed record BatchLineSnapshot(

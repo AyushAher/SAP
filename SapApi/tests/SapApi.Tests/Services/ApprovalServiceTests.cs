@@ -274,6 +274,40 @@ public class ApprovalServiceTests
     }
 
     [Test]
+    public async Task HasApplicablePolicy_PaymentsRuleMatches_ReturnsTrueWithoutCreatingRequest()
+    {
+        await SeedPaymentsPolicyWithDocTotalRuleAsync("GreaterThan", "100000");
+        var payment = new SapVendorPaymentRequests { CardCode = "V001", TransferSum = "150000.00" };
+
+        var result = await _sut.HasApplicablePolicyAsync(ApprovalDocumentType.Payments, payment);
+
+        result.Should().BeTrue();
+        _context.ApprovalRequests.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task HasApplicablePolicy_PaymentsRuleDoesNotMatch_ReturnsFalse()
+    {
+        await SeedPaymentsPolicyWithDocTotalRuleAsync("GreaterThan", "100000");
+        var payment = new SapVendorPaymentRequests { CardCode = "V001", TransferSum = "50000.00" };
+
+        var result = await _sut.HasApplicablePolicyAsync(ApprovalDocumentType.Payments, payment);
+
+        result.Should().BeFalse();
+        _context.ApprovalRequests.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task HasApplicablePolicy_NoPolicy_ReturnsFalse()
+    {
+        var payment = new SapVendorPaymentRequests { CardCode = "V001", TransferSum = "150000.00" };
+
+        var result = await _sut.HasApplicablePolicyAsync(ApprovalDocumentType.Payments, payment);
+
+        result.Should().BeFalse();
+    }
+
+    [Test]
     public async Task CheckApprovalPolicy_GroupPolicy_MatchesMemberAndRequiresApproval()
     {
         _context.UserGroups.Add(new UserGroup

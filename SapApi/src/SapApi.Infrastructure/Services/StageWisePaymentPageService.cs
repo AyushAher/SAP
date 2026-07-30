@@ -43,7 +43,9 @@ public class StageWisePaymentPageService(
 
         var activeRecords = tableRecords.Where(x => x.Status != StageWisePaymentStatus.Cancelled).ToList();
         var paymentTerms = po.CreateUdfList();
-        var batchTermMap = await LoadBatchTermMapAsync(activeRecords, cancellationToken);
+        var batchTermMap = await LoadBatchTermMapAsync(
+            tableRecords.Where(StageWisePaymentCalculations.IsBatchPaymentRecord).ToList(),
+            cancellationToken);
         var calcActiveRecords = StageWisePaymentCalculations.ExpandActiveRecordsForTermCalculations(
             activeRecords, batchTermMap, paymentTerms);
         var totalBasic = (po.DocTotal ?? 0) - (po.VatSum ?? 0);
@@ -65,9 +67,9 @@ public class StageWisePaymentPageService(
             TotalBasic = totalBasic,
             BalancePayment = StageWisePaymentCalculations.GetBalancePayment(po, activeRecords),
             PaymentTerms = paymentTerms,
-            TableRecords = tableRecords.Select(MapRecord).ToList(),
+            TableRecords = tableRecords.Select(r => MapRecord(r, batchTermMap)).ToList(),
             // Expanded so FE stage payable subtracts prior batch Gross/Gst by payment term.
-            ActiveRecords = calcActiveRecords.Select(MapRecord).ToList(),
+            ActiveRecords = calcActiveRecords.Select(r => MapRecord(r, batchTermMap)).ToList(),
             Banks = banks,
             BankLabels = Constants.BankAccounts.Banks,
             ApInvoices = await apInvoicesTask,
@@ -77,11 +79,10 @@ public class StageWisePaymentPageService(
     }
 
     private async Task<Dictionary<int, IReadOnlyList<int>>> LoadBatchTermMapAsync(
-        IReadOnlyList<StageWisePayment> activeRecords,
+        IReadOnlyList<StageWisePayment> batchRecords,
         CancellationToken cancellationToken)
     {
-        var batchPaymentIds = activeRecords
-            .Where(StageWisePaymentCalculations.IsBatchPaymentRecord)
+        var batchPaymentIds = batchRecords
             .Where(x => x.PaymentTermsType is null)
             .Select(x => x.Id)
             .Distinct()
@@ -224,10 +225,13 @@ public class StageWisePaymentPageService(
         }).ToList();
     }
 
-    private static StageWisePaymentRecordDto MapRecord(StageWisePayment record) => new()
+    private static StageWisePaymentRecordDto MapRecord(
+        StageWisePayment record,
+        IReadOnlyDictionary<int, IReadOnlyList<int>>? batchTermMap = null) => new()
     {
         Id = record.Id,
         PaymentTermsType = record.PaymentTermsType,
+        PaymentStageId = ResolvePaymentStageId(record, batchTermMap),
         StageDesc = record.StageDesc,
         Bank = record.Bank,
         UtrNo = record.UtrNo,
@@ -245,6 +249,19 @@ public class StageWisePaymentPageService(
         CreatedOn = record.CreatedOn,
         LastModifiedOn = record.LastModifiedOn,
     };
+
+    private static string? ResolvePaymentStageId(
+        StageWisePayment record,
+        IReadOnlyDictionary<int, IReadOnlyList<int>>? batchTermMap)
+    {
+        if (record.PaymentTermsType is int termId && termId > 0)
+            return StageWisePaymentService.FormatPaymentStageId(termId);
+
+        if (batchTermMap is not null && batchTermMap.TryGetValue(record.Id, out var termIds))
+            return StageWisePaymentService.FormatPaymentStageId(termIds);
+
+        return null;
+    }
 
     private static string? ResolveOutgoingPaymentNumber(StageWisePayment record)
     {

@@ -54,6 +54,10 @@
 
         [JsonPropertyName("BPLID"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? BPLId { get; set; }
+
+        /// <summary>Payment Stage ID from the payment request (PO payment-term slot 1–11).</summary>
+        [JsonPropertyName("U_BSC_3"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? PaymentStageId { get; set; }
     }
 
     public class CashFlowAssignments

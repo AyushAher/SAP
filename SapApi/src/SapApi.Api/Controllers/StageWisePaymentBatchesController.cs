@@ -138,6 +138,7 @@ public class StageWisePaymentBatchesController(
     }
 
     [HttpPost("{batchId:int}/cancel")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> Cancel(int batchId, CancellationToken cancellationToken)
     {
         var (success, message, operations) = await batchService.CancelBatchAsync(batchId, cancellationToken);
