@@ -23,15 +23,19 @@ public class PurchaseOrderController(SapPurchaseOrderService service) : Controll
         return Ok(ApiResponse<object?>.Ok(status));
     }
 
-    /// <summary>Incremental: import POs from SAP with DocEntry greater than the local max.</summary>
+    /// <summary>
+    /// Incremental: import POs from SAP with DocEntry greater than the local max. Work is capped per
+    /// call so the request cannot be killed by a reverse-proxy read timeout; when the response has
+    /// hasMore=true, call again with afterDocEntry=lastDocEntry to continue.
+    /// </summary>
     [HttpPost("sync")]
-    public async Task<IActionResult> SyncNew(CancellationToken cancellationToken) =>
-        Ok(ApiResponse<object>.Ok(await service.SyncNewFromSapAsync(cancellationToken)));
+    public async Task<IActionResult> SyncNew([FromQuery] int? afterDocEntry, CancellationToken cancellationToken) =>
+        Ok(ApiResponse<object>.Ok(await service.SyncNewFromSapAsync(afterDocEntry, cancellationToken)));
 
-    /// <summary>Full re-import of all purchase orders from SAP.</summary>
+    /// <summary>Full re-import of all purchase orders from SAP. Resumable via afterDocEntry.</summary>
     [HttpPost("sync/full")]
-    public async Task<IActionResult> SyncFull(CancellationToken cancellationToken) =>
-        Ok(ApiResponse<object>.Ok(await service.SyncAllFromSapAsync(cancellationToken)));
+    public async Task<IActionResult> SyncFull([FromQuery] int? afterDocEntry, CancellationToken cancellationToken) =>
+        Ok(ApiResponse<object>.Ok(await service.SyncAllFromSapAsync(afterDocEntry, cancellationToken)));
 
     /// <summary>Refresh a single PO from SAP into the local table.</summary>
     [HttpPost("{docEntry:int}/sync")]

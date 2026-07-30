@@ -13,23 +13,14 @@ import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { usePurchaseOrderListFetcher } from '@/hooks/usePurchaseOrders'
 import { getBranchesApi } from '@/Requests/auth'
 import {
-  getPurchaseOrderSyncStatus,
   syncNewPurchaseOrdersFromSap,
   syncPurchaseOrderFromSap,
   type PurchaseOrder,
-  type PurchaseOrderSyncResult,
 } from '@/Requests/purchaseOrders'
 
 const extractors = {
   projectCodes: (row: PurchaseOrder) => row.Project,
   cardCodes: (row: PurchaseOrder) => row.CardCode,
-}
-
-function formatSyncLabel(status: PurchaseOrderSyncResult | null): string {
-  if (!status?.syncedAtUtc || status.syncedAtUtc.startsWith('0001'))
-    return 'Not synced yet — use “Sync new from SAP” to import purchase orders.'
-  const when = new Date(status.syncedAtUtc).toLocaleString()
-  return `Last SAP sync: ${when} — ${status.message || `${status.upsertedCount} order(s)`}`
 }
 
 function formatPoValue(value?: number): string {
@@ -44,14 +35,8 @@ export function PurchaseOrderListPage() {
   const [syncingNew, setSyncingNew] = useState(false)
   const [syncingDocEntry, setSyncingDocEntry] = useState<number | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
-  const [syncStatus, setSyncStatus] = useState<PurchaseOrderSyncResult | null>(null)
+  const [syncProgress, setSyncProgress] = useState<string | null>(null)
   const [branchMap, setBranchMap] = useState<Record<number, string>>({})
-
-  useEffect(() => {
-    void getPurchaseOrderSyncStatus()
-      .then(setSyncStatus)
-      .catch(() => setSyncStatus(null))
-  }, [tableKey])
 
   useEffect(() => {
     void getBranchesApi()
@@ -68,9 +53,16 @@ export function PurchaseOrderListPage() {
   const handleSyncNew = useCallback(async () => {
     setSyncingNew(true)
     setSyncError(null)
+    setSyncProgress(null)
     try {
-      const result = await syncNewPurchaseOrdersFromSap()
-      setSyncStatus(result)
+      const result = await syncNewPurchaseOrdersFromSap((progress) => {
+        // The sync runs in bounded batches, so show running totals while it continues.
+        setSyncProgress(
+          progress.upsertedCount > 0
+            ? `Synced ${progress.upsertedCount} purchase order(s) so far…`
+            : null,
+        )
+      })
       toast.success(result.message)
       setTableKey((k) => k + 1)
     } catch (err) {
@@ -79,6 +71,7 @@ export function PurchaseOrderListPage() {
       toast.error(message)
     } finally {
       setSyncingNew(false)
+      setSyncProgress(null)
     }
   }, [])
 
@@ -219,7 +212,7 @@ export function PurchaseOrderListPage() {
           </div>
         }
       />
-      <p className="text-sm text-slate-500">{formatSyncLabel(syncStatus)}</p>
+      {syncProgress && <p className="text-sm text-slate-500">{syncProgress}</p>}
       {syncError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
           {syncError}

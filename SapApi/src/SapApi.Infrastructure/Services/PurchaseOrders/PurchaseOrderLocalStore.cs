@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
@@ -20,7 +21,11 @@ public record PurchaseOrderSyncResult(
     string Mode = "full",
     int AddedCount = 0,
     int UpdatedCount = 0,
-    int? DocEntry = null);
+    int? DocEntry = null,
+    /// <summary>True when the batch stopped early and the caller should sync again to continue.</summary>
+    bool HasMore = false,
+    /// <summary>Highest DocEntry processed — pass back as afterDocEntry to resume.</summary>
+    int? LastDocEntry = null);
 
 public class PurchaseOrderLocalStore(
     AppDbContext db,
@@ -157,36 +162,47 @@ public class PurchaseOrderLocalStore(
     }
 
     /// <summary>
+    /// Each purchase order needs its own SAP detail call, so an unbounded sync runs for minutes and
+    /// is killed by the reverse proxy (nginx defaults to a 60s read timeout) with a 504. Work is
+    /// therefore capped per request and the caller resumes with <c>afterDocEntry</c>.
+    /// </summary>
+    private const int MaxRecordsPerBatch = 400;
+
+    private static readonly TimeSpan BatchTimeBudget = TimeSpan.FromSeconds(25);
+
+    /// <summary>
     /// Incremental sync: only DocEntries greater than the highest already stored locally.
     /// When the local table is empty, this imports all POs from SAP.
     /// </summary>
-    public Task<PurchaseOrderSyncResult> SyncNewFromSapAsync(CancellationToken cancellationToken = default) =>
-        SyncFromSapInternalAsync(newOnly: true, cancellationToken);
+    public Task<PurchaseOrderSyncResult> SyncNewFromSapAsync(
+        int? afterDocEntry = null,
+        CancellationToken cancellationToken = default) =>
+        SyncFromSapInternalAsync(newOnly: true, afterDocEntry, cancellationToken);
 
     /// <summary>Full re-sync of every PO from SAP into the local table.</summary>
-    public Task<PurchaseOrderSyncResult> SyncAllFromSapAsync(CancellationToken cancellationToken = default) =>
-        SyncFromSapInternalAsync(newOnly: false, cancellationToken);
+    public Task<PurchaseOrderSyncResult> SyncAllFromSapAsync(
+        int? afterDocEntry = null,
+        CancellationToken cancellationToken = default) =>
+        SyncFromSapInternalAsync(newOnly: false, afterDocEntry, cancellationToken);
 
     private async Task<PurchaseOrderSyncResult> SyncFromSapInternalAsync(
         bool newOnly,
+        int? afterDocEntry,
         CancellationToken cancellationToken)
     {
         var syncedAt = DateTime.UtcNow;
         var added = 0;
         var updated = 0;
         var pages = 0;
+        var hasMore = false;
 
-        var maxDocEntry = 0;
-        if (newOnly)
-        {
-            maxDocEntry = await db.PurchaseOrders
-                .AsNoTracking()
-                .Where(x => x.CompanyDb == CompanyDb)
-                .Select(x => (int?)x.DocEntry)
-                .MaxAsync(cancellationToken) ?? 0;
-        }
+        // Resume point: explicit cursor wins, otherwise incremental starts after the local max.
+        var startDocEntry = afterDocEntry
+            ?? (newOnly ? await GetMaxLocalDocEntryAsync(cancellationToken) : 0);
+        var lastDocEntry = startDocEntry;
 
-        var url = BuildSyncStartUrl(maxDocEntry);
+        var url = BuildSyncStartUrl(startDocEntry);
+        var stopwatch = Stopwatch.StartNew();
 
         try
         {
@@ -228,11 +244,21 @@ public class PurchaseOrderLocalStore(
                             + $"Sync stopped after {added + updated} record(s) so nothing is silently skipped.");
 
                     await UpsertFromSapAsync(detail, cancellationToken);
+                    lastDocEntry = header.DocEntry.Value;
                     if (existed)
                         updated++;
                     else
                         added++;
+
+                    if (added + updated >= MaxRecordsPerBatch || stopwatch.Elapsed >= BatchTimeBudget)
+                    {
+                        hasMore = true;
+                        break;
+                    }
                 }
+
+                if (hasMore)
+                    break;
 
                 url = ResolveNextLink(page.ODataNextLink);
             }
@@ -258,21 +284,19 @@ public class PurchaseOrderLocalStore(
 
         var upserted = added + updated;
         var mode = newOnly ? "new" : "full";
-        var message = newOnly
-            ? (upserted == 0
-                ? $"No new purchase orders in SAP (local max DocEntry {maxDocEntry})."
-                : $"Added {added} new purchase order(s) from SAP (after DocEntry {maxDocEntry}).")
-            : $"Synced {upserted} purchase order(s) ({added} added, {updated} updated) across {pages} page(s).";
+        var message = BuildSyncMessage(newOnly, hasMore, added, updated, pages, startDocEntry, lastDocEntry);
 
         await SaveSyncStateAsync(syncedAt, upserted, message, cancellationToken);
 
         Log.Information(
-            "Purchase order {Mode} sync completed for {CompanyDb}: added={Added}, updated={Updated}, pages={Pages}",
+            "Purchase order {Mode} sync batch for {CompanyDb}: added={Added}, updated={Updated}, pages={Pages}, hasMore={HasMore}, lastDocEntry={LastDocEntry}",
             mode,
             CompanyDb,
             added,
             updated,
-            pages);
+            pages,
+            hasMore,
+            lastDocEntry);
 
         return new PurchaseOrderSyncResult(
             CompanyDb,
@@ -282,7 +306,38 @@ public class PurchaseOrderLocalStore(
             Message: message,
             Mode: mode,
             AddedCount: added,
-            UpdatedCount: updated);
+            UpdatedCount: updated,
+            HasMore: hasMore,
+            LastDocEntry: lastDocEntry);
+    }
+
+    private async Task<int> GetMaxLocalDocEntryAsync(CancellationToken cancellationToken) =>
+        await db.PurchaseOrders
+            .AsNoTracking()
+            .Where(x => x.CompanyDb == CompanyDb)
+            .Select(x => (int?)x.DocEntry)
+            .MaxAsync(cancellationToken) ?? 0;
+
+    private static string BuildSyncMessage(
+        bool newOnly,
+        bool hasMore,
+        int added,
+        int updated,
+        int pages,
+        int startDocEntry,
+        int lastDocEntry)
+    {
+        var upserted = added + updated;
+
+        if (hasMore)
+            return $"Synced {upserted} purchase order(s) ({added} added, {updated} updated) up to DocEntry {lastDocEntry}. More remaining.";
+
+        if (newOnly)
+            return upserted == 0
+                ? $"No new purchase orders in SAP (local max DocEntry {startDocEntry})."
+                : $"Added {added} new purchase order(s) from SAP (after DocEntry {startDocEntry}).";
+
+        return $"Synced {upserted} purchase order(s) ({added} added, {updated} updated) across {pages} page(s).";
     }
 
     public async Task<PurchaseOrderSyncResult?> GetSyncStateAsync(CancellationToken cancellationToken = default)

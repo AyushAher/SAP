@@ -55,6 +55,37 @@ public class PurchaseOrderLocalStoreSyncTests
                 Value = docEntries.Select(d => new SapPurchaseOrdersResponse { DocEntry = d }).ToList(),
             });
 
+    /// <summary>Mirrors SAP paging: only DocEntries greater than the cursor in the request URL.</summary>
+    private void SetupPagedList(params int[] docEntries) =>
+        _http.Setup(h => h.GetOrThrowAsync<GetAllSapPurchaseOrdersResponse>(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string url, CancellationToken _) =>
+            {
+                var cursor = 0;
+                var marker = "DocEntry gt ";
+                var index = url.IndexOf(marker, StringComparison.Ordinal);
+                if (index >= 0)
+                    cursor = int.Parse(new string(url[(index + marker.Length)..].TakeWhile(char.IsDigit).ToArray()));
+
+                return new GetAllSapPurchaseOrdersResponse
+                {
+                    Value = docEntries
+                        .Where(d => d > cursor)
+                        .OrderBy(d => d)
+                        .Select(d => new SapPurchaseOrdersResponse { DocEntry = d })
+                        .ToList(),
+                };
+            });
+
+    private void SetupAnyDetail() =>
+        _http.Setup(h => h.GetOrThrowAsync<SapPurchaseOrdersResponse>(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string url, CancellationToken _) =>
+            {
+                var docEntry = int.Parse(new string(url.Split('(').Last().TakeWhile(char.IsDigit).ToArray()));
+                return new SapPurchaseOrdersResponse { DocEntry = docEntry, DocNum = 5000 + docEntry };
+            });
+
     private void SetupDetail(int docEntry, SapPurchaseOrdersResponse? detail) =>
         _http.Setup(h => h.GetOrThrowAsync<SapPurchaseOrdersResponse>(
                 It.Is<string>(u => u.Contains($"({docEntry})")), It.IsAny<CancellationToken>()))
@@ -125,6 +156,55 @@ public class PurchaseOrderLocalStoreSyncTests
         state!.Message.Should().Contain("Sync failed");
         // The purchase order fetched before the failure stays committed.
         _context.PurchaseOrders.Count().Should().Be(1);
+    }
+
+    [Test]
+    public async Task SyncNew_reports_no_more_work_and_a_resume_cursor_for_a_small_dataset()
+    {
+        SetupPagedList(101, 102);
+        SetupAnyDetail();
+
+        var result = await _sut.SyncNewFromSapAsync();
+
+        result.HasMore.Should().BeFalse();
+        result.LastDocEntry.Should().Be(102);
+        result.UpsertedCount.Should().Be(2);
+    }
+
+    [Test]
+    public async Task SyncNew_resumes_from_afterDocEntry_without_reimporting_earlier_records()
+    {
+        SetupPagedList(101, 102, 103);
+        SetupAnyDetail();
+
+        var result = await _sut.SyncNewFromSapAsync(afterDocEntry: 102);
+
+        result.UpsertedCount.Should().Be(1);
+        result.LastDocEntry.Should().Be(103);
+        _context.PurchaseOrders.Select(p => p.DocEntry).Should().BeEquivalentTo(new[] { 103 });
+    }
+
+    [Test]
+    public async Task SyncNew_continues_across_batches_until_every_record_is_imported()
+    {
+        var docEntries = Enumerable.Range(1, 5).ToArray();
+        SetupPagedList(docEntries);
+        SetupAnyDetail();
+
+        // Drive the same loop the UI performs: keep going while the server reports more work.
+        int? cursor = null;
+        var batches = 0;
+        PurchaseOrderSyncResult result;
+        do
+        {
+            result = await _sut.SyncNewFromSapAsync(cursor);
+            cursor = result.LastDocEntry;
+            batches++;
+        }
+        while (result.HasMore && batches < 10);
+
+        result.HasMore.Should().BeFalse();
+        _context.PurchaseOrders.Select(p => p.DocEntry).Should().BeEquivalentTo(docEntries);
     }
 
     [Test]

@@ -142,11 +142,11 @@ namespace SapApi.Infrastructure.Services.Sap
             return updated ?? data;
         }
 
-        public Task<PurchaseOrderSyncResult> SyncNewFromSapAsync(CancellationToken cancellationToken = default) =>
-            localStore.SyncNewFromSapAsync(cancellationToken);
+        public Task<PurchaseOrderSyncResult> SyncNewFromSapAsync(int? afterDocEntry = null, CancellationToken cancellationToken = default) =>
+            localStore.SyncNewFromSapAsync(afterDocEntry, cancellationToken);
 
-        public Task<PurchaseOrderSyncResult> SyncAllFromSapAsync(CancellationToken cancellationToken = default) =>
-            localStore.SyncAllFromSapAsync(cancellationToken);
+        public Task<PurchaseOrderSyncResult> SyncAllFromSapAsync(int? afterDocEntry = null, CancellationToken cancellationToken = default) =>
+            localStore.SyncAllFromSapAsync(afterDocEntry, cancellationToken);
 
         public Task<PurchaseOrderSyncResult> SyncOneFromSapAsync(int docEntry, CancellationToken cancellationToken = default) =>
             localStore.SyncOneFromSapAsync(docEntry, cancellationToken);
