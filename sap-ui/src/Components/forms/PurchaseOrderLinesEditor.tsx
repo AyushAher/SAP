@@ -8,7 +8,7 @@ import {
 } from '@/Components/shared/RowActions'
 import { Button, Input, Modal, SearchableSelect } from '@/Components/ui'
 import { formatCodeWithName } from '@/helpers/masterLookup'
-import { applyStockPurchaseQty, calculateLineTotals, calcItemsPerUnit, calcUseBaseUnits, withPurchaseQty, withStockQty } from '@/helpers/purchaseOrderForm'
+import { applyStockPurchaseQty, calculateLineTotals, calcItemsPerUnit, calcUseBaseUnits, resolveLineUoms, withPurchaseQty, withStockQty } from '@/helpers/purchaseOrderForm'
 import { isServicePoDocType, PO_TN } from '@/helpers/purchaseOrderTnValidation'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
@@ -119,13 +119,14 @@ export function PurchaseOrderLinesEditor({
 
   const enrichLine = useCallback((line: PurchaseOrderLineItem): PurchaseOrderLineItem => {
     const item = itemMap[line.ItemCode ?? '']
-    const uom = line.UoMCode ?? line.UomName ?? item?.uom ?? ''
+    const { purchaseUom, stockUom } = resolveLineUoms(line, item)
     const rate = line.TaxCode ? taxRatesRef.current[line.TaxCode] ?? 0 : 0
     return calculateLineTotals(
       {
         ...line,
-        UoMCode: uom || undefined,
-        UomName: uom || undefined,
+        UoMCode: purchaseUom,
+        UomName: purchaseUom,
+        StockUom: stockUom,
         ItemDescription: line.ItemDescription ?? item?.name,
       },
       rate,
@@ -238,7 +239,16 @@ export function PurchaseOrderLinesEditor({
     const line = lines[index]
     if (!line) return
     setEditingIndex(index)
-    setDraft({ ...line })
+    setDraft(enrichLine(line))
+    const itemCode = line.ItemCode?.trim()
+    if (itemCode) {
+      void (async () => {
+        const meta = await lookupItem(itemCode)
+        const stockUom = meta?.InventoryUom || meta?.PurchaseUnit
+        if (!stockUom) return
+        setDraft((prev) => (prev.ItemCode === itemCode ? { ...prev, StockUom: stockUom } : prev))
+      })()
+    }
     setItemLabel(formatCodeWithName(line.ItemCode, line.ItemDescription))
     setAccountLabel(line.AccountLabel ?? line.AccountCode ?? '')
     setWarehouseLabel(line.WarehouseCode ?? '')
@@ -473,6 +483,10 @@ export function PurchaseOrderLinesEditor({
                     ...draft,
                     ItemCode: code,
                     ItemDescription: description,
+                    // UoMs are master-driven; drop the previous item's values before refetching.
+                    UoMCode: undefined,
+                    UomName: undefined,
+                    StockUom: undefined,
                     WarehouseCode: draft.WarehouseCode || defaultWarehouse,
                     ProjectCode: draft.ProjectCode || defaultProject,
                   })
@@ -547,6 +561,7 @@ export function PurchaseOrderLinesEditor({
                 label="Purchase UoM"
                 value={draft.UoMCode ?? draft.UomName ?? ''}
                 onChange={(e) => setDraft({ ...draft, UoMCode: e.target.value, UomName: e.target.value })}
+                hint="Defaults from item master Purchase UoM."
               />
               <Input
                 label="Stock Qty *"
@@ -560,7 +575,8 @@ export function PurchaseOrderLinesEditor({
               <Input
                 label="Stock UoM"
                 value={draft.StockUom ?? ''}
-                onChange={(e) => setDraft({ ...draft, StockUom: e.target.value })}
+                disabled
+                hint="From item master Inventory UoM (not editable)."
               />
               <Input
                 label="Items per Unit"

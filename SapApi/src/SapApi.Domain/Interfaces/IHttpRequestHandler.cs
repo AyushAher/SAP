@@ -8,6 +8,13 @@ public interface IHttpRequestHandler
     /// should wrap this call with <see cref="ISapMasterDataCache"/> instead.
     /// </param>
     Task<T?> GetAsync<T>(string url, bool setTimeout = true, bool checkCache = true, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Same as <see cref="GetAsync{T}"/> but propagates SAP/transport failures instead of returning
+    /// <c>default</c>. Use this where a swallowed error would be reported to the user as success
+    /// (for example the purchase order sync, which would otherwise silently skip records).
+    /// </summary>
+    Task<T?> GetOrThrowAsync<T>(string url, CancellationToken cancellationToken = default);
     Task<TResponse?> PostAsync<TRequest, TResponse>(string url, TRequest? data, CancellationToken cancellationToken = default);
     Task<TResponse?> PutAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default);
     Task<TResponse?> PatchAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default);

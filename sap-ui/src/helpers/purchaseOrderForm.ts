@@ -151,6 +151,27 @@ export function calculateLineTotals(line: PurchaseOrderLineItem, taxRate = 0): P
   }
 }
 
+export interface ItemMasterUoms {
+  purchaseUom?: string
+  stockUom?: string
+}
+
+/**
+ * Purchase UoM defaults from the item master but stays user-editable.
+ * Stock UoM is always taken from the item master because it is read-only in the UI.
+ */
+export function resolveLineUoms(
+  line: PurchaseOrderLineItem,
+  master?: ItemMasterUoms,
+): { purchaseUom?: string; stockUom?: string } {
+  const purchaseUom = line.UoMCode ?? line.UomName ?? master?.purchaseUom ?? ''
+  const stockUom = master?.stockUom ?? line.StockUom ?? ''
+  return {
+    purchaseUom: purchaseUom || undefined,
+    stockUom: stockUom || undefined,
+  }
+}
+
 /** Items per unit = Stock Qty ÷ Purchase Qty (SAP UnitsOfMeasurment). */
 export function calcItemsPerUnit(stockQty?: number | null, purchaseQty?: number | null): number | undefined {
   if (purchaseQty == null || purchaseQty <= 0 || stockQty == null || !Number.isFinite(stockQty)) return undefined

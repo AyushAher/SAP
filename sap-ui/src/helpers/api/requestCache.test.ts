@@ -41,9 +41,10 @@ describe('requestCache', () => {
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
-  it('caches all GETs except download/pdf endpoints', () => {
+  it('caches all GETs except purchase orders, download and pdf endpoints', () => {
     expect(shouldCacheApiUrl('/auth/branches')).toBe(true)
-    expect(shouldCacheApiUrl('/purchase-orders/12')).toBe(true)
+    expect(shouldCacheApiUrl('/masters/items/ITM-1')).toBe(true)
+    expect(shouldCacheApiUrl('/purchase-orders/12')).toBe(false)
     expect(shouldCacheApiUrl('/stage-wise-payments/1/pdf')).toBe(false)
     expect(shouldCacheApiUrl('/files/download')).toBe(false)
   })

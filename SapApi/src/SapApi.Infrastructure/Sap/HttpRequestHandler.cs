@@ -28,39 +28,52 @@ public class HttpRequestHandler(
         _ = checkCache;
         _ = setTimeout;
 
-        var inFlightKey = BuildInFlightKey(url);
         try
         {
-            while (true)
-            {
-                if (InFlightGets.TryGetValue(inFlightKey, out var existing))
-                    return (T?)await existing;
-
-                var task = ExecuteGetAsync<T>(url, cancellationToken);
-                var boxed = task.ContinueWith(
-                    static t => (object?)t.Result,
-                    cancellationToken,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
-
-                if (!InFlightGets.TryAdd(inFlightKey, boxed))
-                    continue;
-
-                try
-                {
-                    return await task;
-                }
-                finally
-                {
-                    InFlightGets.TryRemove(inFlightKey, out _);
-                }
-            }
+            return await GetCoalescedAsync<T>(url, cancellationToken);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "GET failed for {Url}", url);
             return default;
         }
+    }
+
+    public Task<T?> GetOrThrowAsync<T>(string url, CancellationToken cancellationToken = default) =>
+        GetCoalescedAsync<T>(url, cancellationToken);
+
+    private async Task<T?> GetCoalescedAsync<T>(string url, CancellationToken cancellationToken)
+    {
+        var inFlightKey = BuildInFlightKey(url);
+
+        while (true)
+        {
+            if (InFlightGets.TryGetValue(inFlightKey, out var existing))
+                return (T?)await existing;
+
+            var task = ExecuteGetAsync<T>(url, cancellationToken);
+            // Await rather than reading Task.Result so the original exception is preserved for
+            // every waiter instead of being wrapped in an AggregateException.
+            var boxed = BoxAsync(task);
+
+            if (!InFlightGets.TryAdd(inFlightKey, boxed))
+            {
+                // Another caller won the race; observe our task so it is not left unhandled.
+                _ = boxed.ContinueWith(static t => _ = t.Exception, TaskScheduler.Default);
+                continue;
+            }
+
+            try
+            {
+                return await task;
+            }
+            finally
+            {
+                InFlightGets.TryRemove(inFlightKey, out _);
+            }
+        }
+
+        static async Task<object?> BoxAsync(Task<T?> task) => await task;
     }
 
     private async Task<T?> ExecuteGetAsync<T>(string url, CancellationToken cancellationToken)

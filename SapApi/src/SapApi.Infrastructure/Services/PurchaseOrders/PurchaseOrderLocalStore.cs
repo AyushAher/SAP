@@ -120,9 +120,9 @@ public class PurchaseOrderLocalStore(
         var existed = await db.PurchaseOrders.AsNoTracking()
             .AnyAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == docEntry, cancellationToken);
 
-        var detail = await requestHandler.GetAsync<SapPurchaseOrdersResponse>(
+        var detail = await requestHandler.GetOrThrowAsync<SapPurchaseOrdersResponse>(
             Constants.SapApiUrls.UpdateSapPurchaseOrders(docEntry),
-            cancellationToken: cancellationToken);
+            cancellationToken);
 
         if (detail?.DocEntry is null)
             throw new ApiErrorException(
@@ -188,43 +188,72 @@ public class PurchaseOrderLocalStore(
 
         var url = BuildSyncStartUrl(maxDocEntry);
 
-        while (!string.IsNullOrWhiteSpace(url))
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            pages++;
-
-            var page = await requestHandler.GetAsync<GetAllSapPurchaseOrdersResponse>(url, cancellationToken: cancellationToken);
-            if (page?.Value is null || page.Value.Count == 0)
-                break;
-
-            foreach (var header in page.Value)
+            while (!string.IsNullOrWhiteSpace(url))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (header.DocEntry is null or <= 0)
-                    continue;
+                pages++;
 
-                var existed = await db.PurchaseOrders.AsNoTracking()
-                    .AnyAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == header.DocEntry.Value, cancellationToken);
+                // GetOrThrowAsync: a swallowed failure here would end the loop early and be
+                // reported to the user as a successful sync that imported nothing.
+                var page = await requestHandler.GetOrThrowAsync<GetAllSapPurchaseOrdersResponse>(url, cancellationToken);
 
-                // Collection responses often omit DocumentLines / full UDFs — fetch complete doc.
-                var detail = await requestHandler.GetAsync<SapPurchaseOrdersResponse>(
-                    Constants.SapApiUrls.UpdateSapPurchaseOrders(header.DocEntry),
-                    cancellationToken: cancellationToken);
+                if (page?.Value is null)
+                    throw new ApiErrorException(
+                        BaseErrorCodes.ValidationFailed,
+                        "SAP did not return a purchase order list. The sync was stopped so no records are silently skipped.");
 
-                if (detail?.DocEntry is null)
+                if (page.Value.Count == 0)
+                    break;
+
+                foreach (var header in page.Value)
                 {
-                    Log.Warning("PO sync skipped DocEntry {DocEntry}: empty SAP detail", header.DocEntry);
-                    continue;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (header.DocEntry is null or <= 0)
+                        continue;
+
+                    var existed = await db.PurchaseOrders.AsNoTracking()
+                        .AnyAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == header.DocEntry.Value, cancellationToken);
+
+                    // Collection responses often omit DocumentLines / full UDFs — fetch complete doc.
+                    var detail = await requestHandler.GetOrThrowAsync<SapPurchaseOrdersResponse>(
+                        Constants.SapApiUrls.UpdateSapPurchaseOrders(header.DocEntry),
+                        cancellationToken);
+
+                    if (detail?.DocEntry is null)
+                        throw new ApiErrorException(
+                            BaseErrorCodes.ValidationFailed,
+                            $"SAP returned no detail for purchase order DocEntry {header.DocEntry}. "
+                            + $"Sync stopped after {added + updated} record(s) so nothing is silently skipped.");
+
+                    await UpsertFromSapAsync(detail, cancellationToken);
+                    if (existed)
+                        updated++;
+                    else
+                        added++;
                 }
 
-                await UpsertFromSapAsync(detail, cancellationToken);
-                if (existed)
-                    updated++;
-                else
-                    added++;
+                url = ResolveNextLink(page.ODataNextLink);
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Records already upserted stay committed; record the failure so the status line
+            // cannot keep showing the previous successful sync.
+            var failureMessage =
+                $"Sync failed after {added + updated} record(s) ({added} added, {updated} updated): {ex.Message}";
+            await SaveSyncStateAsync(syncedAt, added + updated, failureMessage, cancellationToken);
 
-            url = ResolveNextLink(page.ODataNextLink);
+            Log.Error(
+                ex,
+                "Purchase order {Mode} sync failed for {CompanyDb} after added={Added}, updated={Updated}, pages={Pages}",
+                newOnly ? "new" : "full",
+                CompanyDb,
+                added,
+                updated,
+                pages);
+            throw;
         }
 
         var upserted = added + updated;

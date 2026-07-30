@@ -3,7 +3,11 @@ import { resolveItem } from '@/helpers/masterLookup'
 
 export interface ItemMasterDetails {
   name?: string
+  /** Purchase UoM, falling back to inventory UoM. */
   uom?: string
+  purchaseUom?: string
+  /** Inventory / stock UoM from the item master. */
+  stockUom?: string
 }
 
 export function useItemMasterMap(itemCodes: Array<string | undefined | null>) {
@@ -19,7 +23,14 @@ export function useItemMasterMap(itemCodes: Array<string | undefined | null>) {
     let cancelled = false
     void Promise.all(codes.map(async (code) => {
       const item = await resolveItem(code)
-      return [code, { name: item?.ItemName, uom: item?.PurchaseUnit || item?.InventoryUom }] as const
+      const purchaseUom = item?.PurchaseUnit || item?.InventoryUom || undefined
+      const stockUom = item?.InventoryUom || item?.PurchaseUnit || undefined
+      return [code, {
+        name: item?.ItemName,
+        uom: purchaseUom,
+        purchaseUom,
+        stockUom,
+      }] as const
     })).then((entries) => {
       if (cancelled) return
       setItemMap(Object.fromEntries(entries))
