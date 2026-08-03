@@ -3,6 +3,7 @@
     <Project Path="src/SapApi.Api/SapApi.Api.csproj" />
     <Project Path="src/SapApi.Domain/SapApi.Domain.csproj" />
     <Project Path="src/SapApi.Infrastructure/SapApi.Infrastructure.csproj" />
+    <Project Path="src/SapApi.PoSync/SapApi.PoSync.csproj" />
     <Project Path="src/SapApi.Shared/SapApi.Shared.csproj" />
   </Folder>
   <Folder Name="/tests/">

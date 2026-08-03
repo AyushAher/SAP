@@ -9,6 +9,7 @@ import {
 import { Button, Input, Modal, SearchableSelect } from '@/Components/ui'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { applyStockPurchaseQty, calculateLineTotals, calcItemsPerUnit, calcUseBaseUnits, resolveLineUoms, withPurchaseQty, withStockQty } from '@/helpers/purchaseOrderForm'
+import { pickHsnFromChapterId } from '@/helpers/hsnResolve'
 import { isServicePoDocType, PO_TN } from '@/helpers/purchaseOrderTnValidation'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
@@ -68,16 +69,8 @@ async function resolveHsnFromChapterId(chapterId: string | undefined): Promise<{
 } | null> {
   const code = (chapterId ?? '').trim()
   if (!code) return null
-  const response = await searchHsnCodes(code, 20)
-  const rows = response.data ?? []
-  const exact = rows.find((h) => (h.ChapterID ?? '').trim() === code)
-    ?? rows.find((h) => (h.DisplayLabel ?? '').includes(code))
-    ?? rows[0]
-  if (exact?.AbsEntry == null) return null
-  return {
-    HSNEntry: exact.AbsEntry,
-    HsnLabel: exact.DisplayLabel ?? String(exact.AbsEntry),
-  }
+  const response = await searchHsnCodes(code, 50)
+  return pickHsnFromChapterId(code, response.data ?? [])
 }
 
 function formatPoCell(value: number | undefined | null): string {
@@ -501,6 +494,8 @@ export function PurchaseOrderLinesEditor({
                     const purchaseQty = draft.Quantity && draft.Quantity > 0 ? draft.Quantity : 1
                     const stockQty = purchaseQty * itemsPerUnit
                     const taxCode = draft.TaxCode || meta.PurchaseVatGroup || ''
+                    const warehouse = draft.WarehouseCode || meta.DefaultWarehouse || defaultWarehouse || ''
+                    if (warehouse) setWarehouseLabel(warehouse)
                     setDraft((prev) => (
                       prev.ItemCode === code
                         ? applyStockPurchaseQty({
@@ -514,6 +509,7 @@ export function PurchaseOrderLinesEditor({
                             UnitsOfMeasurment: itemsPerUnit,
                             WeightKg: meta.InventoryWeight ?? prev.WeightKg,
                             TaxCode: taxCode || prev.TaxCode,
+                            WarehouseCode: warehouse || prev.WarehouseCode,
                           })
                         : prev
                     ))

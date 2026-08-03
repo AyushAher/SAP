@@ -130,6 +130,65 @@ public class MasterDataCacheRefreshJob(
                ?? Environment.GetEnvironmentVariable("SAP_DEV_PASSWORD");
     }
 
+    /// <summary>
+    /// Finds the SapCredentials account for <paramref name="companyDb"/>.
+    /// When that company is not listed, falls back to the first configured Username and resolves
+    /// the password for the target company (SAP_PASSWORD_{CompanyDb} / SAP_PASSWORD), then the
+    /// template account password — so JWT company PBBPL_LIVE works when Accounts only lists UAT.
+    /// </summary>
+    public static (string Username, string Password) ResolveServiceLogin(
+        IReadOnlyList<SapCompanyCredential>? accounts,
+        string companyDb)
+    {
+        if (string.IsNullOrWhiteSpace(companyDb))
+            throw new InvalidOperationException("companyDb is required to resolve SAP service login.");
+
+        var list = accounts?.Where(static a => a is not null).ToList() ?? [];
+        if (list.Count == 0)
+            throw new InvalidOperationException(
+                "SapCredentials:Accounts is empty. Configure at least one account with Username "
+                + "(and Password or SAP_PASSWORD / SAP_PASSWORD_{CompanyDb}).");
+
+        var exact = list.FirstOrDefault(a =>
+            string.Equals(a.CompanyDb, companyDb, StringComparison.OrdinalIgnoreCase));
+
+        if (exact is not null)
+        {
+            if (string.IsNullOrWhiteSpace(exact.Username))
+                throw new InvalidOperationException(
+                    $"SapCredentials Username is required for CompanyDb '{companyDb}'.");
+
+            var exactPassword = ResolvePassword(exact);
+            if (string.IsNullOrWhiteSpace(exactPassword))
+                throw new InvalidOperationException(
+                    $"SapCredentials password is required for CompanyDb '{companyDb}'. "
+                    + "Set account Password or SAP_PASSWORD / SAP_PASSWORD_{CompanyDb}.");
+
+            return (exact.Username!, exactPassword!);
+        }
+
+        var template = list.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a.Username))
+            ?? throw new InvalidOperationException(
+                $"No SapCredentials:Accounts entry found for CompanyDb '{companyDb}' "
+                + "and no fallback Username is configured.");
+
+        // Prefer secrets scoped to the JWT/target company, then shared env, then template password.
+        var targetScoped = new SapCompanyCredential { CompanyDb = companyDb, Password = null };
+        var password = ResolvePassword(targetScoped) ?? ResolvePassword(template);
+        if (string.IsNullOrWhiteSpace(password))
+            throw new InvalidOperationException(
+                $"SapCredentials password is required for CompanyDb '{companyDb}' "
+                + $"(no Accounts entry; falling back to Username '{template.Username}'). "
+                + "Set SAP_PASSWORD_{CompanyDb}, SAP_PASSWORD, or the template account Password.");
+
+        Log.Information(
+            "No SapCredentials:Accounts entry for {CompanyDb}; using Username {SapUser} from another account",
+            companyDb,
+            template.Username);
+
+        return (template.Username!, password!);
+    }
+
     public static SapCompanyDatabase ResolveCompanyDb(string? configured) =>
         Enum.TryParse<SapCompanyDatabase>(configured, ignoreCase: true, out var companyDb)
             ? companyDb

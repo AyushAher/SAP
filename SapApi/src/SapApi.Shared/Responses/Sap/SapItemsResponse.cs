@@ -1,4 +1,6 @@
-﻿namespace SapApi.Shared.Responses.Sap
+﻿using SapApi.Shared.Serialization;
+
+namespace SapApi.Shared.Responses.Sap
 {
     public record SapItemsResponse : SapBaseResponse
     {
@@ -17,8 +19,14 @@
         /// <summary>Items per purchase unit (NumInBuy) — used as default UnitsOfMeasurment on PO lines.</summary>
         [JsonPropertyName("PurchaseItemsPerUnit"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double? PurchaseItemsPerUnit { get; set; }
         [JsonPropertyName("InventoryWeight"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double? InventoryWeight { get; set; }
-        /// <summary>India GST — often the AbsEntry of the HSN chapter on the item master.</summary>
-        [JsonPropertyName("ChapterID"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ChapterID { get; set; }
+        /// <summary>
+        /// India GST — on Items this is typically the HSN AbsEntry (number in SL JSON).
+        /// Stored as string so UI can resolve label via IndiaHsnService.
+        /// </summary>
+        [JsonPropertyName("ChapterID"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
+        public string? ChapterID { get; set; }
+        [JsonPropertyName("DefaultWarehouse"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DefaultWarehouse { get; set; }
         [JsonPropertyName("GSTRelevnt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? GstRelevant { get; set; }
         [JsonPropertyName("PurchaseVATGroup"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? PurchaseVatGroup { get; set; }
     }

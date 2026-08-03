@@ -370,3 +370,7 @@ keys/
 *.csproj.lscache
 
 .idea/
+.env
+.env.local
+**/.env
+!**/.env.example

@@ -325,9 +325,9 @@ public class SapMasterDataService(
         {
             Filter = $"ItemCode eq '{safeCode}'",
             Select = SapPaginationBuilder.ResolveSelect(
-                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseItemsPerUnit,PurchaseVATGroup,ChapterID",
+                "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseItemsPerUnit,PurchaseVATGroup,ChapterID,DefaultWarehouse",
                 ItemLookupKeyFields,
-                fields ?? ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID"]),
+                fields ?? ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID", "DefaultWarehouse"]),
             Top = "1",
         };
         var response = await GetCachedAsync<SapItemsResponse>(
@@ -417,7 +417,7 @@ public class SapMasterDataService(
     {
         // Match sap-ui Requests/masters.ts default field constants so cache keys align with live traffic.
         string[] itemDropdown = ["ItemCode", "ItemName"];
-        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID"];
+        string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID", "DefaultWarehouse"];
         string[] warehouseDropdown = ["WarehouseCode", "WarehouseName"];
         string[] taxDropdown = ["Code", "Name", "Rate"];
         string[] projectDropdown = ["Code", "Name"];

@@ -10,7 +10,9 @@ export interface MasterItem {
   /** Items per purchase unit from item master (NumInBuy). */
   PurchaseItemsPerUnit?: number
   InventoryWeight?: number
+  /** India GST — typically HSN AbsEntry as string (SL may send number). */
   ChapterID?: string
+  DefaultWarehouse?: string
   PurchaseVatGroup?: string
 }
 
@@ -99,6 +101,7 @@ function normalizeItem(raw: Record<string, unknown> | MasterItem | undefined): M
     ChapterID: source.ChapterID != null || source.chapterID != null
       ? String(source.ChapterID ?? source.chapterID)
       : undefined,
+    DefaultWarehouse: String(source.DefaultWarehouse ?? source.defaultWarehouse ?? '') || undefined,
     PurchaseVatGroup: String(source.PurchaseVatGroup ?? source.PurchaseVATGroup ?? source.purchaseVatGroup ?? '') || undefined,
   }
 }
@@ -189,6 +192,7 @@ export const ITEM_DETAIL_FIELDS = [
   'InventoryWeight',
   'PurchaseVATGroup',
   'ChapterID',
+  'DefaultWarehouse',
 ]
 export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'WarehouseName']
 export const TAX_CODE_DROPDOWN_FIELDS = ['Code', 'Name', 'Rate']

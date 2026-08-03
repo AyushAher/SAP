@@ -25,7 +25,10 @@ public record PurchaseOrderSyncResult(
     /// <summary>True when the batch stopped early and the caller should sync again to continue.</summary>
     bool HasMore = false,
     /// <summary>Highest DocEntry processed — pass back as afterDocEntry to resume.</summary>
-    int? LastDocEntry = null);
+    int? LastDocEntry = null,
+    string Status = PurchaseOrderSyncState.StatusIdle,
+    string? HangfireJobId = null,
+    DateTime? StartedAtUtc = null);
 
 public class PurchaseOrderLocalStore(
     AppDbContext db,
@@ -269,7 +272,7 @@ public class PurchaseOrderLocalStore(
             // cannot keep showing the previous successful sync.
             var failureMessage =
                 $"Sync failed after {added + updated} record(s) ({added} added, {updated} updated): {ex.Message}";
-            await SaveSyncStateAsync(syncedAt, added + updated, failureMessage, cancellationToken);
+            await SaveSyncStateAsync(syncedAt, added + updated, failureMessage, cancellationToken, lastDocEntry);
 
             Log.Error(
                 ex,
@@ -286,7 +289,7 @@ public class PurchaseOrderLocalStore(
         var mode = newOnly ? "new" : "full";
         var message = BuildSyncMessage(newOnly, hasMore, added, updated, pages, startDocEntry, lastDocEntry);
 
-        await SaveSyncStateAsync(syncedAt, upserted, message, cancellationToken);
+        await SaveSyncStateAsync(syncedAt, upserted, message, cancellationToken, lastDocEntry);
 
         Log.Information(
             "Purchase order {Mode} sync batch for {CompanyDb}: added={Added}, updated={Updated}, pages={Pages}, hasMore={HasMore}, lastDocEntry={LastDocEntry}",
@@ -353,26 +356,127 @@ public class PurchaseOrderLocalStore(
             0,
             state.LastSyncedAtUtc ?? DateTime.MinValue,
             state.LastSyncMessage ?? string.Empty,
-            Mode: "status");
+            Mode: "status",
+            LastDocEntry: state.LastDocEntry,
+            Status: string.IsNullOrWhiteSpace(state.Status) ? PurchaseOrderSyncState.StatusIdle : state.Status,
+            HangfireJobId: state.HangfireJobId,
+            StartedAtUtc: state.StartedAtUtc);
+    }
+
+    /// <summary>
+    /// Marks the company sync as Running for a Hangfire full sync. Returns false if already Running.
+    /// </summary>
+    public async Task<bool> TryBeginFullSyncJobAsync(
+        string? hangfireJobId,
+        CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        if (string.Equals(state.Status, PurchaseOrderSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        state.Status = PurchaseOrderSyncState.StatusRunning;
+        state.HangfireJobId = hangfireJobId;
+        state.StartedAtUtc = DateTime.UtcNow;
+        state.LastDocEntry = null;
+                state.LastSyncMessage = "Sync job queued (starting after latest local DocEntry).";
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task SetFullSyncJobIdAsync(string hangfireJobId, CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        state.HangfireJobId = hangfireJobId;
+        if (!string.Equals(state.Status, PurchaseOrderSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+            state.Status = PurchaseOrderSyncState.StatusRunning;
+        if (state.StartedAtUtc is null)
+            state.StartedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task UpdateFullSyncProgressAsync(
+        PurchaseOrderSyncResult batch,
+        int totalAdded,
+        int totalUpdated,
+        int batchNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        state.Status = PurchaseOrderSyncState.StatusRunning;
+        state.LastSyncedAtUtc = batch.SyncedAtUtc;
+        state.LastSyncedCount = totalAdded + totalUpdated;
+        state.LastDocEntry = batch.LastDocEntry;
+        state.LastSyncMessage = batch.HasMore
+            ? $"Running batch {batchNumber}: synced {totalAdded + totalUpdated} so far "
+              + $"({totalAdded} added, {totalUpdated} updated) up to DocEntry {batch.LastDocEntry}."
+            : $"Running batch {batchNumber}: synced {totalAdded + totalUpdated} "
+              + $"({totalAdded} added, {totalUpdated} updated).";
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkFullSyncSucceededAsync(
+        int totalAdded,
+        int totalUpdated,
+        int? lastDocEntry,
+        CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        var total = totalAdded + totalUpdated;
+        state.Status = PurchaseOrderSyncState.StatusSucceeded;
+        state.LastSyncedAtUtc = DateTime.UtcNow;
+        state.LastSyncedCount = total;
+        state.LastDocEntry = lastDocEntry;
+        state.LastSyncMessage = total == 0
+            ? "Sync completed: no new purchase orders after the latest local DocEntry."
+            : $"Sync completed: {total} purchase order(s) ({totalAdded} added, {totalUpdated} updated).";
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkFullSyncFailedAsync(string message, CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        state.Status = PurchaseOrderSyncState.StatusFailed;
+        state.LastSyncedAtUtc = DateTime.UtcNow;
+        state.LastSyncMessage = message.Length > 2000 ? message[..2000] : message;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<PurchaseOrderSyncState> GetOrCreateSyncStateAsync(CancellationToken cancellationToken)
+    {
+        var state = await db.PurchaseOrderSyncStates
+            .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb, cancellationToken);
+        if (state is not null)
+            return state;
+
+        state = new PurchaseOrderSyncState
+        {
+            CompanyDb = CompanyDb,
+            Status = PurchaseOrderSyncState.StatusIdle,
+        };
+        db.PurchaseOrderSyncStates.Add(state);
+        await db.SaveChangesAsync(cancellationToken);
+        return state;
     }
 
     private async Task SaveSyncStateAsync(
         DateTime syncedAt,
         int count,
         string message,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? lastDocEntry = null)
     {
-        var state = await db.PurchaseOrderSyncStates
-            .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb, cancellationToken);
-        if (state is null)
-        {
-            state = new PurchaseOrderSyncState { CompanyDb = CompanyDb };
-            db.PurchaseOrderSyncStates.Add(state);
-        }
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
 
         state.LastSyncedAtUtc = syncedAt;
         state.LastSyncedCount = count;
         state.LastSyncMessage = message;
+        if (lastDocEntry is not null)
+            state.LastDocEntry = lastDocEntry;
+
+        // Do not clobber an in-flight Hangfire job status from synchronous batch endpoints.
+        if (!string.Equals(state.Status, PurchaseOrderSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+            state.Status = PurchaseOrderSyncState.StatusIdle;
+
         await db.SaveChangesAsync(cancellationToken);
     }
 

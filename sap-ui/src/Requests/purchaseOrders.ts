@@ -33,6 +33,17 @@ export interface PurchaseOrderSyncResult {
   hasMore?: boolean
   /** Resume cursor for the next batch. */
   lastDocEntry?: number | null
+  /** Idle | Running | Succeeded | Failed */
+  status?: string
+  hangfireJobId?: string | null
+  startedAtUtc?: string | null
+}
+
+export interface PurchaseOrderFullSyncJobResult {
+  jobId?: string | null
+  status: string
+  message?: string
+  alreadyRunning?: boolean
 }
 
 export interface SyncProgress {
@@ -130,9 +141,27 @@ export function syncNewPurchaseOrdersFromSap(onProgress?: (progress: SyncProgres
   return runResumableSync('/purchase-orders/sync', onProgress)
 }
 
-/** Full re-import of all POs from SAP. */
+/** Full re-import of all POs from SAP (browser-driven resumable loop — prefer enqueueFullPurchaseOrderSyncJob). */
 export function syncAllPurchaseOrdersFromSap(onProgress?: (progress: SyncProgress) => void) {
   return runResumableSync('/purchase-orders/sync/full', onProgress)
+}
+
+/** Enqueue Hangfire full sync for the current company. Poll getPurchaseOrderSyncStatus while Running. */
+export async function enqueueFullPurchaseOrderSyncJob(): Promise<PurchaseOrderFullSyncJobResult> {
+  const axiosInstance = (await import('@/helpers/api/axiosInstance')).default
+  const { getApiErrorMessage } = await import('@/helpers/api/axiosInstance')
+  try {
+    const { data } = await axiosInstance.post<{
+      success: boolean
+      message?: string
+      errorCode?: string
+      data: PurchaseOrderFullSyncJobResult
+    }>('/purchase-orders/sync/jobs/full')
+    if (!data.success) throw new Error(data.message ?? data.errorCode ?? 'Failed to start sync job')
+    return data.data
+  } catch (error) {
+    throw new Error(getApiErrorMessage(error))
+  }
 }
 
 /** Refresh a single PO row from SAP. */

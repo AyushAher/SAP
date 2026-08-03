@@ -272,6 +272,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.HangfireJobId).HasMaxLength(64);
+            entity.Property(e => e.LastSyncMessage).HasMaxLength(2000);
             entity.HasIndex(e => e.CompanyDb).IsUnique();
         });
 

@@ -1,6 +1,16 @@
+using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using SapApi.Domain.Entities;
+using SapApi.Domain.Interfaces;
+using SapApi.Infrastructure.Identity;
+using SapApi.Infrastructure.Jobs;
+using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.Sap;
+using SapApi.Shared;
+using SapApi.Shared.Configuration;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
@@ -10,7 +20,13 @@ namespace SapApi.Api.Controllers;
 [ApiController]
 [Route("api/purchase-orders")]
 [Authorize]
-public class PurchaseOrderController(SapPurchaseOrderService service) : ControllerBase
+public class PurchaseOrderController(
+    SapPurchaseOrderService service,
+    PurchaseOrderLocalStore localStore,
+    ICurrentCompanyDbAccessor companyDbAccessor,
+    IHttpContextAccessor httpContextAccessor,
+    IOptions<HangfireOptions> hangfireOptions,
+    IServiceProvider services) : ControllerBase
 {
     [HttpPost("list")]
     public async Task<IActionResult> List([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
@@ -21,6 +37,67 @@ public class PurchaseOrderController(SapPurchaseOrderService service) : Controll
     {
         var status = await service.GetSyncStateAsync(cancellationToken);
         return Ok(ApiResponse<object?>.Ok(status));
+    }
+
+    /// <summary>
+    /// Enqueues a Hangfire job that fully syncs all purchase orders for the current company.
+    /// Returns the existing job if one is already Running.
+    /// </summary>
+    [HttpPost("sync/jobs/full")]
+    public async Task<IActionResult> EnqueueFullSyncJob(CancellationToken cancellationToken)
+    {
+        var hangfire = hangfireOptions.Value;
+        var backgroundJobs = services.GetService<IBackgroundJobClient>();
+        if (!hangfire.Enabled || backgroundJobs is null)
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                ApiResponse<object>.Fail(
+                    BaseErrorCodes.ValidationFailed,
+                    "Purchase order background sync is unavailable (Hangfire is disabled)."));
+        }
+
+        var existing = await localStore.GetSyncStateAsync(cancellationToken);
+        if (existing is not null
+            && string.Equals(existing.Status, PurchaseOrderSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+        {
+            return Ok(ApiResponse<object>.Ok(new
+            {
+                jobId = existing.HangfireJobId,
+                status = existing.Status,
+                message = existing.Message,
+                alreadyRunning = true,
+            }));
+        }
+
+        var started = await localStore.TryBeginFullSyncJobAsync(hangfireJobId: null, cancellationToken);
+        if (!started)
+        {
+            var raced = await localStore.GetSyncStateAsync(cancellationToken);
+            return Ok(ApiResponse<object>.Ok(new
+            {
+                jobId = raced?.HangfireJobId,
+                status = raced?.Status ?? PurchaseOrderSyncState.StatusRunning,
+                message = raced?.Message ?? "Full sync already running.",
+                alreadyRunning = true,
+            }));
+        }
+
+        var companyDb = companyDbAccessor.GetCompanyDbName();
+        var requestingUserId = httpContextAccessor.GetUserIdAsync()
+            ?? hangfire.ServiceUserId;
+        var jobId = backgroundJobs.Enqueue<PurchaseOrderSyncJob>(
+            job => job.ExecuteAsync(companyDb, requestingUserId, null!, CancellationToken.None));
+
+        await localStore.SetFullSyncJobIdAsync(jobId, cancellationToken);
+
+        return Ok(ApiResponse<object>.Ok(new
+        {
+            jobId,
+            status = PurchaseOrderSyncState.StatusRunning,
+            message = "Full sync job queued.",
+            alreadyRunning = false,
+        }));
     }
 
     /// <summary>

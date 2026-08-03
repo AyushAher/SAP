@@ -41,6 +41,7 @@ public static class HangfireExtensions
         });
 
         services.AddScoped<MasterDataCacheRefreshJob>();
+        services.AddScoped<PurchaseOrderSyncJob>();
         return services;
     }
 

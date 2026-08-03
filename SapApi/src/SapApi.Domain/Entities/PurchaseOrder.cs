@@ -131,12 +131,24 @@ public class PurchaseOrderPaymentTerm
     public PurchaseOrder PurchaseOrder { get; set; } = null!;
 }
 
-/// <summary>Per-company sync metadata for purchase orders.</summary>
+/// <summary>Per-company sync metadata for purchase orders (including Hangfire full-sync job).</summary>
 public class PurchaseOrderSyncState
 {
+    public const string StatusIdle = "Idle";
+    public const string StatusRunning = "Running";
+    public const string StatusSucceeded = "Succeeded";
+    public const string StatusFailed = "Failed";
+
     public int Id { get; set; }
     public string CompanyDb { get; set; } = string.Empty;
     public DateTime? LastSyncedAtUtc { get; set; }
     public int? LastSyncedCount { get; set; }
     public string? LastSyncMessage { get; set; }
+
+    /// <summary>Idle | Running | Succeeded | Failed</summary>
+    public string Status { get; set; } = StatusIdle;
+    public string? HangfireJobId { get; set; }
+    public DateTime? StartedAtUtc { get; set; }
+    /// <summary>Highest DocEntry processed by the current/last full sync job.</summary>
+    public int? LastDocEntry { get; set; }
 }
