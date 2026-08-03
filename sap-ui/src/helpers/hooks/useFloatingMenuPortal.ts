@@ -1,12 +1,31 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 
 export interface FloatingMenuPosition {
   top: number
   left: number
-  width: number
+  width?: number
 }
 
-export function useFloatingMenuPortal(isOpen: boolean, usePortal: boolean) {
+export interface FloatingMenuPortalOptions {
+  /** Horizontal alignment relative to the trigger. Default: start (left). */
+  align?: 'start' | 'end'
+  /** When true, menu width matches the trigger width (selects). Default: true. */
+  matchTriggerWidth?: boolean
+  /** Viewport padding when clamping. Default: 8. */
+  viewportPadding?: number
+}
+
+export function useFloatingMenuPortal(
+  isOpen: boolean,
+  usePortal: boolean,
+  options: FloatingMenuPortalOptions = {},
+) {
+  const {
+    align = 'start',
+    matchTriggerWidth = true,
+    viewportPadding = 8,
+  } = options
+
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLElement>(null)
   const [menuPosition, setMenuPosition] = useState<FloatingMenuPosition | null>(null)
@@ -14,11 +33,28 @@ export function useFloatingMenuPortal(isOpen: boolean, usePortal: boolean) {
   const updateMenuPosition = useCallback(() => {
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
+    const menuEl = menuRef.current
+    const measuredWidth = menuEl?.offsetWidth
+      ?? (matchTriggerWidth ? rect.width : 176)
+    const measuredHeight = menuEl?.offsetHeight ?? 0
+
+    let left = align === 'end' ? rect.right - measuredWidth : rect.left
+    left = Math.max(
+      viewportPadding,
+      Math.min(left, window.innerWidth - measuredWidth - viewportPadding),
+    )
+
+    let top = rect.bottom + 4
+    if (measuredHeight > 0 && top + measuredHeight > window.innerHeight - viewportPadding) {
+      const above = rect.top - measuredHeight - 4
+      top = above >= viewportPadding ? above : Math.max(viewportPadding, window.innerHeight - measuredHeight - viewportPadding)
+    }
+
     setMenuPosition((prev) => {
-      const next = {
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: rect.width,
+      const next: FloatingMenuPosition = {
+        top,
+        left,
+        width: matchTriggerWidth ? rect.width : undefined,
       }
       if (
         prev
@@ -30,7 +66,12 @@ export function useFloatingMenuPortal(isOpen: boolean, usePortal: boolean) {
       }
       return next
     })
-  }, [])
+  }, [align, matchTriggerWidth, viewportPadding])
+
+  useLayoutEffect(() => {
+    if (!isOpen || !usePortal) return
+    updateMenuPosition()
+  }, [isOpen, usePortal, updateMenuPosition])
 
   useEffect(() => {
     if (!isOpen || !usePortal) {
@@ -84,7 +125,7 @@ export function getFloatingMenuStyle(
     position: 'fixed',
     top: menuPosition.top,
     left: menuPosition.left,
-    width: menuPosition.width,
+    ...(menuPosition.width != null ? { width: menuPosition.width } : {}),
     zIndex: 9999,
   }
 }

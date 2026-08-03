@@ -27,7 +27,10 @@ interface RowActionsMenuProps {
 export function RowActionsMenu({ items, title = 'Actions' }: RowActionsMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  const { triggerRef, menuRef, menuPosition, updateMenuPosition } = useFloatingMenuPortal(isOpen, true)
+  const { triggerRef, menuRef, menuPosition, updateMenuPosition } = useFloatingMenuPortal(isOpen, true, {
+    align: 'end',
+    matchTriggerWidth: false,
+  })
 
   useClickOutside(containerRef, menuRef, () => setIsOpen(false))
 

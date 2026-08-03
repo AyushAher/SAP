@@ -69,6 +69,7 @@ public class StageWisePaymentService(
         var entity1 = entity;
         entity1.CompanyDb = CompanyDb;
         entity1.PurchaseOrderId ??= await purchaseOrderLinks.EnsureIdFromSapPoAsync(purchaseOrder);
+        var paymentTermsLabel = selectedPaymentTermsUdf.DropDownValue();
 
         SapBaseResponse? sapResponse = null;
         double tdsAmount = 0;
@@ -87,7 +88,7 @@ public class StageWisePaymentService(
                 purchaseOrder, selectedPaymentTermsUdf, downPaymentAmount, totalBasic, existingRecords);
             entity1.GrossAmount = gross;
             entity1.GstAmount = gst;
-            (sapResponse, tdsAmount) = await AddToSap(purchaseOrder, selectedPaymentTermsUdf, false, downPaymentAmount, wtCode, desc, entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted);
+            (sapResponse, tdsAmount) = await AddToSap(purchaseOrder, selectedPaymentTermsUdf, false, downPaymentAmount, wtCode, paymentTermsLabel, entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted);
             if (sapResponse is not null && sapResponse.PendingApproval)
             {
                 entity1.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
@@ -124,7 +125,7 @@ public class StageWisePaymentService(
             var (dpOk, dpMessage, dpTds) = await ApplySeparateDownPaymentsAsync(
                 entity1,
                 purchaseOrder,
-                desc,
+                paymentTermsLabel,
                 wtCode,
                 entity1.GrossAmount ?? 0,
                 entity1.GstAmount ?? 0,
@@ -145,7 +146,7 @@ public class StageWisePaymentService(
             var (dpOk, dpMessage, dpTds) = await ApplySeparateDownPaymentsAsync(
                 entity1,
                 purchaseOrder,
-                desc,
+                paymentTermsLabel,
                 wtCode,
                 grossAmount: 0,
                 gstAmount: downPaymentAmount,
@@ -291,6 +292,17 @@ public class StageWisePaymentService(
         totalGst = Math.Round(totalGst, 2);
         const string batchDesc = "Batch down payment";
         const bool hadTdsDeducted = false;
+        var paymentTermsLabel = string.Join(", ",
+            lines.SelectMany(l => l.PaymentTermsTypes)
+                .Where(id => id > 0)
+                .Distinct()
+                .OrderBy(id => id)
+                .Select(id =>
+                {
+                    var term = paymentTerms.FirstOrDefault(t => t.Id == id);
+                    return term?.DropDownValue() ?? term?.Desc ?? $"Term {id}";
+                })
+                .Where(label => !string.IsNullOrWhiteSpace(label)));
 
         var entity = new StageWisePayment
         {
@@ -314,7 +326,7 @@ public class StageWisePaymentService(
         var (dpOk, dpMessage, tdsAmount) = await ApplySeparateDownPaymentsAsync(
             entity,
             purchaseOrder,
-            batchDesc,
+            string.IsNullOrWhiteSpace(paymentTermsLabel) ? batchDesc : paymentTermsLabel,
             wtCode,
             totalGross,
             totalGst,
@@ -401,7 +413,7 @@ public class StageWisePaymentService(
         if (grossAmount > 0)
         {
             var (sapResponse, basicTds) = await AddDownPayment(
-                purchaseOrder, isGst: false, grossAmount, wtCode, $"{desc} (Basic)", hadTdsDeducted,
+                purchaseOrder, isGst: false, grossAmount, wtCode, desc, hadTdsDeducted,
                 paymentStageId);
 
             if (sapResponse?.PendingApproval == true)
@@ -430,7 +442,7 @@ public class StageWisePaymentService(
         if (gstAmount > 0)
         {
             var (sapResponse, _) = await AddDownPayment(
-                purchaseOrder, isGst: true, gstAmount, wtCode, $"{desc} (GST)", hadTdsDeducted,
+                purchaseOrder, isGst: true, gstAmount, wtCode, desc, hadTdsDeducted,
                 paymentStageId);
 
             if (sapResponse?.PendingApproval == true)
@@ -753,7 +765,7 @@ public class StageWisePaymentService(
             // Omit DocTotal — SAP derives it from DownPayment + line bases / WTax.
             DocTotal = null,
             BPLId = purchaseOrder.BPLId ?? 1,
-            Comments = $"{desc} against PO {purchaseOrder.DocNum}",
+            Comments = Constants.PaymentRemarks.BuildDownPayment(desc, purchaseOrder.DocNum?.ToString()),
             PaymentStageId = paymentStageId,
             WithholdingTaxDataCollection = null,
         };

@@ -69,6 +69,14 @@ namespace SapApi.Shared
                     ? poReference
                     : $"{userRemark.Trim()}{Environment.NewLine}{poReference}";
             }
+
+            /// <summary>AP Down Payment Request (ODPO) remarks: "{Payment Terms}. Based on Purchase Order no. {DocNum}".</summary>
+            public static string BuildDownPayment(string? paymentTerms, string? poNumber)
+            {
+                var terms = string.IsNullOrWhiteSpace(paymentTerms) ? "Down Payment" : paymentTerms.Trim();
+                var po = string.IsNullOrWhiteSpace(poNumber) ? "____" : poNumber.Trim();
+                return $"{terms}. Based on Purchase Order no. {po}";
+            }
         }
 
         public static class Roles
