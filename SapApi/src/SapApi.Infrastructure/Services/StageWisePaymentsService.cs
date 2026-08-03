@@ -725,7 +725,8 @@ public class StageWisePaymentService(
         string? paymentStageId = null)
     {
         // ODPO DocTotal must match line components. Send base-document line refs only (no PO
-        // Quantity/UnitPrice/LineTotal) and let SAP allocate DownPayment across those bases.
+        // Quantity/UnitPrice/LineTotal) and let SAP allocate the down-payment amount across those bases.
+        // Never send Service Layer "DownPayment" — that is DpmPrcnt (%). Use DownPaymentAmount (DpmAmnt).
         // Setting DocTotal explicitly while lines still carry full PO amounts triggers
         // "difference between the document total and its components [ODPO.DocTotal]".
         var sourceLines = purchaseOrder.DocumentLines ?? [];
@@ -760,9 +761,11 @@ public class StageWisePaymentService(
         {
             DocumentLines = documentLines,
             CardCode = purchaseOrder.CardCode,
-            DownPayment = roundedAmount,
+            // Amount only — omit DownPayment (%) so SAP does not treat the rupee value as a percent.
+            DownPayment = null,
+            DownPaymentAmount = roundedAmount,
             DocType = purchaseOrder.DocType,
-            // Omit DocTotal — SAP derives it from DownPayment + line bases / WTax.
+            // Omit DocTotal — SAP derives it from DownPaymentAmount + line bases / WTax.
             DocTotal = null,
             BPLId = purchaseOrder.BPLId ?? 1,
             Comments = Constants.PaymentRemarks.BuildDownPayment(desc, purchaseOrder.DocNum?.ToString()),

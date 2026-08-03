@@ -20,8 +20,17 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("JournalMemo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? JournalMemo { get; set; }
 
+        /// <summary>
+        /// SAP Service Layer maps <c>DownPayment</c> to ODPO.DpmPrcnt (percentage).
+        /// Do not send the payment amount here — use <see cref="DownPaymentAmount"/> instead.
+        /// </summary>
         [JsonPropertyName("DownPayment"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public double? DownPayment { get; set; }
+
+        /// <summary>SAP Service Layer ODPO.DpmAmnt — down payment amount in document currency.</summary>
+        [JsonPropertyName("DownPaymentAmount"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? DownPaymentAmount { get; set; }
+
         [JsonPropertyName("DocType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? DocType { get; set; }
 

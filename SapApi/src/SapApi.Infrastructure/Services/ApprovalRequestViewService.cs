@@ -173,7 +173,9 @@ public class ApprovalRequestViewService(
             PoNumber: null,
             downPaymentBody.BPLId,
             TransferAccount: null,
-            TransferAmount: downPaymentBody.DocTotal ?? downPaymentBody.DownPayment);
+            TransferAmount: downPaymentBody.DocTotal
+                ?? downPaymentBody.DownPaymentAmount
+                ?? downPaymentBody.DownPayment);
     }
 
     private async Task<SapPurchaseOrdersResponse?> TryGetPurchaseOrderAsync(

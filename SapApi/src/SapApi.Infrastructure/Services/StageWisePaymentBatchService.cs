@@ -1573,7 +1573,7 @@ public class StageWisePaymentBatchService(
                 var downPaymentRequest = new SapPurchaseDownPaymentRequest
                 {
                     CardCode = po.CardCode,
-                    DownPayment = Math.Round(amount, 2),
+                    DownPaymentAmount = Math.Round(amount, 2),
                     DocTotal = Math.Round(amount, 2),
                     DocType = po.DocType,
                     BPLId = po.BPLId ?? 1,

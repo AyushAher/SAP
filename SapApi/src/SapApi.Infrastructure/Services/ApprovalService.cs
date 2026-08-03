@@ -262,11 +262,10 @@ public class ApprovalService
 
         /// <summary>
         /// Resolves a rule's configured field name to a value on the request object being evaluated.
-        /// Mostly a direct reflection lookup, except for Payments/"DocTotal": SapVendorPaymentRequests
-        /// has no DocTotal property — only TransferSum (a string, the batch's own outgoing payment
-        /// total) — so the UI-facing "DocTotal" field for Payments policies is mapped onto TransferSum
-        /// here instead of silently no-op'ing via a missing PropertyInfo (which would leave amount-based
-        /// approval thresholds on Payments policies never actually enforced).
+        /// Mostly a direct reflection lookup, except for:
+        /// - Payments/"DocTotal": SapVendorPaymentRequests has no DocTotal — map to TransferSum.
+        /// - StagewisePayments_DP/"DocTotal": amount is posted as DownPaymentAmount (DpmAmnt), not
+        ///   DownPayment (DpmPrcnt) or DocTotal, so map DocTotal rules onto the amount fields.
         /// </summary>
         private static object? ResolveRuleFieldValue<T>(ApprovalDocumentType docType, Type type, T data, string fieldName)
         {
@@ -281,6 +280,15 @@ public class ApprovalService
                     out var transferSum)
                     ? transferSum
                     : null;
+            }
+
+            if (docType == ApprovalDocumentType.StagewisePayments_DP
+                && fieldName == "DocTotal"
+                && data is SapPurchaseDownPaymentRequest downPaymentRequest)
+            {
+                return downPaymentRequest.DocTotal
+                    ?? downPaymentRequest.DownPaymentAmount
+                    ?? downPaymentRequest.DownPayment;
             }
 
             return type.GetProperty(fieldName)?.GetValue(data);
