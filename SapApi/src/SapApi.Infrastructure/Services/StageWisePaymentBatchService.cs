@@ -889,12 +889,17 @@ public class StageWisePaymentBatchService(
         var batch = await db.StageWisePaymentBatches
             .AsNoTracking()
             .FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyDb == CompanyDb, cancellationToken);
-        if (batch?.StageWisePaymentId is null)
+        if (batch is null)
+            return null;
+
+        // Prefer the main linked payment (often AP/outgoing); fall back to down-payment-only batches.
+        var paymentId = batch.StageWisePaymentId ?? batch.DownPaymentStageWisePaymentId;
+        if (paymentId is null)
             return null;
 
         return await db.StageWisePayments
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == batch.StageWisePaymentId && x.CompanyDb == CompanyDb, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == paymentId && x.CompanyDb == CompanyDb, cancellationToken);
     }
 
     async Task<List<int>> CollectLinkedPaymentIdsAsync(

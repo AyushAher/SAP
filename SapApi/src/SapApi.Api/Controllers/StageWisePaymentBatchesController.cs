@@ -124,11 +124,19 @@ public class StageWisePaymentBatchesController(
         if (pageData?.PurchaseOrder is null)
             return NotFound(ApiResponse<object>.Fail("SYS-02", "Purchase order not found"));
 
+        var paymentTermLabel = string.Join(", ",
+            (batch.Lines ?? [])
+                .SelectMany(l => l.PaymentTermLabels ?? [])
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct());
+
         var placeholders = await pdfBuilder.BuildPlaceholdersAsync(
             record,
             pageData,
             User.Identity?.Name,
-            cancellationToken);
+            cancellationToken,
+            userRemark: batch.JournalRemark,
+            paymentTermOverride: string.IsNullOrWhiteSpace(paymentTermLabel) ? null : paymentTermLabel);
 
         var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
             "outgoing-payment-template.html", placeholders, cancellationToken);

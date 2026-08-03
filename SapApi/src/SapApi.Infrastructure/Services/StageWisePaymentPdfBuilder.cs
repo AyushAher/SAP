@@ -12,7 +12,9 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
         StageWisePayment record,
         StageWisePaymentPageDataResponse pageData,
         string? userName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? userRemark = null,
+        string? paymentTermOverride = null)
     {
         var po = pageData.PurchaseOrder!;
         var recordApInvoice = pageData.ApInvoices.FirstOrDefault(x => x.DocEntry.ToString() == record.ApInvoiceDocEntry)
@@ -27,6 +29,8 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
         var paymentTypeLabel = isBatchAp || paymentTerm?.Type is "Invoice" or "Retention"
             ? "Outgoing Payment Request"
             : "Downpayment Request";
+        var defaultRemark = isBatchAp || isBatchDown ? "Batch payment request" : "Auto generated from system";
+        var journalRemarks = string.IsNullOrWhiteSpace(userRemark) ? defaultRemark : userRemark.Trim();
 
         var branch = await masterDataService.GetBusinessPlaceByIdAsync(po.BPLId, cancellationToken: cancellationToken);
 
@@ -38,7 +42,9 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             ["grossTotal"] = (po.DocTotal ?? 0).ToString("N2"),
             ["outgoingPaymentValue"] = grossOutgoing.ToString("N2"),
             ["outgoingPaymentValueInWords"] = AmountInWords.ConvertToWords(grossOutgoing),
-            ["paymentTerm"] = record.StageDesc ?? paymentTerm?.Desc ?? string.Empty,
+            ["paymentTerm"] = !string.IsNullOrWhiteSpace(paymentTermOverride)
+                ? paymentTermOverride.Trim()
+                : (record.StageDesc ?? paymentTerm?.Desc ?? string.Empty),
             ["vendor"] = $"{po.CardCode} - {po.CardName}",
             ["documentNo"] = po.DocNum?.ToString() ?? string.Empty,
             ["documentDate"] = po.DocDate?.ToString("dd/MM/yyyy") ?? string.Empty,
@@ -48,7 +54,9 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             ["reqDate"] = record.ApprovalRequestId is not null ? record.CreatedOn.ToString("dd/MM/yyyy") : string.Empty,
             ["totalQty"] = "0.00",
             ["totalLineGrandTotal"] = "0.00",
-            ["journalRemarks"] = isBatchAp || isBatchDown ? "Batch payment request" : "Auto generated from system",
+            ["journalRemarks"] = journalRemarks,
+            ["utrNo"] = record.UtrNo ?? string.Empty,
+            ["utrDate"] = record.UtrDate?.ToString("dd/MM/yyyy") ?? string.Empty,
             ["bank"] = pageData.BankLabels.GetValueOrDefault(record.Bank ?? string.Empty, record.Bank ?? string.Empty),
             ["paymentType"] = paymentTypeLabel,
             ["apInvoiceDocEntry"] = recordApInvoice?.NumAtCard ?? string.Empty,
