@@ -218,4 +218,63 @@ public class PurchaseOrderLocalStoreSyncTests
 
         await act.Should().ThrowAsync<ApiErrorException>().WithMessage("*SAP is unavailable*");
     }
+
+    [Test]
+    public void EnumerateIntegerGaps_yields_holes_after_cursor()
+    {
+        var gaps = PurchaseOrderLocalStore.EnumerateIntegerGaps([10, 12, 15], afterExclusive: 11).ToList();
+        gaps.Should().Equal(13, 14);
+    }
+
+    [Test]
+    public async Task SyncMissingGaps_restores_present_SAP_DocEntries_and_skips_absent()
+    {
+        SeedLocal(10, 13);
+        SetupDetail(11, new SapPurchaseOrdersResponse { DocEntry = 11, DocNum = 5011, CardCode = "V011" });
+        _http.Setup(h => h.GetOrThrowAsync<SapPurchaseOrdersResponse>(
+                It.Is<string>(u => u.Contains("(12)")), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiErrorException(BaseErrorCodes.ValidationFailed, "Not found"));
+
+        var result = await _sut.SyncMissingGapsFromSapAsync();
+
+        result.Mode.Should().Be("gaps");
+        result.HasMore.Should().BeFalse();
+        result.AddedCount.Should().Be(1);
+        _context.PurchaseOrders.Select(p => p.DocEntry).OrderBy(x => x).Should().Equal(10, 11, 13);
+    }
+
+    [Test]
+    public async Task SyncMissingGaps_resumes_from_afterDocEntry()
+    {
+        SeedLocal(10, 15);
+        SetupDetail(13, new SapPurchaseOrdersResponse { DocEntry = 13, DocNum = 5013, CardCode = "V013" });
+        SetupDetail(14, new SapPurchaseOrdersResponse { DocEntry = 14, DocNum = 5014, CardCode = "V014" });
+        _http.Setup(h => h.GetOrThrowAsync<SapPurchaseOrdersResponse>(
+                It.Is<string>(u => u.Contains("(11)") || u.Contains("(12)")), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiErrorException(BaseErrorCodes.ValidationFailed, "Not found"));
+
+        var result = await _sut.SyncMissingGapsFromSapAsync(afterDocEntry: 12);
+
+        result.AddedCount.Should().Be(2);
+        _context.PurchaseOrders.Select(p => p.DocEntry).OrderBy(x => x).Should().Equal(10, 13, 14, 15);
+    }
+
+    private void SeedLocal(params int[] docEntries)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var docEntry in docEntries)
+        {
+            _context.PurchaseOrders.Add(new SapApi.Domain.Entities.PurchaseOrder
+            {
+                CompanyDb = CompanyDb,
+                DocEntry = docEntry,
+                DocNum = 5000 + docEntry,
+                SyncedAtUtc = now,
+                CreatedOn = now,
+                LastModifiedOn = now,
+            });
+        }
+
+        _context.SaveChanges();
+    }
 }

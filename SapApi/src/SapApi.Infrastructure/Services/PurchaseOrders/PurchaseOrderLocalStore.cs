@@ -188,6 +188,161 @@ public class PurchaseOrderLocalStore(
         CancellationToken cancellationToken = default) =>
         SyncFromSapInternalAsync(newOnly: false, afterDocEntry, cancellationToken);
 
+    /// <summary>
+    /// Finds integer holes between consecutive local DocEntries and pulls those numbers from SAP
+    /// when they exist. Resume with <paramref name="afterDocEntry"/> (exclusive). When done,
+    /// <see cref="PurchaseOrderSyncResult.HasMore"/> is false — caller should then run
+    /// <see cref="SyncNewFromSapAsync"/>.
+    /// </summary>
+    public async Task<PurchaseOrderSyncResult> SyncMissingGapsFromSapAsync(
+        int? afterDocEntry = null,
+        CancellationToken cancellationToken = default)
+    {
+        var syncedAt = DateTime.UtcNow;
+        var added = 0;
+        var updated = 0;
+        var skippedAbsent = 0;
+        var hasMore = false;
+        var afterExclusive = afterDocEntry ?? 0;
+        var lastDocEntry = afterExclusive;
+        var stopwatch = Stopwatch.StartNew();
+
+        var sorted = await db.PurchaseOrders
+            .AsNoTracking()
+            .Where(x => x.CompanyDb == CompanyDb)
+            .Select(x => x.DocEntry)
+            .OrderBy(x => x)
+            .ToListAsync(cancellationToken);
+
+        if (sorted.Count < 2)
+        {
+            var message = sorted.Count == 0
+                ? "No local purchase orders yet; skipping gap fill."
+                : "Only one local purchase order; no sequence gaps to fill.";
+            await SaveSyncStateAsync(syncedAt, 0, message, cancellationToken, sorted.LastOrDefault());
+            return new PurchaseOrderSyncResult(
+                CompanyDb,
+                UpsertedCount: 0,
+                PageCount: 0,
+                SyncedAtUtc: syncedAt,
+                Message: message,
+                Mode: "gaps",
+                HasMore: false,
+                LastDocEntry: sorted.LastOrDefault());
+        }
+
+        try
+        {
+            foreach (var missing in EnumerateIntegerGaps(sorted, afterExclusive))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                lastDocEntry = missing;
+
+                var existed = false; // gap by definition is not local
+                var detail = await TryGetPurchaseOrderDetailAsync(missing, cancellationToken);
+                if (detail?.DocEntry is null)
+                {
+                    skippedAbsent++;
+                }
+                else
+                {
+                    await UpsertFromSapAsync(detail, cancellationToken);
+                    added++;
+                }
+
+                if (added + updated + skippedAbsent >= MaxRecordsPerBatch
+                    || stopwatch.Elapsed >= BatchTimeBudget)
+                {
+                    // More gap numbers may remain after this candidate.
+                    hasMore = EnumerateIntegerGaps(sorted, missing).Any();
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var failureMessage =
+                $"Gap sync failed after {added + updated} record(s) ({added} added, {skippedAbsent} absent in SAP): {ex.Message}";
+            await SaveSyncStateAsync(syncedAt, added + updated, failureMessage, cancellationToken, lastDocEntry);
+            Log.Error(
+                ex,
+                "Purchase order gap sync failed for {CompanyDb} after added={Added}, skippedAbsent={Skipped}",
+                CompanyDb,
+                added,
+                skippedAbsent);
+            throw;
+        }
+
+        var upserted = added + updated;
+        var doneMessage = hasMore
+            ? $"Filled {upserted} gap DocEntry(ies) ({skippedAbsent} absent in SAP) up to {lastDocEntry}. More gaps remaining."
+            : upserted == 0 && skippedAbsent == 0
+                ? "No missing DocEntry gaps in the local sequence."
+                : $"Gap fill complete: {upserted} restored from SAP ({skippedAbsent} hole(s) had no SAP document).";
+
+        await SaveSyncStateAsync(syncedAt, upserted, doneMessage, cancellationToken, lastDocEntry);
+
+        Log.Information(
+            "Purchase order gap sync for {CompanyDb}: added={Added}, skippedAbsent={Skipped}, hasMore={HasMore}, lastDocEntry={LastDocEntry}",
+            CompanyDb,
+            added,
+            skippedAbsent,
+            hasMore,
+            lastDocEntry);
+
+        return new PurchaseOrderSyncResult(
+            CompanyDb,
+            UpsertedCount: upserted,
+            PageCount: 0,
+            SyncedAtUtc: syncedAt,
+            Message: doneMessage,
+            Mode: "gaps",
+            AddedCount: added,
+            UpdatedCount: updated,
+            HasMore: hasMore,
+            LastDocEntry: lastDocEntry);
+    }
+
+    /// <summary>
+    /// Yields exclusive integer holes between consecutive sorted DocEntries, greater than
+    /// <paramref name="afterExclusive"/>.
+    /// </summary>
+    public static IEnumerable<int> EnumerateIntegerGaps(IReadOnlyList<int> sortedDocEntries, int afterExclusive)
+    {
+        for (var i = 0; i < sortedDocEntries.Count - 1; i++)
+        {
+            var from = sortedDocEntries[i];
+            var to = sortedDocEntries[i + 1];
+            if (to - from <= 1)
+                continue;
+
+            var start = Math.Max(from + 1, afterExclusive + 1);
+            for (var missing = start; missing < to; missing++)
+                yield return missing;
+        }
+    }
+
+    private async Task<SapPurchaseOrdersResponse?> TryGetPurchaseOrderDetailAsync(
+        int docEntry,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await requestHandler.GetOrThrowAsync<SapPurchaseOrdersResponse>(
+                Constants.SapApiUrls.UpdateSapPurchaseOrders(docEntry),
+                cancellationToken);
+        }
+        catch (ApiErrorException ex)
+        {
+            // Sequence holes are often numbers that never existed as POs in SAP.
+            Log.Debug(
+                ex,
+                "No SAP purchase order for DocEntry {DocEntry} while filling local sequence gaps",
+                docEntry);
+            return null;
+        }
+    }
+
     private async Task<PurchaseOrderSyncResult> SyncFromSapInternalAsync(
         bool newOnly,
         int? afterDocEntry,
@@ -378,7 +533,7 @@ public class PurchaseOrderLocalStore(
         state.HangfireJobId = hangfireJobId;
         state.StartedAtUtc = DateTime.UtcNow;
         state.LastDocEntry = null;
-                state.LastSyncMessage = "Sync job queued (starting after latest local DocEntry).";
+                state.LastSyncMessage = "Sync job queued (fill DocEntry gaps, then sync newer than local max).";
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }

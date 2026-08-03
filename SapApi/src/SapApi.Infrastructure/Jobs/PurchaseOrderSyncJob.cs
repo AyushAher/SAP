@@ -83,23 +83,57 @@ public class PurchaseOrderSyncJob(
 
     private async Task RunFullSyncBatchesAsync(CancellationToken cancellationToken)
     {
-        // Start after the highest DocEntry already stored locally (same as incremental "sync new").
-        int? cursor = null;
         var batch = 0;
         var totalAdded = 0;
         var totalUpdated = 0;
         int? lastDocEntry = null;
 
+        // Phase 1: restore integer holes between consecutive local DocEntries from SAP.
+        int? gapCursor = null;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             batch++;
-
-            // Re-check expiry before each batch; SapLoginAsync renews when cached credentials exist.
             await sapLogin.SapLoginAsync(cancellationToken);
 
-            // SyncNew: first batch uses max local DocEntry when cursor is null; later batches resume.
-            var result = await localStore.SyncNewFromSapAsync(cursor, cancellationToken);
+            var gapResult = await localStore.SyncMissingGapsFromSapAsync(gapCursor, cancellationToken);
+            totalAdded += gapResult.AddedCount;
+            totalUpdated += gapResult.UpdatedCount;
+            lastDocEntry = gapResult.LastDocEntry ?? lastDocEntry;
+
+            await localStore.UpdateFullSyncProgressAsync(
+                gapResult,
+                totalAdded,
+                totalUpdated,
+                batch,
+                cancellationToken);
+
+            Log.Information(
+                "PO gap-fill batch {Batch} for {CompanyDb}: added={Added}, hasMore={HasMore}, lastDocEntry={LastDocEntry}",
+                batch,
+                gapResult.CompanyDb,
+                gapResult.AddedCount,
+                gapResult.HasMore,
+                gapResult.LastDocEntry);
+
+            if (!gapResult.HasMore)
+                break;
+
+            if (gapResult.LastDocEntry is null)
+                break;
+
+            gapCursor = gapResult.LastDocEntry;
+        }
+
+        // Phase 2: import DocEntries greater than the local max.
+        int? newCursor = null;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            batch++;
+            await sapLogin.SapLoginAsync(cancellationToken);
+
+            var result = await localStore.SyncNewFromSapAsync(newCursor, cancellationToken);
             totalAdded += result.AddedCount;
             totalUpdated += result.UpdatedCount;
             lastDocEntry = result.LastDocEntry ?? lastDocEntry;
@@ -112,7 +146,7 @@ public class PurchaseOrderSyncJob(
                 cancellationToken);
 
             Log.Information(
-                "PO sync batch {Batch} for {CompanyDb}: added={Added}, updated={Updated}, hasMore={HasMore}, lastDocEntry={LastDocEntry}",
+                "PO new-sync batch {Batch} for {CompanyDb}: added={Added}, updated={Updated}, hasMore={HasMore}, lastDocEntry={LastDocEntry}",
                 batch,
                 result.CompanyDb,
                 result.AddedCount,
@@ -131,7 +165,7 @@ public class PurchaseOrderSyncJob(
                 break;
             }
 
-            cursor = result.LastDocEntry;
+            newCursor = result.LastDocEntry;
         }
 
         await localStore.MarkFullSyncSucceededAsync(totalAdded, totalUpdated, lastDocEntry, cancellationToken);

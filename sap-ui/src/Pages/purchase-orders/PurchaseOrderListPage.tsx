@@ -277,7 +277,7 @@ export function PurchaseOrderListPage() {
     <div className="space-y-6">
       <PageHeader
         title="Purchase Orders"
-        description="Local database is the read source. Sync imports POs newer than the latest local DocEntry; refresh a single row anytime."
+        description="Local database is the read source. Sync fills missing DocEntry gaps, then imports POs newer than the local max."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button
