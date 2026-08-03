@@ -6,8 +6,10 @@ import {
   formatDocumentType,
   getApprovalStatusBadgeVariant,
   getApproverDisplayName,
+  getBusinessPartnerDisplayFromRequest,
   getCardCodeFromRequest,
   groupApprovalsByLevel,
+  isPaymentApprovalDocumentType,
   parseRequestBody,
   requiresPaymentFinalizationDetails,
 } from './approvalUtils'
@@ -15,7 +17,7 @@ import type { ApprovalRequest, UserApproval } from '@/Requests/approvals'
 
 function makeRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
   return {
-    id: '1',
+    id: 1,
     documentType: 'PurchaseOrder',
     overallStatus: 'Pending',
     requestBody: JSON.stringify({ CardCode: 'V10000' }),
@@ -37,6 +39,25 @@ describe('approvalUtils', () => {
     expect(getCardCodeFromRequest(makeRequest())).toBe('V10000')
     expect(getCardCodeFromRequest(makeRequest({ requestBody: '{"cardCode":"c2"}' }))).toBe('c2')
     expect(getCardCodeFromRequest(makeRequest({ requestBody: '{}' }))).toBe('')
+  })
+
+  it('getBusinessPartnerDisplayFromRequest prefers embedded CardName then lookup', () => {
+    expect(getBusinessPartnerDisplayFromRequest(makeRequest({
+      requestBody: JSON.stringify({ CardCode: 'V1', CardName: 'Vendor One' }),
+    }))).toBe('V1 - Vendor One')
+
+    expect(getBusinessPartnerDisplayFromRequest(
+      makeRequest({ requestBody: JSON.stringify({ CardCode: 'V2' }) }),
+      { V2: 'Looked Up Vendor' },
+    )).toBe('V2 - Looked Up Vendor')
+
+    expect(getBusinessPartnerDisplayFromRequest(makeRequest({ requestBody: '{}' }))).toBe('—')
+  })
+
+  it('isPaymentApprovalDocumentType covers Payments and down-payment requests', () => {
+    expect(isPaymentApprovalDocumentType('Payments')).toBe(true)
+    expect(isPaymentApprovalDocumentType('StagewisePayments_DP')).toBe(true)
+    expect(isPaymentApprovalDocumentType('PurchaseOrder')).toBe(false)
   })
 
   it('formatApprovalLabel inserts spaces before capitals', () => {

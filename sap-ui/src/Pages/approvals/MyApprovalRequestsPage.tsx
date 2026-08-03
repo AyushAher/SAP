@@ -5,8 +5,7 @@ import { PageHeader } from '@/Components/shared/PageHeader'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
 import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Badge, DataTable, type DataTableColumn } from '@/Components/ui'
-import { formatDocumentType, getApprovalStatusBadgeVariant, getCardCodeFromRequest } from '@/helpers/approvalUtils'
-import { formatCodeWithName } from '@/helpers/masterLookup'
+import { formatDocumentType, getApprovalStatusBadgeVariant, getBusinessPartnerDisplayFromRequest, getCardCodeFromRequest } from '@/helpers/approvalUtils'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { listMyApprovalRequests, type ApprovalRequest } from '@/Requests/approvals'
 
@@ -47,10 +46,7 @@ export function MyApprovalRequestsPage() {
     {
       key: 'cardCode',
       header: 'Business Partner',
-      accessor: (r) => {
-        const code = getCardCodeFromRequest(r)
-        return formatCodeWithName(code, lookupMaps.businessPartners[code])
-      },
+      accessor: (r) => getBusinessPartnerDisplayFromRequest(r, lookupMaps.businessPartners),
     },
     {
       key: 'overallStatus',

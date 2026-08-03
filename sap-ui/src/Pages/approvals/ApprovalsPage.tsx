@@ -5,8 +5,7 @@ import { PageHeader } from '@/Components/shared/PageHeader'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
 import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Badge, Button, DataTable, Modal, Textarea, type DataTableColumn } from '@/Components/ui'
-import { formatDocumentType, getApprovalStatusBadgeVariant, getCardCodeFromRequest } from '@/helpers/approvalUtils'
-import { formatCodeWithName } from '@/helpers/masterLookup'
+import { formatDocumentType, getApprovalStatusBadgeVariant, getBusinessPartnerDisplayFromRequest, getCardCodeFromRequest, isPaymentApprovalDocumentType } from '@/helpers/approvalUtils'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { bulkApprove, bulkReject, listPendingApprovals, type ApprovalRequest, type BulkActionResultItem } from '@/Requests/approvals'
 import { getBatchByApprovalRequestId } from '@/Requests/stageWisePaymentBatches'
@@ -59,7 +58,7 @@ export function ApprovalsPage() {
   const clearSelection = () => setSelected([])
 
   const handleViewRequest = async (row: ApprovalRequest) => {
-    if (row.documentType === 'Payments') {
+    if (isPaymentApprovalDocumentType(row.documentType)) {
       const batch = await getBatchByApprovalRequestId(row.id)
       if (batch) {
         navigate(`/purchase-orders/${batch.poDocEntry}/payments/batch/approve/${row.id}`)
@@ -131,10 +130,7 @@ export function ApprovalsPage() {
       key: 'cardCode',
       header: 'Business Partner',
       filterable: true,
-      accessor: (r) => {
-        const code = getCardCodeFromRequest(r)
-        return formatCodeWithName(code, lookupMaps.businessPartners[code])
-      },
+      accessor: (r) => getBusinessPartnerDisplayFromRequest(r, lookupMaps.businessPartners),
     },
     {
       key: 'overallStatus',

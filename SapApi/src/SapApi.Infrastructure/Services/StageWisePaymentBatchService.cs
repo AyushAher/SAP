@@ -20,6 +20,7 @@ public class StageWisePaymentBatchService(
     IUnitOfWork unitOfWork,
     StageWisePaymentPageService pageService,
     StageWisePaymentService stageWisePaymentService,
+    SapPurchaseOrderService purchaseOrderService,
     SapVendorPaymentService vendorPaymentService,
     ApprovalService approvalService,
     PurchaseOrderLinkResolver purchaseOrderLinks,
@@ -310,8 +311,13 @@ public class StageWisePaymentBatchService(
             }
 
             var downPaymentLines = downPaymentSnapshots.Select(s => s.Line).ToList();
+            var poWithLines = await purchaseOrderService.GetPurchaseOrderForPaymentOperations(
+                po.DocEntry?.ToString() ?? request.PoDocEntry.ToString(), cancellationToken);
+            if (poWithLines?.DocumentLines is not { Count: > 0 })
+                return (false, "Purchase order lines are not available locally. Sync this purchase order from SAP, then retry.", null);
+
             var (success, message, payment) = await stageWisePaymentService.CreateBatchDownPaymentAsync(
-                po,
+                poWithLines,
                 downPaymentLines,
                 pageData.PaymentTerms,
                 pageData.TotalBasic,
@@ -700,9 +706,34 @@ public class StageWisePaymentBatchService(
         int approvalRequestId,
         CancellationToken cancellationToken = default)
     {
+        var approvalId = approvalRequestId.ToString();
         var batch = await db.StageWisePaymentBatches
             .AsNoTracking()
-            .FirstOrDefaultAsync(b => b.CompanyDb == CompanyDb && b.ApprovalRequestId == approvalRequestId.ToString(), cancellationToken);
+            .FirstOrDefaultAsync(b => b.CompanyDb == CompanyDb && b.ApprovalRequestId == approvalId, cancellationToken);
+
+        if (batch is null)
+        {
+            // Down-payment / multi-doc batches may store approval ids on the linked payment rows.
+            var linkedPayment = await db.StageWisePayments.AsNoTracking()
+                .Where(x => x.CompanyDb == CompanyDb && x.ApprovalRequestId != null
+                    && (x.ApprovalRequestId == approvalId
+                        || x.ApprovalRequestId.StartsWith(approvalId + ",")
+                        || x.ApprovalRequestId.EndsWith("," + approvalId)
+                        || x.ApprovalRequestId.Contains("," + approvalId + ",")))
+                .Select(x => new { x.Id })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (linkedPayment is not null)
+            {
+                batch = await db.StageWisePaymentBatches
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(b => b.CompanyDb == CompanyDb
+                        && (b.StageWisePaymentId == linkedPayment.Id
+                            || b.DownPaymentStageWisePaymentId == linkedPayment.Id),
+                        cancellationToken);
+            }
+        }
+
         if (batch is null)
             return null;
 
@@ -1394,8 +1425,21 @@ public class StageWisePaymentBatchService(
             }
 
             var downPaymentLines = downPaymentSnapshots.Select(s => s.Line).ToList();
+            var poWithLines = await purchaseOrderService.GetPurchaseOrderForPaymentOperations(
+                po.DocEntry?.ToString() ?? request.PoDocEntry.ToString(), cancellationToken);
+            if (poWithLines?.DocumentLines is not { Count: > 0 })
+            {
+                return (
+                    false,
+                    "Purchase order lines are not available locally. Sync this purchase order from SAP, then retry.",
+                    null,
+                    null,
+                    null,
+                    batchStatus);
+            }
+
             var (success, message, payment) = await stageWisePaymentService.CreateBatchDownPaymentAsync(
-                po,
+                poWithLines,
                 downPaymentLines,
                 pageData.PaymentTerms,
                 pageData.TotalBasic,

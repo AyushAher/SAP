@@ -1,5 +1,6 @@
 import type { BadgeProps } from '@/Components/ui'
 import type { ApprovalRequest, UserApproval } from '@/Requests/approvals'
+import { formatCodeWithName } from '@/helpers/masterLookup'
 
 export function parseRequestBody(requestBody?: string): Record<string, unknown> | null {
   if (!requestBody) return null
@@ -13,7 +14,23 @@ export function parseRequestBody(requestBody?: string): Record<string, unknown> 
 export function getCardCodeFromRequest(request: ApprovalRequest): string {
   const body = parseRequestBody(request.requestBody)
   const cardCode = body?.CardCode ?? body?.cardCode
-  return typeof cardCode === 'string' ? cardCode : ''
+  return typeof cardCode === 'string' ? cardCode : typeof cardCode === 'number' ? String(cardCode) : ''
+}
+
+/** Prefer CardName embedded in the request body (e.g. PO approvals), then fall back to a master lookup. */
+export function getBusinessPartnerDisplayFromRequest(
+  request: ApprovalRequest,
+  nameLookup?: Record<string, string | undefined>,
+): string {
+  const body = parseRequestBody(request.requestBody)
+  const code = getCardCodeFromRequest(request)
+  const nameFromBody = body?.CardName ?? body?.cardName
+  const embeddedName = typeof nameFromBody === 'string' ? nameFromBody.trim() : ''
+  return formatCodeWithName(code, embeddedName || nameLookup?.[code])
+}
+
+export function isPaymentApprovalDocumentType(documentType?: string): boolean {
+  return documentType === 'Payments' || documentType === 'StagewisePayments_DP'
 }
 
 export function formatApprovalLabel(key: string): string {

@@ -55,30 +55,32 @@ namespace SapApi.Infrastructure.Services.Sap
             return fromSap;
         }
 
-        public Task<SapPurchaseOrdersResponse?> GetPurchaseOrderForPaymentPage(string id, CancellationToken cancellationToken = default) =>
-            GetPurchaseOrderFromDbOrSapAsync(id, includeLines: false, cancellationToken);
-
-        public Task<SapPurchaseOrdersResponse?> GetPurchaseOrderForPaymentOperations(string id, CancellationToken cancellationToken = default) =>
-            GetPurchaseOrderFromDbOrSapAsync(id, includeLines: true, cancellationToken);
-
-        private async Task<SapPurchaseOrdersResponse?> GetPurchaseOrderFromDbOrSapAsync(
+        /// <summary>
+        /// Payment screen header/summary data — local Postgres only (no SAP fallback).
+        /// Sync the PO from the Purchase Order list first if it is missing locally.
+        /// </summary>
+        public async Task<SapPurchaseOrdersResponse?> GetPurchaseOrderForPaymentPage(
             string id,
-            bool includeLines,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken = default)
         {
             if (!int.TryParse(id, out var docEntry))
                 return null;
 
-            var fromDb = await localStore.GetFromDbAsync(docEntry, includeLines, cancellationToken);
-            if (fromDb is not null)
-                return fromDb;
+            return await localStore.GetFromDbAsync(docEntry, includeLines: false, cancellationToken);
+        }
 
-            var fromSap = await requestHandler.GetAsync<SapPurchaseOrdersResponse>(
-                Constants.SapApiUrls.GetAllSapPurchaseOrders + $"({id})",
-                cancellationToken: cancellationToken);
-            if (fromSap?.DocEntry is not null)
-                await localStore.UpsertFromSapAsync(fromSap, cancellationToken);
-            return fromSap;
+        /// <summary>
+        /// Payment create/update operations — local Postgres only, including document lines
+        /// required to post AP Down Payment Requests against the PO.
+        /// </summary>
+        public async Task<SapPurchaseOrdersResponse?> GetPurchaseOrderForPaymentOperations(
+            string id,
+            CancellationToken cancellationToken = default)
+        {
+            if (!int.TryParse(id, out var docEntry))
+                return null;
+
+            return await localStore.GetFromDbAsync(docEntry, includeLines: true, cancellationToken);
         }
 
         public Task<SapPurchaseOrdersResponse?> CreateGrpo(SapPurchaseOrdersResponse data)

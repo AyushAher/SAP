@@ -1,4 +1,4 @@
-﻿using SapApi.Domain.Entities;
+using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
@@ -712,45 +712,68 @@ public class StageWisePaymentService(
         bool hadTdsDeducted,
         string? paymentStageId = null)
     {
-        var documentLines = purchaseOrder.DocumentLines ?? [];
-
-        foreach (var line in documentLines)
+        // ODPO DocTotal must match line components. Send base-document line refs only (no PO
+        // Quantity/UnitPrice/LineTotal) and let SAP allocate DownPayment across those bases.
+        // Setting DocTotal explicitly while lines still carry full PO amounts triggers
+        // "difference between the document total and its components [ODPO.DocTotal]".
+        var sourceLines = purchaseOrder.DocumentLines ?? [];
+        if (sourceLines.Count == 0)
         {
-            line.WTLiable = isGst ? Constants.SapBoolean.SapFalse : Constants.SapBoolean.SapTrue;
-            line.TaxLiable = Constants.SapBoolean.SapFalse;
-            line.BaseEntry = purchaseOrder.DocEntry;
-            line.BaseType = 22;
-            line.BaseLine = line.LineNum;
+            return (new SapBaseResponse
+            {
+                Error = new SapError
+                {
+                    Message = new SapMessage
+                    {
+                        Value = "Purchase order lines are not available locally. Sync this purchase order from SAP, then retry.",
+                    },
+                },
+            }, 0);
         }
 
+        var documentLines = sourceLines.Select(line => new SapInventoryTransferItemsRequests
+        {
+            ItemCode = line.ItemCode,
+            BaseType = 22,
+            BaseEntry = purchaseOrder.DocEntry,
+            BaseLine = line.LineNum,
+            WTLiable = isGst ? Constants.SapBoolean.SapFalse : Constants.SapBoolean.SapTrue,
+            TaxLiable = Constants.SapBoolean.SapFalse,
+            WarehouseCode = line.WarehouseCode,
+            ProjectCode = line.ProjectCode ?? purchaseOrder.Project,
+        }).ToList();
+
+        var roundedAmount = Math.Round(amount, 2);
         var req = new SapPurchaseDownPaymentRequest
         {
             DocumentLines = documentLines,
-            CardCode = purchaseOrder?.CardCode,
-            DownPayment = amount,
-            DocType = purchaseOrder?.DocType,
-            DocTotal = amount,
-            BPLId = purchaseOrder?.BPLId ?? 1,
-            Comments = $"{desc} against PO {purchaseOrder?.DocNum}",
+            CardCode = purchaseOrder.CardCode,
+            DownPayment = roundedAmount,
+            DocType = purchaseOrder.DocType,
+            // Omit DocTotal — SAP derives it from DownPayment + line bases / WTax.
+            DocTotal = null,
+            BPLId = purchaseOrder.BPLId ?? 1,
+            Comments = $"{desc} against PO {purchaseOrder.DocNum}",
             PaymentStageId = paymentStageId,
+            WithholdingTaxDataCollection = null,
         };
 
-        if (!isGst)
+        if (!isGst && !string.IsNullOrWhiteSpace(wtCode))
         {
             req.WithholdingTaxDataCollection =
             [
                 new SapWithholdingTaxDataCollectionResponse
                 {
-        //            TaxableAmount = amount,
-                    WtCode = wtCode
-                }
+                    WtCode = wtCode,
+                },
             ];
         }
 
         SapPurchaseDownPaymentResponse? sapResponse;
         try
         {
-            sapResponse = await sapPurchaseDownPaymentService.SaveDownPayment(req, supportingData: purchaseOrder?.DocEntry.ToString());
+            sapResponse = await sapPurchaseDownPaymentService.SaveDownPayment(
+                req, supportingData: purchaseOrder.DocEntry?.ToString());
         }
         catch (ApiErrorException ex)
         {

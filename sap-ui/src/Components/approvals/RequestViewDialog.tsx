@@ -16,6 +16,7 @@ import {
   canActOnRequest,
   formatDocumentType,
   getApprovalStatusBadgeVariant,
+  isPaymentApprovalDocumentType,
   parseRequestBody,
   requiresPaymentFinalizationDetails,
 } from '@/helpers/approvalUtils'
@@ -64,7 +65,7 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
       try {
         const fresh = await getApprovalRequest(request.id)
         setDetail(fresh)
-        if (fresh.documentType === 'Payments') {
+        if (isPaymentApprovalDocumentType(fresh.documentType)) {
           const ctx = await getApprovalPaymentContext(request.id)
           setPaymentContext(ctx)
           setUtrNo(ctx.utrNo ?? '')
@@ -179,7 +180,7 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
 
             <div>
               <h3 className="mb-3 text-sm font-semibold text-slate-700">Request Details</h3>
-              {detail.documentType === 'Payments' && paymentContext ? (
+              {isPaymentApprovalDocumentType(detail.documentType) && paymentContext ? (
                 <div className="space-y-4 rounded-xl bg-slate-50 p-4">
                   <Button size="sm" variant="outline" onClick={() => setShowSummary(true)}>View Payment Summary</Button>
                   <div className="grid gap-4 lg:grid-cols-2">
@@ -187,13 +188,13 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
                       <h4 className="mb-3 font-semibold text-slate-800">Vendor Details</h4>
                       <InfoRow label="Vendor Name" value={paymentContext.vendorDisplay} />
                       <InfoRow label="PO Details" value={paymentContext.poDetails} />
-                      <InfoRow label="Project" value={paymentContext.projectName} />
+                      <InfoRow label="Project Name" value={paymentContext.projectName} />
                     </div>
                     <div className="rounded-xl border bg-white p-4">
                       <h4 className="mb-3 font-semibold text-slate-800">Transfer Details</h4>
                       <InfoRow label="Transfer Amount" value={paymentContext.transferAmount != null ? `₹ ${paymentContext.transferAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : undefined} />
                       <InfoRow label="Bank" value={paymentContext.bankAccount} />
-                      <InfoRow label="Branch" value={paymentContext.branch} />
+                      <InfoRow label="Branch Name" value={paymentContext.branch} />
                     </div>
                   </div>
                 </div>

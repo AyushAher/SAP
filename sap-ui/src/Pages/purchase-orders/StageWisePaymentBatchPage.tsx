@@ -14,9 +14,11 @@ import {
   Textarea,
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { formatCodeWithName } from '@/helpers/masterLookup'
 import { isAdminUser } from '@/helpers/roles'
 import { useAppSelector } from '@/store/hooks'
 import type { SelectOption } from '@/types'
+import { getBranchesApi } from '@/Requests/auth'
 import {
   approveRequest,
   rejectRequest,
@@ -149,6 +151,7 @@ export function StageWisePaymentBatchPage() {
   const poDocEntry = Number(id)
   const mode = resolveMode({ batchId, approvalRequestId, stageWisePaymentId })
   const canCancelPayment = isAdminUser(useAppSelector((state) => state.auth.user))
+  const [branchMap, setBranchMap] = useState<Record<number, string>>({})
 
   const [pageData, setPageData] = useState<StageWisePaymentPageData | null>(null)
   const [batch, setBatch] = useState<StageWisePaymentBatch | null>(null)
@@ -346,6 +349,18 @@ export function StageWisePaymentBatchPage() {
       setLoading(false)
     }
   }, [poDocEntry, mode, batchId, approvalRequestId, stageWisePaymentId, applyBatchAdditionalDetails])
+
+  useEffect(() => {
+    void getBranchesApi()
+      .then((branches) => {
+        const map: Record<number, string> = {}
+        for (const branch of branches ?? []) {
+          map[branch.id] = branch.name
+        }
+        setBranchMap(map)
+      })
+      .catch(() => setBranchMap({}))
+  }, [])
 
   useEffect(() => {
     if (readOnly || !sharedBank || account) return
@@ -704,7 +719,7 @@ export function StageWisePaymentBatchPage() {
     <div className="space-y-6">
       <PageHeader
         title={pageTitle}
-        description={po ? `${po.CardName ?? ''}` : ''}
+        description={po ? formatCodeWithName(po.CardCode, po.CardName) : ''}
         actionLabel="Back to Payments"
         actionTo={`/purchase-orders/${poDocEntry}/payments`}
       />
@@ -772,8 +787,38 @@ export function StageWisePaymentBatchPage() {
       {po && (
         <Card>
           <CardContent className="pt-6">
-            <div className="grid gap-4 text-sm md:grid-cols-2 lg:grid-cols-4">
-              <div><span className="text-slate-500">Vendor:</span> <strong>{po.CardName}</strong></div>
+            <div className="grid gap-4 text-sm md:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <span className="text-slate-500">Vendor Name:</span>{' '}
+                <strong>{formatCodeWithName(po.CardCode, po.CardName) || '—'}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">PO Details:</span>{' '}
+                <strong>
+                  {po.DocNum ?? po.DocEntry ?? '—'}
+                  {po.DocDate
+                    ? ` - ${new Date(po.DocDate).toLocaleDateString(undefined, {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                      })}`
+                    : ''}
+                </strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Project Name:</span>{' '}
+                <strong>
+                  {formatCodeWithName(po.Project, pageData?.projectName) || '—'}
+                </strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Branch Name:</span>{' '}
+                <strong>
+                  {po.BPLId != null
+                    ? (branchMap[po.BPLId] ?? String(po.BPLId))
+                    : '—'}
+                </strong>
+              </div>
               <div><span className="text-slate-500">Gross Total:</span> <strong>{formatAmount(po.DocTotal)}</strong></div>
               <div><span className="text-slate-500">Balance Payment:</span> <strong>{formatAmount(pageData?.balancePayment)}</strong></div>
               <div><span className="text-slate-500">PO Status:</span> <strong>{po?.DocumentStatus === 'bost_Close' ? 'Closed' : 'Open'}</strong></div>
