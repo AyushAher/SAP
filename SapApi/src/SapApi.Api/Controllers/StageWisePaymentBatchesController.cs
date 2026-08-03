@@ -1,9 +1,11 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
+using Serilog;
 
 namespace SapApi.Api.Controllers;
 
@@ -46,6 +48,7 @@ public class StageWisePaymentBatchesController(
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateStageWisePaymentBatchRequest request, CancellationToken cancellationToken)
     {
+        Log.Information("API POST /stage-wise-payment-batches body: {Body}", JsonSerializer.Serialize(request));
         var (success, message, data) = await batchService.CreateBatchAsync(request, cancellationToken);
         return success
             ? Ok(ApiResponse<object>.Ok(data, message))
@@ -64,6 +67,7 @@ public class StageWisePaymentBatchesController(
     [HttpPost("{batchId:int}/submit")]
     public async Task<IActionResult> Submit(int batchId, [FromBody] CreateStageWisePaymentBatchRequest request, CancellationToken cancellationToken)
     {
+        Log.Information("API POST /stage-wise-payment-batches/{BatchId}/submit body: {Body}", batchId, JsonSerializer.Serialize(request));
         var (success, message, data) = await batchService.SubmitBatchAsync(batchId, request, cancellationToken);
         return success
             ? Ok(ApiResponse<object>.Ok(data, message))

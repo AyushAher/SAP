@@ -85,6 +85,18 @@ public class HttpRequestHandler(
 
     public async Task<TResponse?> PostAsync<TRequest, TResponse>(string url, TRequest? data, CancellationToken cancellationToken = default)
     {
+        if (data is not null)
+        {
+            Log.Information(
+                "SAP POST {Url} body: {Body}",
+                url,
+                JsonSerializer.Serialize(data));
+        }
+        else
+        {
+            Log.Information("SAP POST {Url} body: null", url);
+        }
+
         var request = await BuildSapRequestAsync(HttpMethod.Post, url, cancellationToken);
         if (data is not null)
             request.Content = CreateJsonContent(data);

@@ -724,11 +724,11 @@ public class StageWisePaymentService(
         bool hadTdsDeducted,
         string? paymentStageId = null)
     {
-        // ODPO DocTotal must match line components. Send base-document line refs only (no PO
-        // Quantity/UnitPrice/LineTotal) and let SAP allocate the down-payment amount across those bases.
+        // Draw PO lines with LineTotals that sum to the requested amount. Sending base refs alone
+        // makes SAP copy the full open PO line value, which triggers
+        // "Total Down Payment Requests exceed the Purchase Order value" (20026) even when
+        // DownPaymentAmount is only a portion of the PO.
         // Never send Service Layer "DownPayment" — that is DpmPrcnt (%). Use DownPaymentAmount (DpmAmnt).
-        // Setting DocTotal explicitly while lines still carry full PO amounts triggers
-        // "difference between the document total and its components [ODPO.DocTotal]".
         var sourceLines = purchaseOrder.DocumentLines ?? [];
         if (sourceLines.Count == 0)
         {
@@ -744,19 +744,38 @@ public class StageWisePaymentService(
             }, 0);
         }
 
-        var documentLines = sourceLines.Select(line => new SapInventoryTransferItemsRequests
-        {
-            ItemCode = line.ItemCode,
-            BaseType = 22,
-            BaseEntry = purchaseOrder.DocEntry,
-            BaseLine = line.LineNum,
-            WTLiable = isGst ? Constants.SapBoolean.SapFalse : Constants.SapBoolean.SapTrue,
-            TaxLiable = Constants.SapBoolean.SapFalse,
-            WarehouseCode = line.WarehouseCode,
-            ProjectCode = line.ProjectCode ?? purchaseOrder.Project,
-        }).ToList();
-
         var roundedAmount = Math.Round(amount, 2);
+        if (roundedAmount <= 0)
+        {
+            return (new SapBaseResponse
+            {
+                Error = new SapError
+                {
+                    Message = new SapMessage { Value = "Down payment amount must be greater than zero." },
+                },
+            }, 0);
+        }
+
+        var documentLines = BuildDownPaymentDocumentLines(
+            purchaseOrder,
+            sourceLines,
+            roundedAmount,
+            isGst);
+
+        if (documentLines.Count == 0)
+        {
+            return (new SapBaseResponse
+            {
+                Error = new SapError
+                {
+                    Message = new SapMessage
+                    {
+                        Value = "Purchase order has no line amounts to allocate for the down payment.",
+                    },
+                },
+            }, 0);
+        }
+
         var req = new SapPurchaseDownPaymentRequest
         {
             DocumentLines = documentLines,
@@ -765,8 +784,8 @@ public class StageWisePaymentService(
             DownPayment = null,
             DownPaymentAmount = roundedAmount,
             DocType = purchaseOrder.DocType,
-            // Omit DocTotal — SAP derives it from DownPaymentAmount + line bases / WTax.
-            DocTotal = null,
+            // Must match sum of LineTotals so SAP does not expand to full PO open value.
+            DocTotal = roundedAmount,
             BPLId = purchaseOrder.BPLId ?? 1,
             Comments = Constants.PaymentRemarks.BuildDownPayment(desc, purchaseOrder.DocNum?.ToString()),
             PaymentStageId = paymentStageId,
@@ -806,6 +825,67 @@ public class StageWisePaymentService(
         }
         return (sapResponse, tdsAmount);
     }
+
+    /// <summary>
+    /// Builds ODPO lines linked to the PO with LineTotals that sum exactly to <paramref name="amount"/>.
+    /// </summary>
+    public static List<SapInventoryTransferItemsRequests> BuildDownPaymentDocumentLines(
+        SapPurchaseOrdersResponse purchaseOrder,
+        IReadOnlyList<SapInventoryTransferItemsRequests> sourceLines,
+        double amount,
+        bool isGst)
+    {
+        var weighted = sourceLines
+            .Select(line => (Line: line, Weight: GetDownPaymentLineWeight(line)))
+            .Where(x => x.Weight > 0)
+            .ToList();
+
+        if (weighted.Count == 0)
+            return [];
+
+        var totalWeight = weighted.Sum(x => x.Weight);
+        var allocated = 0.0;
+        var result = new List<SapInventoryTransferItemsRequests>(weighted.Count);
+
+        for (var i = 0; i < weighted.Count; i++)
+        {
+            var (line, weight) = weighted[i];
+            var lineTotal = i == weighted.Count - 1
+                ? Math.Round(amount - allocated, 2)
+                : Math.Round(amount * weight / totalWeight, 2);
+            allocated += lineTotal;
+
+            if (lineTotal <= 0)
+                continue;
+
+            result.Add(new SapInventoryTransferItemsRequests
+            {
+                ItemCode = line.ItemCode,
+                BaseType = 22,
+                BaseEntry = purchaseOrder.DocEntry,
+                BaseLine = line.LineNum,
+                LineTotal = lineTotal,
+                WTLiable = isGst ? Constants.SapBoolean.SapFalse : Constants.SapBoolean.SapTrue,
+                TaxLiable = Constants.SapBoolean.SapFalse,
+                WarehouseCode = line.WarehouseCode,
+                ProjectCode = line.ProjectCode ?? purchaseOrder.Project,
+            });
+        }
+
+        return result;
+    }
+
+    private static double GetDownPaymentLineWeight(SapInventoryTransferItemsRequests line)
+    {
+        if (line.LineTotal is > 0)
+            return line.LineTotal.Value;
+        if (line.GrossTotal is > 0)
+            return line.GrossTotal.Value;
+
+        var afterDisc = line.RowTotalAfterDisc;
+        return afterDisc > 0 ? afterDisc : 0;
+    }
+
     public async Task MarkRejectedWhenRequestRejectedAsync(int approvalRequestId)
     {
         var approvalRequestIdStr = approvalRequestId.ToString();
