@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SapApi.Infrastructure.Persistence;
@@ -23,6 +24,22 @@ public sealed class UtcNullableDateTimeJsonConverter : JsonConverter<DateTime?>
     {
         if (reader.TokenType == JsonTokenType.Null)
             return null;
+
+        // Treat "" / whitespace as null so optional date fields from the UI do not 400 on model bind.
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var raw = reader.GetString();
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+
+            if (!DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+                && !DateTime.TryParse(raw, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+            {
+                throw new JsonException($"Unable to convert \"{raw}\" to DateTime.");
+            }
+
+            return DateTimeUtcConverter.ToUtc(parsed);
+        }
 
         var value = reader.GetDateTime();
         return DateTimeUtcConverter.ToUtc(value);

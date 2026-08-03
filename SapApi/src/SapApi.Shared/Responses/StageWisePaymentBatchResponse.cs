@@ -32,6 +32,15 @@ public class StageWisePaymentBatchResponse
     public List<StageWisePaymentBatchLineResponse> Lines { get; set; } = [];
 }
 
+public class BatchPaymentDateRequirementResponse
+{
+    /// <summary>True when the current user/amount would post to SAP immediately (no matching approval policy).</summary>
+    public bool PaymentDateRequired { get; set; }
+
+    /// <summary>True when every SAP document from this batch will enter approval.</summary>
+    public bool RequiresApproval { get; set; }
+}
+
 public class StageWisePaymentBatchLineResponse
 {
     public int Id { get; set; }

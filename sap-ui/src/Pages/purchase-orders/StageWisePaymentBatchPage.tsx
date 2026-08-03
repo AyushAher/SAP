@@ -36,6 +36,7 @@ import {
   deleteStageWisePaymentBatch,
   downloadStageWisePaymentBatchPdf,
   getStageWisePaymentBatch,
+  getBatchPaymentDateRequirement,
   type BatchPayload,
   type StageWisePaymentBatch,
 } from '@/Requests/stageWisePaymentBatches'
@@ -169,6 +170,9 @@ export function StageWisePaymentBatchPage() {
   const [referenceNo, setReferenceNo] = useState('')
   const [postingDate, setPostingDate] = useState(todayIsoDate)
   const [paymentDate, setPaymentDate] = useState('')
+  // Safer default: require payment date until we confirm an approval policy applies.
+  const [paymentDateRequired, setPaymentDateRequired] = useState(true)
+  const [requiresApproval, setRequiresApproval] = useState(false)
 
   const isApproval = mode === 'approval'
   const readOnly = isApproval || (batch ? Boolean(batch.readOnly) : mode !== 'create')
@@ -298,6 +302,52 @@ export function StageWisePaymentBatchPage() {
       : applySequentialBatchRowAdjustments(rows)),
     [rows, adjustmentContext],
   )
+
+  // Payment Date is mandatory for direct SAP posting; optional when approval applies (except final approver).
+  const paymentDateFieldRequired = needsPaymentDetails || (!isApproval && paymentDateRequired)
+
+  useEffect(() => {
+    if (readOnly || isApproval || !pageData?.purchaseOrder) return
+
+    const lines = displayRows
+      .filter((row) => row.paymentTermsTypes.length > 0 && Number(row.amount) > 0)
+      .map((row) => ({
+        apInvoiceDocEntry: row.apInvoiceDocEntry || undefined,
+        paymentTermsTypes: row.paymentTermsTypes.map(Number),
+        amount: Number(row.amount),
+      }))
+
+    if (lines.length === 0) {
+      setPaymentDateRequired(true)
+      setRequiresApproval(false)
+      return
+    }
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void getBatchPaymentDateRequirement({
+        poDocEntry,
+        docNumber: pageData.purchaseOrder?.DocNum,
+        lines,
+      })
+        .then((result) => {
+          if (cancelled) return
+          setPaymentDateRequired(result.paymentDateRequired)
+          setRequiresApproval(result.requiresApproval)
+        })
+        .catch(() => {
+          if (cancelled) return
+          // Keep the safer default (required) if the preview call fails.
+          setPaymentDateRequired(true)
+          setRequiresApproval(false)
+        })
+    }, 350)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [readOnly, isApproval, pageData, poDocEntry, displayRows])
 
   const loadInitial = useCallback(async () => {
     setLoading(true)
@@ -431,6 +481,15 @@ export function StageWisePaymentBatchPage() {
       return null
     }
 
+    if (paymentDateFieldRequired && !paymentDate) {
+      setError(
+        needsPaymentDetails
+          ? 'Payment Date is required to finalize this approval.'
+          : 'Payment Date is required when the payment posts directly (no approval).',
+      )
+      return null
+    }
+
     if (!adjustmentContext) {
       setError('Payment data is not loaded.')
       return null
@@ -470,7 +529,8 @@ export function StageWisePaymentBatchPage() {
       journalRemark: journalRemark || undefined,
       referenceNo: referenceNo || undefined,
       postingDate,
-      paymentDate,
+      // Omit empty string — ASP.NET DateTime? binding rejects "" and returns a bare 400.
+      paymentDate: paymentDate || undefined,
       lines: rows.map((row) => ({
         apInvoiceDocEntry: row.apInvoiceDocEntry || undefined,
         paymentTermsTypes: row.paymentTermsTypes.map(Number),
@@ -1030,10 +1090,14 @@ export function StageWisePaymentBatchPage() {
                   value={paymentDate}
                   onChange={(e) => setPaymentDate(e.target.value)}
                   disabled={sapPaymentDetailsReadOnly}
-                  required={needsPaymentDetails}
-                  hint={!needsPaymentDetails
-                    ? 'Optional when this payment request requires approval.'
-                    : undefined}
+                  required={paymentDateFieldRequired}
+                  hint={
+                    needsPaymentDetails
+                      ? 'Required to post this payment to SAP on final approval.'
+                      : requiresApproval
+                        ? 'Optional — approver will set this when finalizing.'
+                        : 'Required — this payment will post to SAP immediately (no approval).'
+                  }
                 />
               </div>
               {showAdditionalDetailsSave && (

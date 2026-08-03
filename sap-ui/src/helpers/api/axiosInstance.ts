@@ -97,8 +97,26 @@ axiosInstance.interceptors.request.use(
 
 export function getApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const body = error.response?.data as ApiResponse | undefined
+    const body = error.response?.data as
+      | (ApiResponse & {
+          title?: string
+          detail?: string
+          errors?: Record<string, string[] | string>
+        })
+      | undefined
+
     if (body?.message) return body.message
+    if (body?.detail) return body.detail
+    if (body?.errors && typeof body.errors === 'object') {
+      const parts = Object.entries(body.errors).flatMap(([field, value]) => {
+        const messages = Array.isArray(value) ? value : [value]
+        return messages
+          .filter(Boolean)
+          .map((msg) => (field ? `${field}: ${msg}` : String(msg)))
+      })
+      if (parts.length > 0) return parts.join(' ')
+    }
+    if (body?.title) return body.title
     if (body?.errorCode) return body.errorCode
     if (error.response?.status === 401) return 'Your session has expired. Please sign in again.'
     if (error.response?.status === 403) return 'You do not have permission to perform this action.'

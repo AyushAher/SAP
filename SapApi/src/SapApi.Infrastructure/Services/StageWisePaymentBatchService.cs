@@ -175,7 +175,7 @@ public class StageWisePaymentBatchService(
                 activeRecords,
                 cancellationToken))
         {
-            return (false, "Payment date is required when no approval policy applies.", null);
+            return (false, "Payment date is required when the payment posts directly (no approval).", null);
         }
 
         var batch = new StageWisePaymentBatch
@@ -1314,7 +1314,7 @@ public class StageWisePaymentBatchService(
         {
             return (
                 false,
-                "Payment date is required when no approval policy applies.",
+                "Payment date is required when the payment posts directly (no approval).",
                 null,
                 null,
                 null,
@@ -1515,6 +1515,133 @@ public class StageWisePaymentBatchService(
 
         downPaymentStageWisePaymentId = downPaymentEntity?.Id;
         return (true, string.Empty, linkedStagePayment, downPaymentStageWisePaymentId, batchApprovalId, batchStatus);
+    }
+
+    /// <summary>
+    /// Payment Date is mandatory when the batch would post to SAP immediately (no applicable approval).
+    /// It is optional when every resulting SAP document will enter approval (approver sets the date).
+    /// </summary>
+    public async Task<BatchPaymentDateRequirementResponse> GetPaymentDateRequirementAsync(
+        BatchPaymentDateRequirementRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Incomplete rows → require date (safer default for direct posting).
+        if (request.Lines.Count == 0
+            || request.Lines.Any(l => l.PaymentTermsTypes.Count == 0 || l.Amount <= 0))
+        {
+            return new BatchPaymentDateRequirementResponse
+            {
+                PaymentDateRequired = true,
+                RequiresApproval = false,
+            };
+        }
+
+        var pageData = await pageService.LoadPageDataAsync(request.PoDocEntry, cancellationToken);
+        if (pageData?.PurchaseOrder is null)
+        {
+            return new BatchPaymentDateRequirementResponse
+            {
+                PaymentDateRequired = true,
+                RequiresApproval = false,
+            };
+        }
+
+        var po = pageData.PurchaseOrder;
+        var activeRecords = await GetActiveRecordsForCalculationsAsync(
+            request.DocNumber ?? po.DocNum ?? request.PoDocEntry,
+            pageData.PaymentTerms,
+            cancellationToken);
+
+        var (compositionValid, _) = StageWisePaymentCalculations.ValidateBatchComposition(
+            po, pageData.PaymentTerms, request.Lines);
+        if (!compositionValid)
+        {
+            return new BatchPaymentDateRequirementResponse
+            {
+                PaymentDateRequired = true,
+                RequiresApproval = false,
+            };
+        }
+
+        var lineSnapshots = new List<BatchLineSnapshot>();
+        var totalTransfer = 0.0;
+        var tdsAppliedInBatch = new HashSet<string>(StringComparer.Ordinal);
+        var priorLines = new List<StageWisePaymentBatchLineRequest>();
+
+        foreach (var (line, index) in request.Lines.Select((line, index) => (line, index)))
+        {
+            var requiresAp = StageWisePaymentCalculations.BatchRowRequiresApInvoice(
+                po, pageData.PaymentTerms, line.PaymentTermsTypes);
+
+            if (requiresAp)
+            {
+                if (string.IsNullOrWhiteSpace(line.ApInvoiceDocEntry))
+                {
+                    return new BatchPaymentDateRequirementResponse
+                    {
+                        PaymentDateRequired = true,
+                        RequiresApproval = false,
+                    };
+                }
+
+                var apInvoice = pageData.ApInvoices.FirstOrDefault(x => x.DocEntry.ToString() == line.ApInvoiceDocEntry);
+                if (apInvoice is null)
+                {
+                    return new BatchPaymentDateRequirementResponse
+                    {
+                        PaymentDateRequired = true,
+                        RequiresApproval = false,
+                    };
+                }
+
+                var (balanceDue, _) = StageWisePaymentCalculations.ResolveBatchRowAmounts(
+                    po, pageData.PaymentTerms, activeRecords, line.PaymentTermsTypes, apInvoice,
+                    line.ApInvoiceDocEntry, pageData.TotalBasic);
+                var priorInBatch = request.Lines
+                    .Take(index)
+                    .Where(l => l.ApInvoiceDocEntry == line.ApInvoiceDocEntry)
+                    .Sum(l => l.Amount);
+                var adjustedBalanceDue = Math.Round(Math.Max(0, balanceDue - priorInBatch), 2);
+                var adjustedPayable = StageWisePaymentCalculations.ComputeSequentialStageRowPayable(
+                    line, priorLines, po, pageData.PaymentTerms, activeRecords, pageData.TotalBasic);
+
+                var hadTdsDeducted = activeRecords.Any(x =>
+                    x.ApInvoiceDocEntry == line.ApInvoiceDocEntry && (x.Tds ?? 0) != 0)
+                    || !tdsAppliedInBatch.Add(line.ApInvoiceDocEntry!);
+                var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
+                if (net > 0)
+                    totalTransfer += net;
+
+                lineSnapshots.Add(new BatchLineSnapshot(
+                    line, index, true, adjustedBalanceDue, adjustedPayable, line.ApInvoiceDocEntry));
+            }
+            else
+            {
+                var adjustedPayable = StageWisePaymentCalculations.ComputeSequentialStageRowPayable(
+                    line, priorLines, po, pageData.PaymentTerms, activeRecords, pageData.TotalBasic);
+                lineSnapshots.Add(new BatchLineSnapshot(line, index, false, 0, adjustedPayable, null));
+            }
+
+            priorLines.Add(line);
+        }
+
+        if (lineSnapshots.Count == 0)
+        {
+            return new BatchPaymentDateRequirementResponse
+            {
+                PaymentDateRequired = true,
+                RequiresApproval = false,
+            };
+        }
+
+        var canOmit = await CanOmitPaymentDateAsync(
+            po, pageData, lineSnapshots, totalTransfer, activeRecords, cancellationToken);
+
+        return new BatchPaymentDateRequirementResponse
+        {
+            PaymentDateRequired = !canOmit,
+            RequiresApproval = canOmit,
+        };
     }
 
     /// <summary>

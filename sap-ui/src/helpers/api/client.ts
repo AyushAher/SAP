@@ -27,6 +27,7 @@ function shouldInvalidateAfterPost(url: string): boolean {
   const path = (url.split('?')[0] ?? url).toLowerCase()
   if (path.includes('/auth/refresh')) return false
   if (path.includes('/calculate')) return false
+  if (path.includes('/payment-date-requirement')) return false
   if (path.includes('/lookup')) return false
   if (path.includes('/select/')) return false
   return true

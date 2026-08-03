@@ -51,6 +51,11 @@ export interface CalculateBatchLineResult {
   payable: number
 }
 
+export interface BatchPaymentDateRequirement {
+  paymentDateRequired: boolean
+  requiresApproval: boolean
+}
+
 export interface CreateBatchLinePayload {
   apInvoiceDocEntry?: string
   paymentTermsTypes: number[]
@@ -84,6 +89,14 @@ export async function calculateBatchLine(payload: {
   excludeBatchId?: number
 }): Promise<CalculateBatchLineResult> {
   return apiPost<CalculateBatchLineResult>('/stage-wise-payment-batches/calculate-line', payload)
+}
+
+export async function getBatchPaymentDateRequirement(payload: {
+  poDocEntry: number
+  docNumber?: number
+  lines: CreateBatchLinePayload[]
+}): Promise<BatchPaymentDateRequirement> {
+  return apiPost<BatchPaymentDateRequirement>('/stage-wise-payment-batches/payment-date-requirement', payload)
 }
 
 export async function createStageWisePaymentBatch(payload: BatchPayload): Promise<StageWisePaymentBatch> {

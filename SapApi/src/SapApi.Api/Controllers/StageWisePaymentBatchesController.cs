@@ -34,6 +34,15 @@ public class StageWisePaymentBatchesController(
             : Ok(ApiResponse<object>.Ok(result));
     }
 
+    [HttpPost("payment-date-requirement")]
+    public async Task<IActionResult> GetPaymentDateRequirement(
+        [FromBody] BatchPaymentDateRequirementRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await batchService.GetPaymentDateRequirementAsync(request, cancellationToken);
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateStageWisePaymentBatchRequest request, CancellationToken cancellationToken)
     {

@@ -32,6 +32,13 @@ public class CalculateBatchLineRequest
     public int? ExcludeBatchId { get; set; }
 }
 
+public class BatchPaymentDateRequirementRequest
+{
+    public int PoDocEntry { get; set; }
+    public int? DocNumber { get; set; }
+    public List<StageWisePaymentBatchLineRequest> Lines { get; set; } = [];
+}
+
 public class UpdateBatchAdditionalDetailsRequest
 {
     public string? ModeOfPayment { get; set; }
