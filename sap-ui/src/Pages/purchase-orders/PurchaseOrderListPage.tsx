@@ -238,7 +238,8 @@ export function PurchaseOrderListPage() {
       render: (row) => {
         const docEntry = row.DocEntry
         const rowBusy = docEntry != null && syncingDocEntry === docEntry
-        const actionsDisabled = docEntry == null || syncingAll || syncingDocEntry != null
+        // Do not gate on syncingAll — a stuck Hangfire Running status was disabling every row Sync.
+        const syncDisabled = docEntry == null || syncingDocEntry != null
 
         return (
           <RowActionsMenu
@@ -246,7 +247,7 @@ export function PurchaseOrderListPage() {
               {
                 key: 'sync',
                 label: 'Sync from SAP',
-                disabled: actionsDisabled,
+                disabled: syncDisabled,
                 icon: (
                   <RefreshCw
                     className={`${rowActionIconClassName}${rowBusy ? ' animate-spin' : ''}`}

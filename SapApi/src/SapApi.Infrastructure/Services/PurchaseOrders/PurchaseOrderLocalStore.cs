@@ -498,8 +498,16 @@ public class PurchaseOrderLocalStore(
         return $"Synced {upserted} purchase order(s) ({added} added, {updated} updated) across {pages} page(s).";
     }
 
+    /// <summary>
+    /// If a Hangfire worker dies mid-job, Status can stay Running forever and the PO list UI
+    /// treats full sync as in progress. Expire stale Running jobs so row sync / Sync All recover.
+    /// </summary>
+    private static readonly TimeSpan StaleFullSyncTimeout = TimeSpan.FromHours(2);
+
     public async Task<PurchaseOrderSyncResult?> GetSyncStateAsync(CancellationToken cancellationToken = default)
     {
+        await RecoverStaleFullSyncIfNeededAsync(cancellationToken);
+
         var state = await db.PurchaseOrderSyncStates.AsNoTracking()
             .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb, cancellationToken);
         if (state is null)
@@ -516,6 +524,38 @@ public class PurchaseOrderLocalStore(
             Status: string.IsNullOrWhiteSpace(state.Status) ? PurchaseOrderSyncState.StatusIdle : state.Status,
             HangfireJobId: state.HangfireJobId,
             StartedAtUtc: state.StartedAtUtc);
+    }
+
+    private async Task RecoverStaleFullSyncIfNeededAsync(CancellationToken cancellationToken)
+    {
+        var state = await db.PurchaseOrderSyncStates
+            .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb, cancellationToken);
+        if (state is null)
+            return;
+        if (!string.Equals(state.Status, PurchaseOrderSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var started = state.StartedAtUtc ?? state.LastSyncedAtUtc;
+        if (started is null || DateTime.UtcNow - started.Value < StaleFullSyncTimeout)
+            return;
+
+        state.Status = PurchaseOrderSyncState.StatusFailed;
+        state.LastSyncedAtUtc = DateTime.UtcNow;
+        state.LastSyncMessage =
+            $"Full sync marked failed: still Running after {StaleFullSyncTimeout.TotalHours:0}h "
+            + $"(started {started:u}). The worker likely stopped without finishing.";
+
+        if (db.Entry(state).State == EntityState.Detached)
+            db.PurchaseOrderSyncStates.Attach(state);
+        db.Entry(state).Property(x => x.Status).IsModified = true;
+        db.Entry(state).Property(x => x.LastSyncedAtUtc).IsModified = true;
+        db.Entry(state).Property(x => x.LastSyncMessage).IsModified = true;
+
+        await db.SaveChangesAsync(cancellationToken);
+        Log.Warning(
+            "Cleared stale PO full sync Running status for {CompanyDb} (started {StartedAtUtc})",
+            CompanyDb,
+            started);
     }
 
     /// <summary>

@@ -86,8 +86,19 @@ public class PurchaseOrderController(
         var companyDb = companyDbAccessor.GetCompanyDbName();
         var requestingUserId = httpContextAccessor.GetUserIdAsync()
             ?? hangfire.ServiceUserId;
-        var jobId = backgroundJobs.Enqueue<PurchaseOrderSyncJob>(
-            job => job.ExecuteAsync(companyDb, requestingUserId, null!, CancellationToken.None));
+        string jobId;
+        try
+        {
+            jobId = backgroundJobs.Enqueue<PurchaseOrderSyncJob>(
+                job => job.ExecuteAsync(companyDb, requestingUserId, null!, CancellationToken.None));
+        }
+        catch (Exception ex)
+        {
+            await localStore.MarkFullSyncFailedAsync(
+                $"Failed to enqueue full sync job: {ex.Message}",
+                cancellationToken);
+            throw;
+        }
 
         await localStore.SetFullSyncJobIdAsync(jobId, cancellationToken);
 

@@ -259,6 +259,27 @@ public class PurchaseOrderLocalStoreSyncTests
         _context.PurchaseOrders.Select(p => p.DocEntry).OrderBy(x => x).Should().Equal(10, 13, 14, 15);
     }
 
+    [Test]
+    public async Task GetSyncState_clears_stale_Running_status_so_row_sync_ui_can_recover()
+    {
+        _context.PurchaseOrderSyncStates.Add(new SapApi.Domain.Entities.PurchaseOrderSyncState
+        {
+            CompanyDb = CompanyDb,
+            Status = SapApi.Domain.Entities.PurchaseOrderSyncState.StatusRunning,
+            StartedAtUtc = DateTime.UtcNow.AddHours(-3),
+            LastSyncMessage = "Sync job queued…",
+            HangfireJobId = "dead-job",
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var status = await _sut.GetSyncStateAsync();
+
+        status.Should().NotBeNull();
+        status!.Status.Should().Be(SapApi.Domain.Entities.PurchaseOrderSyncState.StatusFailed);
+        status.Message.Should().Contain("still Running");
+    }
+
     private void SeedLocal(params int[] docEntries)
     {
         var now = DateTime.UtcNow;

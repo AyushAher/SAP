@@ -59,7 +59,23 @@ public class PurchaseOrderSyncJob(
             await EnsureSapSessionAsync(sessionUserId, companyDb, resolvedDb, cancellationToken);
             await RunFullSyncBatchesAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException ex)
+        {
+            Log.Warning(ex, "Purchase order full sync cancelled for {CompanyDb}", companyDb);
+            try
+            {
+                await localStore.MarkFullSyncFailedAsync(
+                    "Full sync cancelled before completion.",
+                    CancellationToken.None);
+            }
+            catch (Exception markEx)
+            {
+                Log.Error(markEx, "Failed to persist Failed status after cancel for {CompanyDb}", companyDb);
+            }
+
+            throw;
+        }
+        catch (Exception ex)
         {
             Log.Error(ex, "Purchase order full sync failed for {CompanyDb}", companyDb);
             try
