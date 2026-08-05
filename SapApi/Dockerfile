@@ -1,8 +1,17 @@
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
+# Retry apt: archive.ubuntu.com occasionally serves mid-sync indexes (unexpected size),
+# which otherwise fails the image build and blocks UAT/prod deploys.
+RUN set -eux; \
+    for i in 1 2 3 4 5; do \
+      apt-get update \
+        && apt-get install -y --no-install-recommends curl \
+        && break; \
+      echo "apt-get failed (attempt $i); retrying in 20s…"; \
+      sleep 20; \
+    done; \
+    command -v curl >/dev/null; \
+    rm -rf /var/lib/apt/lists/*
 EXPOSE 8080
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
