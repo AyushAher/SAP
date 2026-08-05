@@ -1,10 +1,38 @@
 import { describe, expect, it } from 'vitest'
-import { resolveLineUoms } from './purchaseOrderForm'
+import { resolveLineUoms, uomsFromItemMaster } from './purchaseOrderForm'
+
+describe('uomsFromItemMaster', () => {
+  it('maps PurchaseUnit to purchase UoM and InventoryUom to stock UoM', () => {
+    expect(uomsFromItemMaster({ PurchaseUnit: 'BOX', InventoryUom: 'EA' })).toEqual({
+      purchaseUom: 'BOX',
+      stockUom: 'EA',
+    })
+  })
+
+  it('falls back to InventoryUom for purchase when PurchaseUnit is blank', () => {
+    expect(uomsFromItemMaster({ PurchaseUnit: '', InventoryUom: 'EA' })).toEqual({
+      purchaseUom: 'EA',
+      stockUom: 'EA',
+    })
+  })
+
+  it('falls back to PurchaseUnit for stock when InventoryUom is blank', () => {
+    expect(uomsFromItemMaster({ PurchaseUnit: 'BOX', InventoryUom: undefined })).toEqual({
+      purchaseUom: 'BOX',
+      stockUom: 'BOX',
+    })
+  })
+})
 
 describe('resolveLineUoms', () => {
   it('defaults both UoMs from the item master when the line has none', () => {
     const result = resolveLineUoms({}, { purchaseUom: 'BOX', stockUom: 'EA' })
     expect(result).toEqual({ purchaseUom: 'BOX', stockUom: 'EA' })
+  })
+
+  it('treats blank purchase UoM as missing and uses the item master', () => {
+    const result = resolveLineUoms({ UoMCode: '   ' }, { purchaseUom: 'BOX', stockUom: 'EA' })
+    expect(result.purchaseUom).toBe('BOX')
   })
 
   it('keeps a user-entered purchase UoM', () => {

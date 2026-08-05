@@ -8,7 +8,7 @@ import {
 } from '@/Components/shared/RowActions'
 import { Button, Input, Modal, SearchableSelect } from '@/Components/ui'
 import { formatCodeWithName } from '@/helpers/masterLookup'
-import { applyStockPurchaseQty, calculateLineTotals, calcItemsPerUnit, calcUseBaseUnits, resolveLineUoms, withPurchaseQty, withStockQty } from '@/helpers/purchaseOrderForm'
+import { applyStockPurchaseQty, calculateLineTotals, calcItemsPerUnit, calcUseBaseUnits, resolveLineUoms, uomsFromItemMaster, withPurchaseQty, withStockQty } from '@/helpers/purchaseOrderForm'
 import { pickHsnFromChapterId } from '@/helpers/hsnResolve'
 import { isServicePoDocType, PO_TN } from '@/helpers/purchaseOrderTnValidation'
 import { toast } from '@/helpers/toast'
@@ -237,9 +237,18 @@ export function PurchaseOrderLinesEditor({
     if (itemCode) {
       void (async () => {
         const meta = await lookupItem(itemCode)
-        const stockUom = meta?.InventoryUom || meta?.PurchaseUnit
-        if (!stockUom) return
-        setDraft((prev) => (prev.ItemCode === itemCode ? { ...prev, StockUom: stockUom } : prev))
+        if (!meta) return
+        const { purchaseUom, stockUom } = uomsFromItemMaster(meta)
+        setDraft((prev) => {
+          if (prev.ItemCode !== itemCode) return prev
+          const nextPurchase = (prev.UoMCode ?? prev.UomName ?? '').trim()
+            ? prev
+            : { ...prev, UoMCode: purchaseUom || undefined, UomName: purchaseUom || undefined }
+          return {
+            ...nextPurchase,
+            StockUom: stockUom || nextPurchase.StockUom,
+          }
+        })
       })()
     }
     setItemLabel(formatCodeWithName(line.ItemCode, line.ItemDescription))
@@ -486,8 +495,7 @@ export function PurchaseOrderLinesEditor({
                   void (async () => {
                     const meta = (await lookupItem(code)) ?? (option?.meta as MasterItem | undefined)
                     if (!meta) return
-                    const purchaseUom = meta.PurchaseUnit || meta.InventoryUom || ''
-                    const stockUom = meta.InventoryUom || meta.PurchaseUnit || ''
+                    const { purchaseUom, stockUom } = uomsFromItemMaster(meta)
                     const itemsPerUnit = meta.PurchaseItemsPerUnit != null && meta.PurchaseItemsPerUnit > 0
                       ? meta.PurchaseItemsPerUnit
                       : 1
@@ -501,9 +509,10 @@ export function PurchaseOrderLinesEditor({
                         ? applyStockPurchaseQty({
                             ...prev,
                             ItemDescription: prev.ItemDescription || meta.ItemName || description,
-                            UoMCode: purchaseUom || prev.UoMCode,
-                            UomName: purchaseUom || prev.UomName,
-                            StockUom: stockUom || prev.StockUom,
+                            // Always apply master UoMs on item select (do not keep previous item's UoM).
+                            UoMCode: purchaseUom || undefined,
+                            UomName: purchaseUom || undefined,
+                            StockUom: stockUom || undefined,
                             Quantity: purchaseQty,
                             StockQty: stockQty,
                             UnitsOfMeasurment: itemsPerUnit,
@@ -557,7 +566,7 @@ export function PurchaseOrderLinesEditor({
                 label="Purchase UoM"
                 value={draft.UoMCode ?? draft.UomName ?? ''}
                 onChange={(e) => setDraft({ ...draft, UoMCode: e.target.value, UomName: e.target.value })}
-                hint="Defaults from item master Purchase UoM."
+                hint="Defaults from item master Purchase UoM (PurchaseUnit)."
               />
               <Input
                 label="Stock Qty *"
@@ -572,7 +581,8 @@ export function PurchaseOrderLinesEditor({
                 label="Stock UoM"
                 value={draft.StockUom ?? ''}
                 disabled
-                hint="From item master Inventory UoM (not editable)."
+                readOnly
+                hint="From item master Inventory UoM — not editable."
               />
               <Input
                 label="Items per Unit"

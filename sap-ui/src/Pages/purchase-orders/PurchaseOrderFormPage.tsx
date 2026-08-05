@@ -592,17 +592,6 @@ export function PurchaseOrderFormPage() {
                   value={String(form.NumAtCard ?? '')}
                   onChange={(e) => updateForm({ NumAtCard: e.target.value })}
                 />
-                <Input
-                  label={isTransporterVendor ? 'Open Order / TRN *' : 'Open Order / TRN'}
-                  value={String(form.U_TRN ?? '')}
-                  onChange={(e) => updateForm({ U_TRN: e.target.value })}
-                  hint={isTransporterVendor ? 'Required for transporter vendors (BP series 124).' : undefined}
-                />
-                <Input
-                  label="Stage"
-                  value={String(form.U_Stage ?? '')}
-                  onChange={(e) => updateForm({ U_Stage: e.target.value })}
-                />
                 <SearchableSelect
                   label="Warehouse"
                   value={String(form.U_Warehouse ?? '')}
@@ -636,44 +625,9 @@ export function PurchaseOrderFormPage() {
                     />
                   </>
                 ) : null}
-                <Input
-                  label="Owner (UDF)"
-                  value={String(form.U_Owner ?? '')}
-                  onChange={(e) => updateForm({ U_Owner: e.target.value })}
-                />
-                <Input
-                  label="Comments"
-                  value={String(form.Comments ?? '')}
-                  onChange={(e) => updateForm({ Comments: e.target.value })}
-                  className="md:col-span-2 xl:col-span-2"
-                />
-                <SearchableSelect
-                  label="Buyer *"
-                  value={form.SalesPersonCode != null ? String(form.SalesPersonCode) : ''}
-                  selectedLabel={buyerLabel}
-                  placeholder="Search buyer..."
-                  onSearch={searchBuyerOptions}
-                  onChange={(value, option) => {
-                    const code = value ? Number(value) : undefined
-                    setBuyerLabel(option?.label ?? value)
-                    updateForm({ SalesPersonCode: Number.isFinite(code) ? code : undefined })
-                  }}
-                />
-                <SearchableSelect
-                  label="Approver *"
-                  value={form.DocumentsOwner != null ? String(form.DocumentsOwner) : ''}
-                  selectedLabel={approverLabel}
-                  placeholder="Search approver..."
-                  onSearch={searchApproverOptions}
-                  onChange={(value, option) => {
-                    const empId = value ? Number(value) : undefined
-                    setApproverLabel(option?.label ?? value)
-                    updateForm({ DocumentsOwner: Number.isFinite(empId) ? empId : undefined })
-                  }}
-                />
                 {isTransporterVendor ? (
                   <p className="md:col-span-2 xl:col-span-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                    Transporter vendor (series 124): add item <strong>{PO_TN.transporterMandatoryItem}</strong> and fill Open Order / TRN.
+                    Transporter vendor (series 124): add item <strong>{PO_TN.transporterMandatoryItem}</strong>.
                   </p>
                 ) : null}
               </div>
@@ -870,15 +824,34 @@ export function PurchaseOrderFormPage() {
 
             <section className="grid gap-4 border-t border-slate-200 pt-4 md:grid-cols-2">
               <div className="space-y-4">
+                <SearchableSelect
+                  label="Buyer *"
+                  value={form.SalesPersonCode != null ? String(form.SalesPersonCode) : ''}
+                  selectedLabel={buyerLabel}
+                  placeholder="Search buyer..."
+                  onSearch={searchBuyerOptions}
+                  onChange={(value, option) => {
+                    const code = value ? Number(value) : undefined
+                    setBuyerLabel(option?.label ?? value)
+                    updateForm({ SalesPersonCode: Number.isFinite(code) ? code : undefined })
+                  }}
+                />
+                <SearchableSelect
+                  label="Approver *"
+                  value={form.DocumentsOwner != null ? String(form.DocumentsOwner) : ''}
+                  selectedLabel={approverLabel}
+                  placeholder="Search approver..."
+                  onSearch={searchApproverOptions}
+                  onChange={(value, option) => {
+                    const empId = value ? Number(value) : undefined
+                    setApproverLabel(option?.label ?? value)
+                    updateForm({ DocumentsOwner: Number.isFinite(empId) ? empId : undefined })
+                  }}
+                />
                 <Textarea
                   label="User Remarks"
                   value={String(form.Comments ?? '')}
                   onChange={(e) => updateForm({ Comments: e.target.value })}
-                />
-                <Input
-                  label="Owner"
-                  value={String(form.U_Owner ?? '')}
-                  onChange={(e) => updateForm({ U_Owner: e.target.value })}
                 />
               </div>
               <div className="space-y-3 rounded-lg bg-slate-50 p-4">

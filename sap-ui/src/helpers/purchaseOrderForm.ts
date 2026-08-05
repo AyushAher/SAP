@@ -156,19 +156,40 @@ export interface ItemMasterUoms {
   stockUom?: string
 }
 
+function firstNonEmpty(...values: Array<string | undefined | null>): string {
+  for (const value of values) {
+    if (value == null) continue
+    const trimmed = String(value).trim()
+    if (trimmed) return trimmed
+  }
+  return ''
+}
+
 /**
- * Purchase UoM defaults from the item master but stays user-editable.
- * Stock UoM is always taken from the item master because it is read-only in the UI.
+ * Resolve line UoMs for display/save.
+ * - Purchase UoM: defaults from item master PurchaseUnit (falls back to InventoryUOM); stays user-editable.
+ * - Stock UoM: always prefers item master InventoryUOM (read-only / disabled in the UI).
  */
 export function resolveLineUoms(
   line: PurchaseOrderLineItem,
   master?: ItemMasterUoms,
 ): { purchaseUom?: string; stockUom?: string } {
-  const purchaseUom = line.UoMCode ?? line.UomName ?? master?.purchaseUom ?? ''
-  const stockUom = master?.stockUom ?? line.StockUom ?? ''
+  const purchaseUom = firstNonEmpty(line.UoMCode, line.UomName, master?.purchaseUom)
+  const stockUom = firstNonEmpty(master?.stockUom, line.StockUom)
   return {
     purchaseUom: purchaseUom || undefined,
     stockUom: stockUom || undefined,
+  }
+}
+
+/** Defaults both UoMs from SAP item master fields (PurchaseUnit / InventoryUOM). */
+export function uomsFromItemMaster(meta?: {
+  PurchaseUnit?: string
+  InventoryUom?: string
+} | null): { purchaseUom: string; stockUom: string } {
+  return {
+    purchaseUom: firstNonEmpty(meta?.PurchaseUnit, meta?.InventoryUom),
+    stockUom: firstNonEmpty(meta?.InventoryUom, meta?.PurchaseUnit),
   }
 }
 
