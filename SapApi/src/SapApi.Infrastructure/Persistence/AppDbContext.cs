@@ -30,25 +30,41 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public override int SaveChanges()
     {
         NormalizeDateTimesToUtc(ChangeTracker);
+        ApplySoftDeletes(ChangeTracker);
         return base.SaveChanges();
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         NormalizeDateTimesToUtc(ChangeTracker);
+        ApplySoftDeletes(ChangeTracker);
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         NormalizeDateTimesToUtc(ChangeTracker);
+        ApplySoftDeletes(ChangeTracker);
         return base.SaveChangesAsync(cancellationToken);
     }
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         NormalizeDateTimesToUtc(ChangeTracker);
+        ApplySoftDeletes(ChangeTracker);
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private static void ApplySoftDeletes(ChangeTracker changeTracker)
+    {
+        foreach (var entry in changeTracker.Entries<ISoftDeletable>())
+        {
+            if (entry.State != EntityState.Deleted)
+                continue;
+
+            entry.State = EntityState.Modified;
+            entry.Entity.IsDeleted = true;
+        }
     }
 
     private static void NormalizeDateTimesToUtc(ChangeTracker changeTracker)
@@ -72,13 +88,29 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<ApplicationUser>()
-            .Property(x => x.FullName)
-            .HasMaxLength(150);
+        modelBuilder.Entity<ApplicationUser>(entity =>
+        {
+            entity.Property(x => x.FullName).HasMaxLength(150);
+            entity.ConfigureSoftDeleteProperty();
+            entity.HasIndex(u => u.NormalizedUserName)
+                .IsUnique()
+                .HasDatabaseName("UserNameIndex")
+                .HasFilter(SoftDeleteModelBuilderExtensions.ActiveRowFilter);
+        });
+
+        modelBuilder.Entity<ApplicationRole>(entity =>
+        {
+            entity.ConfigureSoftDeleteProperty();
+            entity.HasIndex(r => r.NormalizedName)
+                .IsUnique()
+                .HasDatabaseName("RoleNameIndex")
+                .HasFilter(SoftDeleteModelBuilderExtensions.ActiveRowFilter);
+        });
 
         modelBuilder.Entity<StageWisePayment>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(e => new { e.CompanyDb, e.DocNumber });
@@ -102,6 +134,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<StageWisePaymentBatch>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.Property(e => e.Account).HasConversion(EncryptedStringConverter.Instance);
@@ -119,6 +152,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<ApprovalRequest>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(p => new { p.CompanyDb, p.OverallStatus });
@@ -129,24 +163,36 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                 .WithMany(p => p.ApprovalRequests)
                 .HasForeignKey(e => e.PurchaseOrderId)
                 .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(e => e.Policy)
+                .WithMany()
+                .HasForeignKey(e => e.PolicyId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.RequesterUser)
+                .WithMany(u => u.ApprovalRequest)
+                .HasForeignKey(e => e.RequesterUserId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.HasMany(r => r.UserApprovals).WithOne(u => u.ApprovalRequest).HasForeignKey(u => u.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ApprovalLog>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.Property(e => e.Action).HasMaxLength(64).IsRequired();
             entity.HasIndex(e => new { e.CompanyDb, e.ApprovalRequestId });
+            entity.HasIndex(e => e.ActionByUserId);
             entity.Property(e => e.OldValue).HasConversion(EncryptedStringConverter.Instance);
             entity.Property(e => e.NewValue).HasConversion(EncryptedStringConverter.Instance);
             entity.HasOne(e => e.ApprovalRequest).WithMany().HasForeignKey(e => e.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.ActionByUser).WithMany().HasForeignKey(e => e.ActionByUserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<StageWisePaymentBatchLine>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.Bank).HasConversion(EncryptedStringConverter.Instance);
             entity.HasMany(e => e.PaymentTerms).WithOne(t => t.Line).HasForeignKey(t => t.LineId).OnDelete(DeleteBehavior.Cascade);
@@ -155,62 +201,73 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<StageWisePaymentBatchLinePaymentTerm>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
-            entity.HasIndex(e => new { e.LineId, e.PaymentTermsType }).IsUnique();
+            entity.HasIndex(e => new { e.LineId, e.PaymentTermsType }).IsUniqueAmongActiveRows();
         });
 
         modelBuilder.Entity<UserGroup>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.Property(e => e.Name).HasMaxLength(100).IsRequired();
             entity.Property(e => e.Description).HasMaxLength(500);
-            entity.HasIndex(e => new { e.CompanyDb, e.Name }).IsUnique();
+            entity.HasIndex(e => new { e.CompanyDb, e.Name }).IsUniqueAmongActiveRows();
             entity.HasMany(e => e.Members).WithOne(m => m.Group).HasForeignKey(m => m.UserGroupId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<UserGroupMember>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
-            entity.HasIndex(e => new { e.UserGroupId, e.UserId }).IsUnique();
+            entity.HasIndex(e => new { e.UserGroupId, e.UserId }).IsUniqueAmongActiveRows();
             // A user may belong to only one group at a time.
-            entity.HasIndex(e => e.UserId).IsUnique();
+            entity.HasIndex(e => e.UserId).IsUniqueAmongActiveRows();
             entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ApprovalPolicy>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(p => new { p.CompanyDb, p.DocumentType });
             entity.HasMany(x => x.Approvers).WithOne(a => a.Policy).HasForeignKey(a => a.ApprovalPolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(x => x.Rules).WithOne(a => a.Policy).HasForeignKey(a => a.ApprovalPolicyId).OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(x => x.RequesterUser).WithMany().HasForeignKey(x => x.RequesterUserId).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+            entity.HasOne(x => x.RequesterUser).WithMany(u => u.Policy).HasForeignKey(x => x.RequesterUserId).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
             entity.HasOne(x => x.RequesterGroup).WithMany().HasForeignKey(x => x.RequesterGroupId).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
         });
 
         modelBuilder.Entity<ApprovalPolicyApprover>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
-            entity.HasOne(x => x.ApproverUser).WithMany().HasForeignKey(x => x.ApproverUserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.ApproverUser).WithMany(u => u.PolicyApprover).HasForeignKey(x => x.ApproverUserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<UserApproval>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.HasIndex(p => p.UserId);
             entity.HasOne(u => u.User).WithMany().HasForeignKey(u => u.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 
-        modelBuilder.Entity<ApprovalPolicyRule>(entity => entity.Property(x => x.Id).ValueGeneratedOnAdd());
+        modelBuilder.Entity<ApprovalPolicyRule>(entity =>
+        {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.ConfigureSoftDeleteProperty();
+        });
 
         modelBuilder.Entity<IssueForProductionRequests>(entity =>
         {
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(x => x.CompanyDb);
@@ -218,6 +275,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 
         modelBuilder.Entity<ReceiptFromProductionRequests>(entity =>
         {
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(x => x.CompanyDb);
@@ -226,6 +284,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<CacheEntry>(entity =>
         {
             entity.HasKey(e => e.Key);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Key).HasMaxLength(512);
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.HasIndex(e => new { e.CompanyDb, e.ExpiresAtUtc });
@@ -234,6 +293,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<PurchaseOrder>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.Property(e => e.CardCode).HasMaxLength(50);
@@ -241,7 +301,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.Project).HasMaxLength(50);
             entity.Property(e => e.DocumentStatus).HasMaxLength(32);
             entity.Property(e => e.DocType).HasMaxLength(32);
-            entity.HasIndex(e => new { e.CompanyDb, e.DocEntry }).IsUnique();
+            entity.HasIndex(e => new { e.CompanyDb, e.DocEntry }).IsUniqueAmongActiveRows();
             entity.HasIndex(e => new { e.CompanyDb, e.DocNum });
             entity.HasIndex(e => new { e.CompanyDb, e.DocDate });
             entity.HasIndex(e => new { e.CompanyDb, e.CardCode });
@@ -254,22 +314,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<PurchaseOrderLine>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.ItemCode).HasMaxLength(50);
             entity.Property(e => e.WarehouseCode).HasMaxLength(20);
-            entity.HasIndex(e => new { e.PurchaseOrderId, e.LineNum }).IsUnique();
+            entity.HasIndex(e => new { e.PurchaseOrderId, e.LineNum }).IsUniqueAmongActiveRows();
         });
 
         modelBuilder.Entity<PurchaseOrderPaymentTerm>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
-            entity.HasIndex(e => new { e.PurchaseOrderId, e.Slot }).IsUnique();
+            entity.HasIndex(e => new { e.PurchaseOrderId, e.Slot }).IsUniqueAmongActiveRows();
         });
 
         modelBuilder.Entity<PurchaseOrderSyncState>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
             entity.Property(e => e.Status).HasMaxLength(32).IsRequired();
@@ -277,6 +340,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.LastSyncMessage).HasMaxLength(2000);
             entity.HasIndex(e => e.CompanyDb).IsUnique();
         });
+
+        modelBuilder.ApplySoftDeleteQueryFilters();
 
         // Npgsql rejects DateTime Kind=Unspecified for timestamptz. Convert at the model layer
         // so every write (including SaveChanges inside transactions) is UTC regardless of caller.

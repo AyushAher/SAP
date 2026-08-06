@@ -1,8 +1,9 @@
 namespace SapApi.Domain.Entities;
 
-public class StageWisePaymentBatch
+public class StageWisePaymentBatch : ISoftDeletable
 {
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
     public string CompanyDb { get; set; } = string.Empty;
     public int PoDocEntry { get; set; }
     public int? DocNumber { get; set; }
@@ -37,9 +38,10 @@ public enum StageWisePaymentBatchStatus
     Cancelled,
 }
 
-public class StageWisePaymentBatchLine
+public class StageWisePaymentBatchLine : ISoftDeletable
 {
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
     public int BatchId { get; set; }
     public string? ApInvoiceDocEntry { get; set; }
     public string? Bank { get; set; }
@@ -54,9 +56,10 @@ public class StageWisePaymentBatchLine
     public ICollection<StageWisePaymentBatchLinePaymentTerm> PaymentTerms { get; set; } = [];
 }
 
-public class StageWisePaymentBatchLinePaymentTerm
+public class StageWisePaymentBatchLinePaymentTerm : ISoftDeletable
 {
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
     public int LineId { get; set; }
     public int PaymentTermsType { get; set; }
     public string? PaymentTermDesc { get; set; }

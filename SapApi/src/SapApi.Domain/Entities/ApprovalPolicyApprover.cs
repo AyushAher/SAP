@@ -2,9 +2,10 @@ using System.Text.Json.Serialization;
 
 namespace SapApi.Domain.Entities
 {
-    public class ApprovalPolicyApprover
+    public class ApprovalPolicyApprover : ISoftDeletable
     {
         public int Id { get; set; }
+        public bool IsDeleted { get; set; }
 
         public int ApprovalPolicyId { get; set; }
 

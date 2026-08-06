@@ -2,9 +2,10 @@ using System.Text.Json.Serialization;
 
 namespace SapApi.Domain.Entities
 {
-    public class UserApproval
+    public class UserApproval : ISoftDeletable
     {
         public int Id { get; set; }
+        public bool IsDeleted { get; set; }
         public int UserId { get; set; }
         public int ApprovalRequestId { get; set; }
         public int Priority { get; set; }

@@ -4,9 +4,10 @@ namespace SapApi.Domain.Entities;
 /// Local mirror of a SAP Business One Purchase Order (OPOR) header.
 /// SAP remains the write authority; this table serves reads/reporting after sync.
 /// </summary>
-public class PurchaseOrder
+public class PurchaseOrder : ISoftDeletable
 {
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
     public string CompanyDb { get; set; } = string.Empty;
 
     public int DocEntry { get; set; }
@@ -75,9 +76,10 @@ public class PurchaseOrder
     public ICollection<ApprovalRequest> ApprovalRequests { get; set; } = [];
 }
 
-public class PurchaseOrderLine
+public class PurchaseOrderLine : ISoftDeletable
 {
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
     public int PurchaseOrderId { get; set; }
     public int LineNum { get; set; }
 
@@ -117,9 +119,10 @@ public class PurchaseOrderLine
 }
 
 /// <summary>Normalized payment-term UDF slot (U_B/G/D/S/T 1–11).</summary>
-public class PurchaseOrderPaymentTerm
+public class PurchaseOrderPaymentTerm : ISoftDeletable
 {
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
     public int PurchaseOrderId { get; set; }
     public int Slot { get; set; }
     public int? Basic { get; set; }
@@ -132,7 +135,7 @@ public class PurchaseOrderPaymentTerm
 }
 
 /// <summary>Per-company sync metadata for purchase orders (including Hangfire full-sync job).</summary>
-public class PurchaseOrderSyncState
+public class PurchaseOrderSyncState : ISoftDeletable
 {
     public const string StatusIdle = "Idle";
     public const string StatusRunning = "Running";
@@ -140,6 +143,7 @@ public class PurchaseOrderSyncState
     public const string StatusFailed = "Failed";
 
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
     public string CompanyDb { get; set; } = string.Empty;
     public DateTime? LastSyncedAtUtc { get; set; }
     public int? LastSyncedCount { get; set; }

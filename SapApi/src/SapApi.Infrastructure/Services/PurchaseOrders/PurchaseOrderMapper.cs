@@ -8,6 +8,7 @@ public static class PurchaseOrderMapper
 {
     public static void ApplyHeader(PurchaseOrder entity, SapPurchaseOrdersResponse sap, DateTime syncedAtUtc)
     {
+        entity.IsDeleted = false;
         entity.DocEntry = sap.DocEntry ?? entity.DocEntry;
         entity.DocNum = sap.DocNum;
         entity.DocType = sap.DocType;

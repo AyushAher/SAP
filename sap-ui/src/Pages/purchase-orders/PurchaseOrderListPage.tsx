@@ -239,7 +239,8 @@ export function PurchaseOrderListPage() {
         const docEntry = row.DocEntry
         const rowBusy = docEntry != null && syncingDocEntry === docEntry
         // Do not gate on syncingAll — a stuck Hangfire Running status was disabling every row Sync.
-        const syncDisabled = docEntry == null || syncingDocEntry != null
+        // Only disable the row currently syncing so other rows stay actionable.
+        const syncDisabled = docEntry == null || syncingDocEntry === docEntry
 
         return (
           <RowActionsMenu

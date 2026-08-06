@@ -1,8 +1,9 @@
 namespace SapApi.Domain.Entities
 {
-    public class ApprovalLog
+    public class ApprovalLog : ISoftDeletable
     {
         public int Id { get; set; }
+        public bool IsDeleted { get; set; }
         public string CompanyDb { get; set; } = string.Empty;
         public int ApprovalRequestId { get; set; }
 
@@ -16,5 +17,6 @@ namespace SapApi.Domain.Entities
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public ApprovalRequest? ApprovalRequest { get; set; }
+        public ApplicationUser? ActionByUser { get; set; }
     }
 }

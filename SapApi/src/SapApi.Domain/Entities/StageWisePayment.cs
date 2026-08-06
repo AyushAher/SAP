@@ -1,9 +1,10 @@
 using System.ComponentModel.DataAnnotations.Schema;
 namespace SapApi.Domain.Entities
 {
-    public class StageWisePayment
+    public class StageWisePayment : ISoftDeletable
     {
         public int Id { get; set; }
+        public bool IsDeleted { get; set; }
         public string CompanyDb { get; set; } = string.Empty;
         public int? PaymentTermsType { get; set; }
         public StageWisePaymentStages Stage { get; set; }

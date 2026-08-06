@@ -2,9 +2,10 @@ using SapApi.Shared.Enums;
 using System.ComponentModel.DataAnnotations.Schema;
 namespace SapApi.Domain.Entities
 {
-    public class ApprovalRequest
+    public class ApprovalRequest : ISoftDeletable
     {
         public int Id { get; set; }
+        public bool IsDeleted { get; set; }
 
         public string CompanyDb { get; set; } = string.Empty;
 

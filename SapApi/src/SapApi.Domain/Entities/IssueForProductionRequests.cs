@@ -1,8 +1,9 @@
 namespace SapApi.Domain.Entities
 {
-    public class IssueForProductionRequests
+    public class IssueForProductionRequests : ISoftDeletable
     {
         public int Id { get; set; }
+        public bool IsDeleted { get; set; }
         public string CompanyDb { get; set; } = string.Empty;
         public string RequestBody { get; set; } = string.Empty;
         public string CardCode { get; set; } = string.Empty;

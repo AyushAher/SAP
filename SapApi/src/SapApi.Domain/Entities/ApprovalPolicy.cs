@@ -1,9 +1,10 @@
 using SapApi.Domain.Entities;
 using SapApi.Shared.Enums;
 
-public class ApprovalPolicy
+public class ApprovalPolicy : ISoftDeletable
 {
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
 
     public string CompanyDb { get; set; } = string.Empty;
 

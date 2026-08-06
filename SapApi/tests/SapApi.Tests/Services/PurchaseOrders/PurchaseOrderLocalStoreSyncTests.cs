@@ -6,6 +6,7 @@ using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Shared;
 using SapApi.Shared.Exceptions;
+using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 
 namespace SapApi.Tests.Services.PurchaseOrders;
@@ -220,6 +221,35 @@ public class PurchaseOrderLocalStoreSyncTests
     }
 
     [Test]
+    public async Task SyncOne_replaces_lines_when_po_already_exists_locally()
+    {
+        SeedLocalWithLines(101, ("ITEM-A", 0), ("ITEM-B", 1));
+        SetupDetail(101, new SapPurchaseOrdersResponse
+        {
+            DocEntry = 101,
+            DocNum = 5101,
+            CardCode = "V001",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests { LineNum = 0, ItemCode = "ITEM-A2" },
+                new SapInventoryTransferItemsRequests { LineNum = 1, ItemCode = "ITEM-C" },
+            ],
+        });
+
+        var result = await _sut.SyncOneFromSapAsync(101);
+
+        result.UpdatedCount.Should().Be(1);
+        var lines = await _context.PurchaseOrderLines
+            .OrderBy(l => l.LineNum)
+            .Select(l => new { l.LineNum, l.ItemCode, l.IsDeleted })
+            .ToListAsync();
+        lines.Should().HaveCount(2);
+        lines[0].ItemCode.Should().Be("ITEM-A2");
+        lines[1].ItemCode.Should().Be("ITEM-C");
+        lines.Should().OnlyContain(l => !l.IsDeleted);
+    }
+
+    [Test]
     public void EnumerateIntegerGaps_yields_holes_after_cursor()
     {
         var gaps = PurchaseOrderLocalStore.EnumerateIntegerGaps([10, 12, 15], afterExclusive: 11).ToList();
@@ -297,5 +327,27 @@ public class PurchaseOrderLocalStoreSyncTests
         }
 
         _context.SaveChanges();
+    }
+
+    private void SeedLocalWithLines(int docEntry, params (string ItemCode, int LineNum)[] lines)
+    {
+        var now = DateTime.UtcNow;
+        var po = new SapApi.Domain.Entities.PurchaseOrder
+        {
+            CompanyDb = CompanyDb,
+            DocEntry = docEntry,
+            DocNum = 5000 + docEntry,
+            SyncedAtUtc = now,
+            CreatedOn = now,
+            LastModifiedOn = now,
+            Lines = lines.Select(l => new SapApi.Domain.Entities.PurchaseOrderLine
+            {
+                LineNum = l.LineNum,
+                ItemCode = l.ItemCode,
+            }).ToList(),
+        };
+        _context.PurchaseOrders.Add(po);
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
     }
 }

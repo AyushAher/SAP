@@ -3,9 +3,10 @@ using System.Text.Json.Serialization;
 
 namespace SapApi.Domain.Entities
 {
-    public class ApplicationUser : IdentityUser<int>
+    public class ApplicationUser : IdentityUser<int>, ISoftDeletable
     {
         public string? FullName { get; set; }
+        public bool IsDeleted { get; set; }
 
         // Inverse navigations only — EF Core wires these up automatically during query materialization
         // (even with AsNoTracking) whenever a user appears more than once in the same Include graph.
@@ -17,8 +18,9 @@ namespace SapApi.Domain.Entities
 
     }
 
-    public class ApplicationRole : IdentityRole<int>
+    public class ApplicationRole : IdentityRole<int>, ISoftDeletable
     {
+        public bool IsDeleted { get; set; }
     }
 
 }

@@ -1,8 +1,9 @@
 namespace SapApi.Domain.Entities;
 
-public class UserGroup
+public class UserGroup : ISoftDeletable
 {
     public int Id { get; set; }
+    public bool IsDeleted { get; set; }
 
     public string CompanyDb { get; set; } = string.Empty;
 

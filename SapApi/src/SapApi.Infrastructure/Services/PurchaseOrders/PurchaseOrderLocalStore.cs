@@ -84,7 +84,9 @@ public class PurchaseOrderLocalStore(
             return;
 
         var now = DateTime.UtcNow;
+        // Ignore soft-delete filter: row sync must revive an existing DocEntry and replace lines.
         var entity = await db.PurchaseOrders
+            .IgnoreQueryFilters()
             .Include(x => x.Lines)
             .Include(x => x.PaymentTerms)
             .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == sap.DocEntry.Value, cancellationToken);
@@ -108,11 +110,49 @@ public class PurchaseOrderLocalStore(
         }
 
         PurchaseOrderMapper.ApplyHeader(entity, sap, now);
-        db.PurchaseOrderLines.RemoveRange(entity.Lines);
-        db.PurchaseOrderPaymentTerms.RemoveRange(entity.PaymentTerms);
-        entity.Lines = PurchaseOrderMapper.MapLines(entity.Id, sap.DocumentLines);
-        entity.PaymentTerms = PurchaseOrderMapper.MapPaymentTerms(entity.Id, sap);
+        await ReplaceChildRowsFromSapAsync(entity.Id, sap, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// SAP sync replaces the full local snapshot. Hard-delete existing children so soft-delete
+    /// and partial unique indexes cannot block re-sync with the same LineNum / Slot values.
+    /// </summary>
+    private async Task ReplaceChildRowsFromSapAsync(
+        int purchaseOrderId,
+        SapPurchaseOrdersResponse sap,
+        CancellationToken cancellationToken)
+    {
+        if (db.Database.IsRelational())
+        {
+            await db.PurchaseOrderLines
+                .IgnoreQueryFilters()
+                .Where(x => x.PurchaseOrderId == purchaseOrderId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            await db.PurchaseOrderPaymentTerms
+                .IgnoreQueryFilters()
+                .Where(x => x.PurchaseOrderId == purchaseOrderId)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+        else
+        {
+            // InMemory provider does not support ExecuteDeleteAsync; soft-delete replace is enough for tests.
+            var existingLines = await db.PurchaseOrderLines
+                .IgnoreQueryFilters()
+                .Where(x => x.PurchaseOrderId == purchaseOrderId)
+                .ToListAsync(cancellationToken);
+            db.PurchaseOrderLines.RemoveRange(existingLines);
+
+            var existingTerms = await db.PurchaseOrderPaymentTerms
+                .IgnoreQueryFilters()
+                .Where(x => x.PurchaseOrderId == purchaseOrderId)
+                .ToListAsync(cancellationToken);
+            db.PurchaseOrderPaymentTerms.RemoveRange(existingTerms);
+        }
+
+        db.PurchaseOrderLines.AddRange(PurchaseOrderMapper.MapLines(purchaseOrderId, sap.DocumentLines));
+        db.PurchaseOrderPaymentTerms.AddRange(PurchaseOrderMapper.MapPaymentTerms(purchaseOrderId, sap));
     }
 
     /// <summary>
@@ -126,6 +166,7 @@ public class PurchaseOrderLocalStore(
             throw new ArgumentOutOfRangeException(nameof(docEntry));
 
         var existed = await db.PurchaseOrders.AsNoTracking()
+            .IgnoreQueryFilters()
             .AnyAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == docEntry, cancellationToken);
 
         var detail = await requestHandler.GetOrThrowAsync<SapPurchaseOrdersResponse>(
