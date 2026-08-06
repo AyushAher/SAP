@@ -55,6 +55,8 @@ public class PurchaseOrderMapperTests
         mapped.UBasic1.Should().Be(50);
         mapped.UGst1.Should().Be(18);
         mapped.UDes1.Should().Be("Advance");
+        mapped.DocTotal.Should().Be(1100);
+        mapped.VatSum.Should().Be(100);
         mapped.DocumentLines.Should().ContainSingle();
         mapped.DocumentLines![0].ItemCode.Should().Be("ITM1");
         mapped.DocumentLines[0].UseBaseUnits.Should().Be("tYES");

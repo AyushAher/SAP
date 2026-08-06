@@ -85,8 +85,10 @@ public class PurchaseOrderLocalStore(
 
         var now = DateTime.UtcNow;
         // Ignore soft-delete filter: row sync must revive an existing DocEntry and replace lines.
+        // DbContext is globally NoTracking — track this row so header fields (DocTotal, VatSum, …) persist.
         var entity = await db.PurchaseOrders
             .IgnoreQueryFilters()
+            .AsTracking()
             .Include(x => x.Lines)
             .Include(x => x.PaymentTerms)
             .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == sap.DocEntry.Value, cancellationToken);
@@ -110,7 +112,7 @@ public class PurchaseOrderLocalStore(
         }
 
         PurchaseOrderMapper.ApplyHeader(entity, sap, now);
-        await ReplaceChildRowsFromSapAsync(entity.Id, sap, cancellationToken);
+        await ReplaceChildRowsFromSapAsync(entity, sap, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -119,10 +121,21 @@ public class PurchaseOrderLocalStore(
     /// and partial unique indexes cannot block re-sync with the same LineNum / Slot values.
     /// </summary>
     private async Task ReplaceChildRowsFromSapAsync(
-        int purchaseOrderId,
+        PurchaseOrder entity,
         SapPurchaseOrdersResponse sap,
         CancellationToken cancellationToken)
     {
+        var purchaseOrderId = entity.Id;
+
+        // ExecuteDeleteAsync bypasses the change tracker — detach stale children so SaveChanges
+        // cannot resurrect rows that were hard-deleted from Postgres.
+        foreach (var line in entity.Lines.ToList())
+            db.Entry(line).State = EntityState.Detached;
+        foreach (var term in entity.PaymentTerms.ToList())
+            db.Entry(term).State = EntityState.Detached;
+        entity.Lines.Clear();
+        entity.PaymentTerms.Clear();
+
         if (db.Database.IsRelational())
         {
             await db.PurchaseOrderLines
@@ -151,8 +164,12 @@ public class PurchaseOrderLocalStore(
             db.PurchaseOrderPaymentTerms.RemoveRange(existingTerms);
         }
 
-        db.PurchaseOrderLines.AddRange(PurchaseOrderMapper.MapLines(purchaseOrderId, sap.DocumentLines));
-        db.PurchaseOrderPaymentTerms.AddRange(PurchaseOrderMapper.MapPaymentTerms(purchaseOrderId, sap));
+        var newLines = PurchaseOrderMapper.MapLines(purchaseOrderId, sap.DocumentLines);
+        var newTerms = PurchaseOrderMapper.MapPaymentTerms(purchaseOrderId, sap);
+        entity.Lines = newLines;
+        entity.PaymentTerms = newTerms;
+        db.PurchaseOrderLines.AddRange(newLines);
+        db.PurchaseOrderPaymentTerms.AddRange(newTerms);
     }
 
     /// <summary>

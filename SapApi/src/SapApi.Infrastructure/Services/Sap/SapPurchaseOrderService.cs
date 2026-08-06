@@ -106,8 +106,8 @@ namespace SapApi.Infrastructure.Services.Sap
                 Constants.SapApiUrls.GetAllSapPurchaseOrders, payload);
             if (created?.DocEntry is not null)
             {
-                // Re-fetch full document so lines/UDFs match SAP, then persist.
-                var detail = await requestHandler.GetAsync<SapPurchaseOrdersResponse>(
+                // Re-fetch full document so lines/UDFs/totals match SAP, then persist.
+                var detail = await requestHandler.GetOrThrowAsync<SapPurchaseOrdersResponse>(
                     Constants.SapApiUrls.UpdateSapPurchaseOrders(created.DocEntry));
                 if (detail?.DocEntry is not null)
                     await localStore.UpsertFromSapAsync(detail);
@@ -135,10 +135,12 @@ namespace SapApi.Infrastructure.Services.Sap
                 Constants.SapApiUrls.UpdateSapPurchaseOrders(payload.DocEntry), payload);
             if (payload.DocEntry is not null)
             {
-                var detail = await requestHandler.GetAsync<SapPurchaseOrdersResponse>(
+                var detail = await requestHandler.GetOrThrowAsync<SapPurchaseOrdersResponse>(
                     Constants.SapApiUrls.UpdateSapPurchaseOrders(payload.DocEntry));
                 if (detail?.DocEntry is not null)
                     await localStore.UpsertFromSapAsync(detail);
+                else if (updated?.DocEntry is not null)
+                    await localStore.UpsertFromSapAsync(updated);
             }
 
             return updated ?? data;

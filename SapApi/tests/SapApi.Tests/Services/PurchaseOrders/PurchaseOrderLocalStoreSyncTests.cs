@@ -221,6 +221,44 @@ public class PurchaseOrderLocalStoreSyncTests
     }
 
     [Test]
+    public async Task SyncOne_updates_DocTotal_when_po_already_exists_locally()
+    {
+        SeedLocalWithDocTotal(101, docTotal: 1000, vatSum: 100);
+        SetupDetail(101, new SapPurchaseOrdersResponse
+        {
+            DocEntry = 101,
+            DocNum = 5101,
+            CardCode = "V001",
+            DocTotal = 2500,
+            VatSum = 250,
+        });
+
+        await _sut.SyncOneFromSapAsync(101);
+
+        var po = await _context.PurchaseOrders.SingleAsync(p => p.DocEntry == 101);
+        po.DocTotal.Should().Be(2500);
+        po.VatSum.Should().Be(250);
+    }
+
+    [Test]
+    public async Task UpsertFromSapAsync_updates_DocTotal_on_existing_row()
+    {
+        SeedLocalWithDocTotal(101, docTotal: 1000, vatSum: 100);
+
+        await _sut.UpsertFromSapAsync(new SapPurchaseOrdersResponse
+        {
+            DocEntry = 101,
+            DocNum = 5101,
+            DocTotal = 3200,
+            VatSum = 320,
+        });
+
+        var po = await _context.PurchaseOrders.SingleAsync(p => p.DocEntry == 101);
+        po.DocTotal.Should().Be(3200);
+        po.VatSum.Should().Be(320);
+    }
+
+    [Test]
     public async Task SyncOne_replaces_lines_when_po_already_exists_locally()
     {
         SeedLocalWithLines(101, ("ITEM-A", 0), ("ITEM-B", 1));
@@ -327,6 +365,24 @@ public class PurchaseOrderLocalStoreSyncTests
         }
 
         _context.SaveChanges();
+    }
+
+    private void SeedLocalWithDocTotal(int docEntry, double docTotal, double vatSum)
+    {
+        var now = DateTime.UtcNow;
+        _context.PurchaseOrders.Add(new SapApi.Domain.Entities.PurchaseOrder
+        {
+            CompanyDb = CompanyDb,
+            DocEntry = docEntry,
+            DocNum = 5000 + docEntry,
+            DocTotal = docTotal,
+            VatSum = vatSum,
+            SyncedAtUtc = now,
+            CreatedOn = now,
+            LastModifiedOn = now,
+        });
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
     }
 
     private void SeedLocalWithLines(int docEntry, params (string ItemCode, int LineNum)[] lines)
