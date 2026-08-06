@@ -14,7 +14,8 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
         string? userName,
         CancellationToken cancellationToken = default,
         string? userRemark = null,
-        string? paymentTermOverride = null)
+        string? paymentTermOverride = null,
+        DateTime? postingDate = null)
     {
         var po = pageData.PurchaseOrder!;
         var recordApInvoice = pageData.ApInvoices.FirstOrDefault(x => x.DocEntry.ToString() == record.ApInvoiceDocEntry)
@@ -51,7 +52,7 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             ["projectName"] = pageData.ProjectName ?? string.Empty,
             ["projectNo"] = po.Project ?? string.Empty,
             ["reqId"] = record.ApprovalRequestId ?? string.Empty,
-            ["reqDate"] = record.ApprovalRequestId is not null ? record.CreatedOn.ToString("dd/MM/yyyy") : string.Empty,
+            ["reqDate"] = postingDate?.ToString("dd/MM/yyyy") ?? string.Empty,
             ["totalQty"] = "0.00",
             ["totalLineGrandTotal"] = "0.00",
             ["journalRemarks"] = journalRemarks,

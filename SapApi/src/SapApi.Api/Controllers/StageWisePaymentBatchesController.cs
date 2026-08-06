@@ -149,7 +149,8 @@ public class StageWisePaymentBatchesController(
             User.Identity?.Name,
             cancellationToken,
             userRemark: batch.JournalRemark,
-            paymentTermOverride: string.IsNullOrWhiteSpace(paymentTermLabel) ? null : paymentTermLabel);
+            paymentTermOverride: string.IsNullOrWhiteSpace(paymentTermLabel) ? null : paymentTermLabel,
+            postingDate: batch.PostingDate);
 
         var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
             "outgoing-payment-template.html", placeholders, cancellationToken);

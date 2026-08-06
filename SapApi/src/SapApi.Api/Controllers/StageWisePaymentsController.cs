@@ -112,11 +112,19 @@ public class StageWisePaymentsController(
         if (pageData?.PurchaseOrder is null)
             return NotFound(ApiResponse<object>.Fail("SYS-02", "Purchase order not found"));
 
+        var postingDate = await db.StageWisePaymentBatches
+            .AsNoTracking()
+            .Where(b => b.CompanyDb == CompanyDb
+                && (b.StageWisePaymentId == id || b.DownPaymentStageWisePaymentId == id))
+            .Select(b => b.PostingDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
         var placeholders = await pdfBuilder.BuildPlaceholdersAsync(
             record,
             pageData,
             User.Identity?.Name,
-            cancellationToken);
+            cancellationToken,
+            postingDate: postingDate);
 
         var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
             "outgoing-payment-template.html", placeholders, cancellationToken);
