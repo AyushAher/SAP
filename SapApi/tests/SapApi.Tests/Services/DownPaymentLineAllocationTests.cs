@@ -9,6 +9,29 @@ namespace SapApi.Tests.Services;
 public class DownPaymentLineAllocationTests
 {
     [Test]
+    public void ApplyPostingDate_SetsDocDateAndTaxDate()
+    {
+        var request = new SapPurchaseDownPaymentRequest();
+        var postingDate = new DateTime(2026, 8, 6, 15, 30, 0, DateTimeKind.Utc);
+
+        StageWisePaymentService.ApplyPostingDate(request, postingDate);
+
+        request.DocDate.Should().Be(new DateTime(2026, 8, 6));
+        request.TaxDate.Should().Be(new DateTime(2026, 8, 6));
+    }
+
+    [Test]
+    public void ApplyPostingDate_Null_LeavesDatesUnset()
+    {
+        var request = new SapPurchaseDownPaymentRequest();
+
+        StageWisePaymentService.ApplyPostingDate(request, null);
+
+        request.DocDate.Should().BeNull();
+        request.TaxDate.Should().BeNull();
+    }
+
+    [Test]
     public void BuildDownPaymentDocumentLines_AllocatesLineTotalsToMatchAmount()
     {
         var po = new SapPurchaseOrdersResponse

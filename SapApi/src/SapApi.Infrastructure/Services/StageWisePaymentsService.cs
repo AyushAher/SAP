@@ -257,6 +257,7 @@ public class StageWisePaymentService(
         string? wtCode,
         List<StageWisePayment> existingRecords,
         string? userRemark = null,
+        DateTime? postingDate = null,
         bool persist = true,
         CancellationToken cancellationToken = default)
     {
@@ -331,7 +332,8 @@ public class StageWisePaymentService(
             totalGross,
             totalGst,
             hadTdsDeducted,
-            paymentStageId);
+            paymentStageId,
+            postingDate);
         if (!dpOk)
             return (false, dpMessage, null);
 
@@ -403,7 +405,8 @@ public class StageWisePaymentService(
         double grossAmount,
         double gstAmount,
         bool hadTdsDeducted,
-        string? paymentStageId = null)
+        string? paymentStageId = null,
+        DateTime? postingDate = null)
     {
         var docNums = new List<string>();
         var docEntries = new List<string>();
@@ -414,7 +417,7 @@ public class StageWisePaymentService(
         {
             var (sapResponse, basicTds) = await AddDownPayment(
                 purchaseOrder, isGst: false, grossAmount, wtCode, desc, hadTdsDeducted,
-                paymentStageId);
+                paymentStageId, postingDate);
 
             if (sapResponse?.PendingApproval == true)
             {
@@ -443,7 +446,7 @@ public class StageWisePaymentService(
         {
             var (sapResponse, _) = await AddDownPayment(
                 purchaseOrder, isGst: true, gstAmount, wtCode, desc, hadTdsDeducted,
-                paymentStageId);
+                paymentStageId, postingDate);
 
             if (sapResponse?.PendingApproval == true)
             {
@@ -722,7 +725,8 @@ public class StageWisePaymentService(
         string? wtCode,
         string? desc,
         bool hadTdsDeducted,
-        string? paymentStageId = null)
+        string? paymentStageId = null,
+        DateTime? postingDate = null)
     {
         // Draw PO lines with LineTotals that sum to the requested amount. Sending base refs alone
         // makes SAP copy the full open PO line value, which triggers
@@ -791,6 +795,7 @@ public class StageWisePaymentService(
             PaymentStageId = paymentStageId,
             WithholdingTaxDataCollection = null,
         };
+        ApplyPostingDate(req, postingDate);
 
         if (!isGst && !string.IsNullOrWhiteSpace(wtCode))
         {
@@ -824,6 +829,20 @@ public class StageWisePaymentService(
             tdsAmount = hadTdsDeducted ? 0 : sapResponse.WTAmount ?? 0;
         }
         return (sapResponse, tdsAmount);
+    }
+
+    /// <summary>
+    /// Maps batch posting date onto SAP PurchaseDownPayments fields.
+    /// Service Layer uses <c>DocDate</c> as the posting date; <c>TaxDate</c> is kept in sync.
+    /// </summary>
+    public static void ApplyPostingDate(SapPurchaseDownPaymentRequest request, DateTime? postingDate)
+    {
+        if (postingDate is null)
+            return;
+
+        var date = postingDate.Value.Date;
+        request.DocDate = date;
+        request.TaxDate = date;
     }
 
     /// <summary>

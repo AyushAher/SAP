@@ -325,6 +325,7 @@ public class StageWisePaymentBatchService(
                 request.WtCode,
                 activeRecords,
                 userRemark: request.JournalRemark,
+                postingDate: request.PostingDate,
                 persist: false,
                 cancellationToken);
 
@@ -1452,6 +1453,7 @@ public class StageWisePaymentBatchService(
                 request.WtCode,
                 activeRecords,
                 userRemark: request.JournalRemark,
+                postingDate: request.PostingDate,
                 persist: false,
                 cancellationToken);
 

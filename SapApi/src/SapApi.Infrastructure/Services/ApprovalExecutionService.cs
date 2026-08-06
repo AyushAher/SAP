@@ -108,7 +108,25 @@ public class ApprovalExecutionService(
             {
                 var body = JsonSerializer.Deserialize<SapPurchaseDownPaymentRequest>(request.RequestBody);
                 if (body == null) return sapBaseResponse;
-                if (utrDate is not null) body.DocDueDate = utrDate ?? DateTime.Now;
+
+                var dpRecords = await GetStageWisePaymentsLinkedToApprovalAsync(
+                    request.Id, request.CompanyDb, cancellationToken);
+                var dpRecord = dpRecords.FirstOrDefault();
+                StageWisePaymentBatch? dpBatch = null;
+                if (dpRecord is not null)
+                {
+                    dpBatch = await context.StageWisePaymentBatches
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(b =>
+                            b.ApprovalRequestId == request.Id.ToString()
+                            || b.StageWisePaymentId == dpRecord.Id
+                            || b.DownPaymentStageWisePaymentId == dpRecord.Id,
+                            cancellationToken);
+                }
+
+                var postingDate = dpBatch?.PostingDate ?? body.DocDate ?? utrDate;
+                StageWisePaymentService.ApplyPostingDate(body, postingDate);
+                if (utrDate is not null) body.DocDueDate = utrDate.Value;
 
                 if (request.Action == ApprovalAction.Create)
                 {
@@ -119,9 +137,7 @@ public class ApprovalExecutionService(
 
                     if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value))
                     {
-                        var records = await GetStageWisePaymentsLinkedToApprovalAsync(request.Id, request.CompanyDb, cancellationToken);
-
-                        foreach (var item in records)
+                        foreach (var item in dpRecords)
                         {
                             if (string.IsNullOrEmpty(item.ApDownPaymentInvoiceEntryNumber))
                                 item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNum?.ToString();
