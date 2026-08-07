@@ -69,6 +69,50 @@ public class SapPurchaseOrderPayloadBuilderTests
     }
 
     [Test]
+    public void Prepare_Create_IncludesOtherTermsUdfJsonNames()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            UDelTerms = "FOB",
+            UInspectionBy = "QC",
+            UTransportation = "Road",
+            USupervision = "Site",
+            UTransitIns = "Vendor",
+            UDrawDocs = "GA",
+            ULoading = "Vendor",
+            UWarranty = "12m",
+            UUnloading = "Buyer",
+            UOtherRemark = "Careful",
+            UPainting = "Epoxy",
+            UTestCerts = "MTC",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+
+        json.Should().Contain("\"U_DL\":\"FOB\"");
+        json.Should().Contain("\"U_INSPBY\":\"QC\"");
+        json.Should().Contain("\"U_TRANS\":\"Road\"");
+        json.Should().Contain("\"U_SUPR\":\"Site\"");
+        json.Should().Contain("\"U_TRANINSU\":\"Vendor\"");
+        json.Should().Contain("\"U_DRA_DOC\":\"GA\"");
+        json.Should().Contain("\"U_LOAD\":\"Vendor\"");
+        json.Should().Contain("\"U_WARR\":\"12m\"");
+        json.Should().Contain("\"U_UN_LOAD\":\"Buyer\"");
+        json.Should().Contain("\"U_ANOTHREM\":\"Careful\"");
+        json.Should().Contain("\"U_PAIN\":\"Epoxy\"");
+        json.Should().Contain("\"U_TC\":\"MTC\"");
+        json.Should().NotContain("U_DelTerms");
+        json.Should().NotContain("U_InspectionBy");
+        json.Should().NotContain("U_Warranty");
+    }
+
+    [Test]
     public void Prepare_Update_KeepsDocEntryAndLineNum()
     {
         var source = new SapPurchaseOrdersResponse

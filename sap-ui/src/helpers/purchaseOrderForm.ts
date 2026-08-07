@@ -86,39 +86,46 @@ export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogisti
   }
 }
 
+/** OPOR Other Terms UDFs (Service Layer names from UserFieldsMD). */
 export function readOtherTermsFromPo(po: PoRecord): PurchaseOrderOtherTerms {
   return {
-    deliveryTerms: readString(po, 'U_DelTerms'),
-    inspectionBy: readString(po, 'U_InspectionBy'),
-    transportation: readString(po, 'U_Transportation'),
-    supervision: readString(po, 'U_Supervision'),
-    transitInsurance: readString(po, 'U_TransitIns'),
-    drawingDocuments: readString(po, 'U_DrawDocs'),
-    loading: readString(po, 'U_Loading'),
-    warranty: readString(po, 'U_Warranty'),
-    unloading: readString(po, 'U_Unloading'),
-    otherRemark: readString(po, 'U_OtherRemark'),
-    painting: readString(po, 'U_Painting'),
-    testCertificates: readString(po, 'U_TestCerts'),
+    deliveryTerms: readString(po, 'U_DL', 'U_DelTerms'),
+    inspectionBy: readString(po, 'U_INSPBY', 'U_InspectionBy'),
+    transportation: readString(po, 'U_TRANS', 'U_Transportation'),
+    supervision: readString(po, 'U_SUPR', 'U_Supervision'),
+    transitInsurance: readString(po, 'U_TRANINSU', 'U_TransitIns'),
+    drawingDocuments: readString(po, 'U_DRA_DOC', 'U_DrawDocs'),
+    loading: readString(po, 'U_LOAD', 'U_Loading'),
+    warranty: readString(po, 'U_WARR', 'U_Warranty'),
+    unloading: readString(po, 'U_UN_LOAD', 'U_Unloading'),
+    otherRemark: readString(po, 'U_ANOTHREM', 'U_OtherRemark'),
+    painting: readString(po, 'U_PAIN', 'U_Painting'),
+    testCertificates: readString(po, 'U_TC', 'U_TestCerts'),
   }
 }
 
 export function applyOtherTermsToPo(po: PoRecord, terms: PurchaseOrderOtherTerms): PoRecord {
-  return {
-    ...po,
-    U_DelTerms: terms.deliveryTerms || undefined,
-    U_InspectionBy: terms.inspectionBy || undefined,
-    U_Transportation: terms.transportation || undefined,
-    U_Supervision: terms.supervision || undefined,
-    U_TransitIns: terms.transitInsurance || undefined,
-    U_DrawDocs: terms.drawingDocuments || undefined,
-    U_Loading: terms.loading || undefined,
-    U_Warranty: terms.warranty || undefined,
-    U_Unloading: terms.unloading || undefined,
-    U_OtherRemark: terms.otherRemark || undefined,
-    U_Painting: terms.painting || undefined,
-    U_TestCerts: terms.testCertificates || undefined,
+  const next: PoRecord = { ...po }
+  // Drop legacy invented names so they are never posted to Service Layer.
+  for (const legacy of [
+    'U_DelTerms', 'U_InspectionBy', 'U_Transportation', 'U_Supervision', 'U_TransitIns',
+    'U_DrawDocs', 'U_Loading', 'U_Warranty', 'U_Unloading', 'U_OtherRemark', 'U_Painting', 'U_TestCerts',
+  ]) {
+    delete next[legacy]
   }
+  next.U_DL = terms.deliveryTerms || undefined
+  next.U_INSPBY = terms.inspectionBy || undefined
+  next.U_TRANS = terms.transportation || undefined
+  next.U_SUPR = terms.supervision || undefined
+  next.U_TRANINSU = terms.transitInsurance || undefined
+  next.U_DRA_DOC = terms.drawingDocuments || undefined
+  next.U_LOAD = terms.loading || undefined
+  next.U_WARR = terms.warranty || undefined
+  next.U_UN_LOAD = terms.unloading || undefined
+  next.U_ANOTHREM = terms.otherRemark || undefined
+  next.U_PAIN = terms.painting || undefined
+  next.U_TC = terms.testCertificates || undefined
+  return next
 }
 
 export interface PurchaseOrderTotals {

@@ -51,18 +51,31 @@ export interface PaymentTermRow {
   desc?: string
 }
 
+/** Other Terms tab — maps to OPOR UDFs (see purchaseOrderForm helpers). */
 export interface PurchaseOrderOtherTerms {
+  /** U_DL */
   deliveryTerms?: string
+  /** U_INSPBY */
   inspectionBy?: string
+  /** U_TRANS */
   transportation?: string
+  /** U_SUPR */
   supervision?: string
+  /** U_TRANINSU */
   transitInsurance?: string
+  /** U_DRA_DOC */
   drawingDocuments?: string
+  /** U_LOAD */
   loading?: string
+  /** U_WARR */
   warranty?: string
+  /** U_UN_LOAD */
   unloading?: string
+  /** U_ANOTHREM */
   otherRemark?: string
+  /** U_PAIN */
   painting?: string
+  /** U_TC */
   testCertificates?: string
 }
 

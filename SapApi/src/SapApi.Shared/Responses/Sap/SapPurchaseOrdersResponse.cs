@@ -143,40 +143,52 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_GoodsReceipt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UGoodsReceipt { get; set; }
 
-        [JsonPropertyName("U_DelTerms"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Delivery Terms (OPOR.U_DL).</summary>
+        [JsonPropertyName("U_DL"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UDelTerms { get; set; }
 
-        [JsonPropertyName("U_InspectionBy"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Inspection By (OPOR.U_INSPBY).</summary>
+        [JsonPropertyName("U_INSPBY"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UInspectionBy { get; set; }
 
-        [JsonPropertyName("U_Transportation"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Transportation (OPOR.U_TRANS).</summary>
+        [JsonPropertyName("U_TRANS"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UTransportation { get; set; }
 
-        [JsonPropertyName("U_Supervision"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Supervision (OPOR.U_SUPR).</summary>
+        [JsonPropertyName("U_SUPR"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? USupervision { get; set; }
 
-        [JsonPropertyName("U_TransitIns"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Transit Insurance (OPOR.U_TRANINSU).</summary>
+        [JsonPropertyName("U_TRANINSU"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UTransitIns { get; set; }
 
-        [JsonPropertyName("U_DrawDocs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Drawings &amp; Documents (OPOR.U_DRA_DOC).</summary>
+        [JsonPropertyName("U_DRA_DOC"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UDrawDocs { get; set; }
 
-        [JsonPropertyName("U_Loading"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Loading (OPOR.U_LOAD).</summary>
+        [JsonPropertyName("U_LOAD"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ULoading { get; set; }
 
-        [JsonPropertyName("U_Warranty"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Warranty (OPOR.U_WARR).</summary>
+        [JsonPropertyName("U_WARR"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UWarranty { get; set; }
 
-        [JsonPropertyName("U_Unloading"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Unloading (OPOR.U_UN_LOAD).</summary>
+        [JsonPropertyName("U_UN_LOAD"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UUnloading { get; set; }
 
-        [JsonPropertyName("U_OtherRemark"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Any Other Remarks (OPOR.U_ANOTHREM).</summary>
+        [JsonPropertyName("U_ANOTHREM"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UOtherRemark { get; set; }
 
-        [JsonPropertyName("U_Painting"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Painting (OPOR.U_PAIN).</summary>
+        [JsonPropertyName("U_PAIN"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UPainting { get; set; }
 
-        [JsonPropertyName("U_TestCerts"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Test Certificates (OPOR.U_TC).</summary>
+        [JsonPropertyName("U_TC"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UTestCerts { get; set; }
 
         [JsonPropertyName("U_B1"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
