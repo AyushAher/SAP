@@ -35,12 +35,14 @@ import {
 import { useAppSelector } from '@/store/hooks'
 import { getBranchesApi } from '@/Requests/auth'
 import {
+  searchBusinessPartners,
   searchEmployees,
   searchProjects,
   searchSalesPersons,
   searchVendors,
   searchWarehouses,
   formatWarehouseOptionLabel,
+  lookupBusinessPartner,
   lookupEmployee,
   lookupSalesPerson,
   type MasterBusinessPartner,
@@ -60,13 +62,24 @@ import {
   validatePurchaseOrderAgainstTn,
 } from '@/helpers/purchaseOrderTnValidation'
 import type { SelectOption } from '@/types'
-import type { PaymentTermRow, PurchaseOrderLineItem, PurchaseOrderLogistics, PurchaseOrderOtherTerms } from '@/types/purchaseOrder'
-import { PAYMENT_TERM_TYPE_OPTIONS } from '@/types/purchaseOrder'
+import type {
+  PaymentTermPercentKind,
+  PaymentTermRow,
+  PurchaseOrderLineItem,
+  PurchaseOrderLogistics,
+  PurchaseOrderOtherTerms,
+} from '@/types/purchaseOrder'
+import {
+  PAYMENT_TERM_PERCENT_KIND_OPTIONS,
+  PAYMENT_TERM_TYPE_OPTIONS,
+  PRICE_BASIS_OPTIONS,
+  MODE_OF_TRANSPORT_OPTIONS,
+} from '@/types/purchaseOrder'
 
 type FormTab = 'logistics' | 'payment' | 'other'
 
 const FORM_TABS: Array<{ id: FormTab; label: string; description: string }> = [
-  { id: 'logistics', label: 'Logistics', description: 'Shipping, dispatch, and material movement references.' },
+  { id: 'logistics', label: 'Logistics', description: 'Dispatch, shipping, and transport details.' },
   { id: 'payment', label: 'Payment Terms', description: 'Define stage-wise payment terms for this order.' },
   { id: 'other', label: 'Other Terms', description: 'Commercial terms, warranty, and additional conditions.' },
 ]
@@ -75,8 +88,27 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10)
 }
 
-function emptyPaymentTermDraft(): Omit<PaymentTermRow, 'id'> {
-  return { type: '', basic: undefined, gst: undefined, stage: '', desc: '' }
+type PaymentTermDraft = Omit<PaymentTermRow, 'id'> & { percentKind: PaymentTermPercentKind }
+
+function emptyPaymentTermDraft(): PaymentTermDraft {
+  return { type: '', basic: undefined, gst: undefined, stage: '', desc: '', percentKind: 'basic' }
+}
+
+function paymentTermDraftPercent(draft: PaymentTermDraft): number | undefined {
+  return draft.percentKind === 'basic' ? draft.basic : draft.gst
+}
+
+function withPaymentTermPercent(
+  draft: PaymentTermDraft,
+  percent: number | undefined,
+  percentKind: PaymentTermPercentKind = draft.percentKind,
+): PaymentTermDraft {
+  return {
+    ...draft,
+    percentKind,
+    basic: percentKind === 'basic' ? percent : undefined,
+    gst: percentKind === 'gst' ? percent : undefined,
+  }
 }
 
 export function PurchaseOrderFormPage() {
@@ -106,7 +138,6 @@ export function PurchaseOrderFormPage() {
     U_PO_Type: '',
     U_TRN: '',
     U_DisID: '',
-    U_DispachAdd: '',
     U_Owner: '',
     U_Stage: '',
     U_Warehouse: '',
@@ -131,6 +162,7 @@ export function PurchaseOrderFormPage() {
   const [warehouseLabel, setWarehouseLabel] = useState('')
   const [buyerLabel, setBuyerLabel] = useState('')
   const [approverLabel, setApproverLabel] = useState('')
+  const [dispatchToLabel, setDispatchToLabel] = useState('')
   const [branchOptions, setBranchOptions] = useState<SelectOption[]>([])
 
   const loading = Boolean(id) && (queryLoading || hydratedId !== String(id))
@@ -158,6 +190,15 @@ export function PurchaseOrderFormPage() {
       value: v.CardCode ?? '',
       label: `${v.CardCode ?? ''} - ${v.CardName ?? ''}`.trim(),
       meta: v,
+    })).filter((o) => o.value)
+  }, [])
+
+  const searchBusinessPartnerOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
+    const response = await searchBusinessPartners(search)
+    return (response.data ?? []).map((bp) => ({
+      value: bp.CardCode ?? '',
+      label: `${bp.CardCode ?? ''} - ${bp.CardName ?? ''}`.trim(),
+      meta: bp,
     })).filter((o) => o.value)
   }, [])
 
@@ -232,15 +273,17 @@ export function PurchaseOrderFormPage() {
         }
       }))
       setPaymentTerms(parsePaymentTermsFromPo(record))
-      setLogistics(readLogisticsFromPo(record))
+      const loadedLogistics = readLogisticsFromPo(record)
+      setLogistics(loadedLogistics)
       setOtherTerms(readOtherTermsFromPo(record))
+      setDispatchToLabel('')
       const buyerCode = record.SalesPersonCode != null ? Number(record.SalesPersonCode) : null
       const approverId = record.DocumentsOwner != null ? Number(record.DocumentsOwner) : null
       // Do not set raw codes as labels — wait for master lookups so dropdowns show names.
       setBuyerLabel('')
       setApproverLabel('')
       try {
-        const [labels, buyer, approver, vendorMatch] = await Promise.all([
+        const [labels, buyer, approver, vendorMatch, dispatchBp] = await Promise.all([
           resolveMasterSelectLabels({
             vendorCode: purchaseOrder.CardCode,
             projectCode: purchaseOrder.Project,
@@ -250,6 +293,9 @@ export function PurchaseOrderFormPage() {
           purchaseOrder.CardCode
             ? searchVendors(purchaseOrder.CardCode, 5).then((res) =>
               (res.data ?? []).find((v) => v.CardCode === purchaseOrder.CardCode))
+            : Promise.resolve(undefined),
+          loadedLogistics.dispatchTo
+            ? lookupBusinessPartner(loadedLogistics.dispatchTo)
             : Promise.resolve(undefined),
         ])
         if (cancelled) return
@@ -271,6 +317,13 @@ export function PurchaseOrderFormPage() {
           setApproverLabel(`${approver.EmployeeID} - ${approver.DisplayName}`.trim())
         } else if (approverId != null && Number.isFinite(approverId)) {
           setApproverLabel(String(approverId))
+        }
+        if (loadedLogistics.dispatchTo) {
+          setDispatchToLabel(
+            dispatchBp
+              ? formatCodeWithName(dispatchBp.CardCode, dispatchBp.CardName)
+              : formatCodeWithName(loadedLogistics.dispatchTo),
+          )
         }
       } catch {
         // labels are optional enrichments
@@ -294,7 +347,8 @@ export function PurchaseOrderFormPage() {
       setError('Maximum payment terms reached.')
       return
     }
-    if (!paymentDraft.type && paymentDraft.basic == null && paymentDraft.gst == null && !paymentDraft.stage) {
+    const percent = paymentTermDraftPercent(paymentDraft)
+    if (!paymentDraft.type && percent == null && !paymentDraft.stage) {
       setError('Enter at least type, percentage, or stage for the payment term.')
       return
     }
@@ -303,8 +357,8 @@ export function PurchaseOrderFormPage() {
       {
         id: slot,
         type: paymentDraft.type || undefined,
-        basic: paymentDraft.basic,
-        gst: paymentDraft.gst,
+        basic: paymentDraft.percentKind === 'basic' ? percent : undefined,
+        gst: paymentDraft.percentKind === 'gst' ? percent : undefined,
         stage: paymentDraft.stage || undefined,
         desc: paymentDraft.desc || undefined,
       },
@@ -381,7 +435,6 @@ export function PurchaseOrderFormPage() {
       U_PO_Type: form.U_PO_Type || undefined,
       U_TRN: form.U_TRN || undefined,
       U_DisID: form.U_DisID || undefined,
-      U_DispachAdd: form.U_DispachAdd || undefined,
       NumAtCard: form.NumAtCard || undefined,
       Comments: form.Comments,
       U_Owner: form.U_Owner,
@@ -425,7 +478,7 @@ export function PurchaseOrderFormPage() {
       docType,
       trn: String(form.U_TRN ?? ''),
       disId: String(form.U_DisID ?? ''),
-      dispachAdd: String(form.U_DispachAdd ?? ''),
+      dispachAdd: String(logistics.dispatchAddress ?? ''),
       vendorSeries,
       lines,
     })
@@ -622,19 +675,12 @@ export function PurchaseOrderFormPage() {
                   placeholder="Select branch"
                 />
                 {usesDrpWarehouse ? (
-                  <>
-                    <Input
-                      label="Dispatch ID (U_DisID) *"
-                      value={String(form.U_DisID ?? '')}
-                      onChange={(e) => updateForm({ U_DisID: e.target.value })}
-                      hint="Required when any line uses DRP / DRP2 warehouse."
-                    />
-                    <Input
-                      label="Dispatch Address (U_DispachAdd) *"
-                      value={String(form.U_DispachAdd ?? '')}
-                      onChange={(e) => updateForm({ U_DispachAdd: e.target.value })}
-                    />
-                  </>
+                  <Input
+                    label="Dispatch ID (U_DisID) *"
+                    value={String(form.U_DisID ?? '')}
+                    onChange={(e) => updateForm({ U_DisID: e.target.value })}
+                    hint="Required when any line uses DRP / DRP2 warehouse. Dispatch address is on the Logistics tab."
+                  />
                 ) : null}
                 <Input
                   label="Owner (UDF)"
@@ -718,45 +764,42 @@ export function PurchaseOrderFormPage() {
                   description={FORM_TABS[0].description}
                 >
                   <div className="grid gap-4 md:grid-cols-2">
-                  <Input
-                    label="Dispatch To"
+                  <SearchableSelect
+                    label="Dispatch To / Ship To"
+                    lookupKind="businessPartner"
                     value={logistics.dispatchTo ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, dispatchTo: e.target.value })}
+                    selectedLabel={dispatchToLabel}
+                    placeholder="Search business partner..."
+                    onSearch={searchBusinessPartnerOptions}
+                    onChange={(cardCode, option) => {
+                      setDispatchToLabel(option?.label ?? cardCode)
+                      setLogistics({ ...logistics, dispatchTo: cardCode || undefined })
+                    }}
+                  />
+                  <Input
+                    label="Dispatch Address"
+                    value={logistics.dispatchAddress ?? ''}
+                    onChange={(e) => setLogistics({ ...logistics, dispatchAddress: e.target.value })}
+                    hint={usesDrpWarehouse ? 'Required when any line uses DRP / DRP2 warehouse.' : undefined}
                   />
                   <Input
                     label="Contact Person"
                     value={logistics.contactPerson ?? ''}
                     onChange={(e) => setLogistics({ ...logistics, contactPerson: e.target.value })}
                   />
-                  <Input
+                  <Select
                     label="Price Basis"
+                    options={PRICE_BASIS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
                     value={logistics.priceBasis ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, priceBasis: e.target.value })}
+                    onChange={(value) => setLogistics({ ...logistics, priceBasis: value || undefined })}
+                    placeholder="Select price basis"
                   />
-                  <Input
+                  <Select
                     label="Mode of Transport"
+                    options={MODE_OF_TRANSPORT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
                     value={logistics.modeOfTransport ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, modeOfTransport: e.target.value })}
-                  />
-                  <Input
-                    label="Material Outward Document"
-                    value={logistics.materialOutwardDoc ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, materialOutwardDoc: e.target.value })}
-                  />
-                  <Input
-                    label="Goods Issue / Inventory Transfer"
-                    value={logistics.goodsIssueTransfer ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, goodsIssueTransfer: e.target.value })}
-                  />
-                  <Input
-                    label="Material Inward Document"
-                    value={logistics.materialInwardDoc ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, materialInwardDoc: e.target.value })}
-                  />
-                  <Input
-                    label="Goods Receipt / Inventory Transfer"
-                    value={logistics.goodsReceiptTransfer ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, goodsReceiptTransfer: e.target.value })}
+                    onChange={(value) => setLogistics({ ...logistics, modeOfTransport: value || undefined })}
+                    placeholder="Select mode of transport"
                   />
                 </div>
                 </TabsContent>
@@ -775,21 +818,25 @@ export function PurchaseOrderFormPage() {
                       onChange={(value) => setPaymentDraft({ ...paymentDraft, type: value })}
                       placeholder="Select type"
                     />
-                    <Input
-                      label="Basic %"
-                      type="number"
-                      min="0"
-                      nonNegative
-                      value={paymentDraft.basic != null ? String(paymentDraft.basic) : ''}
-                      onChange={(e) => setPaymentDraft({ ...paymentDraft, basic: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    <Select
+                      label="Basic / GST"
+                      options={PAYMENT_TERM_PERCENT_KIND_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                      value={paymentDraft.percentKind}
+                      onChange={(value) => {
+                        const kind = (value === 'gst' ? 'gst' : 'basic') as PaymentTermPercentKind
+                        setPaymentDraft(withPaymentTermPercent(paymentDraft, paymentTermDraftPercent(paymentDraft), kind))
+                      }}
                     />
                     <Input
-                      label="GST %"
+                      label={paymentDraft.percentKind === 'basic' ? 'Basic %' : 'GST %'}
                       type="number"
                       min="0"
                       nonNegative
-                      value={paymentDraft.gst != null ? String(paymentDraft.gst) : ''}
-                      onChange={(e) => setPaymentDraft({ ...paymentDraft, gst: e.target.value === '' ? undefined : Number(e.target.value) })}
+                      value={paymentTermDraftPercent(paymentDraft) != null ? String(paymentTermDraftPercent(paymentDraft)) : ''}
+                      onChange={(e) => {
+                        const percent = e.target.value === '' ? undefined : Number(e.target.value)
+                        setPaymentDraft(withPaymentTermPercent(paymentDraft, percent))
+                      }}
                     />
                     <Input
                       label="Stage"

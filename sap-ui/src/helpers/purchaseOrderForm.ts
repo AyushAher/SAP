@@ -67,13 +67,10 @@ export function nextPaymentTermSlot(existing: PaymentTermRow[]): number | null {
 export function readLogisticsFromPo(po: PoRecord): PurchaseOrderLogistics {
   return {
     dispatchTo: readString(po, 'U_DispatchTo', 'ShipToCode'),
+    dispatchAddress: readString(po, 'U_DispachAdd'),
     contactPerson: readString(po, 'U_ContactPerson', 'ContactPersonCode'),
     priceBasis: readString(po, 'U_PriceBasis'),
-    modeOfTransport: readString(po, 'U_ModeOfTransport', 'TransportationCode'),
-    materialOutwardDoc: readString(po, 'U_MatOutDoc'),
-    goodsIssueTransfer: readString(po, 'U_GoodsIssue'),
-    materialInwardDoc: readString(po, 'U_MatInDoc'),
-    goodsReceiptTransfer: readString(po, 'U_GoodsReceipt'),
+    modeOfTransport: readString(po, 'U_ModeOfTransport'),
   }
 }
 
@@ -82,14 +79,10 @@ export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogisti
     ...po,
     U_DispatchTo: logistics.dispatchTo || undefined,
     ShipToCode: logistics.dispatchTo || undefined,
+    U_DispachAdd: logistics.dispatchAddress || undefined,
     U_ContactPerson: logistics.contactPerson || undefined,
     U_PriceBasis: logistics.priceBasis || undefined,
     U_ModeOfTransport: logistics.modeOfTransport || undefined,
-    TransportationCode: logistics.modeOfTransport ? Number(logistics.modeOfTransport) || logistics.modeOfTransport : undefined,
-    U_MatOutDoc: logistics.materialOutwardDoc || undefined,
-    U_GoodsIssue: logistics.goodsIssueTransfer || undefined,
-    U_MatInDoc: logistics.materialInwardDoc || undefined,
-    U_GoodsReceipt: logistics.goodsReceiptTransfer || undefined,
   }
 }
 

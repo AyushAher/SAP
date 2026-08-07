@@ -67,15 +67,37 @@ export interface PurchaseOrderOtherTerms {
 }
 
 export interface PurchaseOrderLogistics {
+  /** Business partner CardCode — maps to U_DispatchTo and ShipToCode. */
   dispatchTo?: string
+  /** SAP UDF U_DispachAdd (note SAP spelling). */
+  dispatchAddress?: string
   contactPerson?: string
   priceBasis?: string
   modeOfTransport?: string
-  materialOutwardDoc?: string
-  goodsIssueTransfer?: string
-  materialInwardDoc?: string
-  goodsReceiptTransfer?: string
 }
+
+/** SAP U_PriceBasis UDF — no master list in codebase; common incoterms-style values. */
+export const PRICE_BASIS_OPTIONS = [
+  { value: 'EXW', label: 'EXW — Ex Works' },
+  { value: 'FOB', label: 'FOB — Free On Board' },
+  { value: 'CIF', label: 'CIF — Cost, Insurance and Freight' },
+  { value: 'CFR', label: 'CFR — Cost and Freight' },
+  { value: 'FOR', label: 'FOR — Free On Rail' },
+  { value: 'FAS', label: 'FAS — Free Alongside Ship' },
+  { value: 'DDP', label: 'DDP — Delivered Duty Paid' },
+  { value: 'DAP', label: 'DAP — Delivered At Place' },
+] as const
+
+/** SAP U_ModeOfTransport UDF — no master list in codebase; common transport modes. */
+export const MODE_OF_TRANSPORT_OPTIONS = [
+  { value: 'Road', label: 'Road' },
+  { value: 'Rail', label: 'Rail' },
+  { value: 'Sea', label: 'Sea' },
+  { value: 'Air', label: 'Air' },
+  { value: 'Courier', label: 'Courier' },
+  { value: 'Pipeline', label: 'Pipeline' },
+  { value: 'Multimodal', label: 'Multimodal' },
+] as const
 
 export const PAYMENT_TERM_TYPE_OPTIONS = [
   { value: 'Advance', label: 'Advance' },
@@ -83,5 +105,13 @@ export const PAYMENT_TERM_TYPE_OPTIONS = [
   { value: 'Invoice', label: 'Invoice' },
   { value: 'Retention', label: 'Retention' },
 ] as const
+
+/** Which percentage field a payment term writes to (Basic → U_Bn, GST → U_Gn). */
+export const PAYMENT_TERM_PERCENT_KIND_OPTIONS = [
+  { value: 'basic', label: 'Basic' },
+  { value: 'gst', label: 'GST' },
+] as const
+
+export type PaymentTermPercentKind = (typeof PAYMENT_TERM_PERCENT_KIND_OPTIONS)[number]['value']
 
 export const MAX_PAYMENT_TERMS = 11

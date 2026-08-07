@@ -340,7 +340,29 @@ export async function lookupEmployee(employeeId: number | string): Promise<Maste
 }
 
 export function searchCustomers(search: string, pageSize = 20, fields: string[] = BUSINESS_PARTNER_DROPDOWN_FIELDS) {
-  return searchMaster<MasterBusinessPartner>('/business-partner/customers/list', search, pageSize, fields)
+  return searchMaster<MasterBusinessPartner>('/business-partner/customers/list', search, pageSize, fields).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => normalizeBusinessPartner(row as MasterBusinessPartner)).filter(Boolean) as MasterBusinessPartner[],
+  }))
+}
+
+/** Vendors and customers merged — for Dispatch To / Ship To on PO logistics. */
+export async function searchBusinessPartners(search: string, pageSize = 20) {
+  const half = Math.max(10, Math.ceil(pageSize / 2))
+  const [vendors, customers] = await Promise.all([
+    searchVendors(search, half),
+    searchCustomers(search, half),
+  ])
+  const byCode = new Map<string, MasterBusinessPartner>()
+  for (const bp of [...(vendors.data ?? []), ...(customers.data ?? [])]) {
+    if (bp.CardCode) byCode.set(bp.CardCode, bp)
+  }
+  const data = [...byCode.values()].sort((a, b) => (a.CardCode ?? '').localeCompare(b.CardCode ?? ''))
+  return {
+    ...vendors,
+    data: data.slice(0, pageSize),
+    totalCount: data.length,
+  }
 }
 
 export function listSalesOrders(search: string, customerId?: string, pageSize = 20) {
