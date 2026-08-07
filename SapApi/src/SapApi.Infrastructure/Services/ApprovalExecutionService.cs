@@ -321,9 +321,6 @@ public class ApprovalExecutionService(
                     }
                 }
 
-                if (record is not null)
-                    body.PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(record.Id);
-
                 if (request.Action == ApprovalAction.Create)
                 {
                     var dpResponse = await sapVendorPaymentService.CreateVendorPayments(

@@ -213,8 +213,7 @@ public class StageWisePaymentService(
                 purchaseOrder,
                 entity.Bank,
                 netOutgoing,
-                paymentInvoices,
-                paymentRequestId: paymentRequestId);
+                paymentInvoices);
 
             if (outgoingResponse?.PendingApproval == true)
             {
@@ -364,8 +363,7 @@ public class StageWisePaymentService(
                 bank,
                 netOutgoing,
                 paymentInvoices,
-                userRemark,
-                paymentRequestId);
+                userRemark);
 
             if (outgoingResponse?.PendingApproval == true)
             {
@@ -639,8 +637,7 @@ public class StageWisePaymentService(
     {
         if (purchaseOrder.DocumentStatus == "bost_Close" || paymentTerms?.Type is "Invoice" or "Retention")
             return await AddOutgoingPayment(
-                purchaseOrder, bank, amount, apInvoiceDoc, hadTdsDeducted,
-                paymentRequestId: paymentRequestId);
+                purchaseOrder, bank, amount, apInvoiceDoc, hadTdsDeducted);
         return await AddDownPayment(
             purchaseOrder, isGst, amount, wtCode, desc, hadTdsDeducted,
             paymentRequestId: paymentRequestId);
@@ -653,8 +650,7 @@ public class StageWisePaymentService(
         string? apInvoiceDoc,
         bool hadTdsDeducted,
         string? invoiceType = Constants.SapVendorPaymentInvoiceType.Invoice,
-        string? userRemark = null,
-        string? paymentRequestId = null)
+        string? userRemark = null)
     {
         SapPurchaseInvoicesResponse? apInvoice = null;
         if (int.TryParse(apInvoiceDoc, out var apInvoiceDocEntry))
@@ -716,7 +712,7 @@ public class StageWisePaymentService(
             },
         };
 
-        var (response, _) = await AddOutgoingPayment(purchaseOrder, bank, net, invoices, userRemark, paymentRequestId);
+        var (response, _) = await AddOutgoingPayment(purchaseOrder, bank, net, invoices, userRemark);
         if (response is not null)
             response.SupportingData = (apInvoice?.WTAmount ?? 0).ToString();
         return (response, hadTdsDeducted ? 0 : apInvoice?.WTAmount ?? 0);
@@ -727,8 +723,7 @@ public class StageWisePaymentService(
         string? bank,
         double transferSum,
         IReadOnlyList<PaymentInvoice> paymentInvoices,
-        string? userRemark = null,
-        string? paymentRequestId = null)
+        string? userRemark = null)
     {
         if (paymentInvoices.Count == 0 || transferSum <= 0)
         {
@@ -761,7 +756,6 @@ public class StageWisePaymentService(
                     userRemark, purchaseOrder?.BPLId, purchaseOrder?.DocNum?.ToString()),
                 PaymentInvoices = paymentInvoices.ToList(),
                 BPLId = purchaseOrder?.BPLId ?? 1,
-                PaymentRequestId = paymentRequestId,
             }, supportingData: purchaseOrder?.DocEntry.ToString());
         }
         catch (ApiErrorException ex)

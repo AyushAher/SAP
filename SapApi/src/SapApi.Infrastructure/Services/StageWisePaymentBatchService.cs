@@ -229,7 +229,6 @@ public class StageWisePaymentBatchService(
                 PoNumber = po.DocNum?.ToString(),
                 BPLId = po.BPLId ?? 1,
                 PaymentInvoices = paymentInvoices,
-                PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(linkedStagePayment.Id),
             };
             ApplyAdditionalDetailsToVendorPayment(
                 vendorRequest, request, banks[0]!, po.BPLId, po.DocNum?.ToString());
@@ -1332,7 +1331,6 @@ public class StageWisePaymentBatchService(
                 PoNumber = po.DocNum?.ToString(),
                 BPLId = po.BPLId ?? 1,
                 PaymentInvoices = paymentInvoices,
-                PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(linkedStagePayment.Id),
             };
             ApplyAdditionalDetailsToVendorPayment(
                 vendorRequest, request, bank, po.BPLId, po.DocNum?.ToString());

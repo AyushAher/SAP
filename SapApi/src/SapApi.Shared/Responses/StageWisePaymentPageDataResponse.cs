@@ -22,7 +22,7 @@ public class StageWisePaymentRecordDto
 {
     public int Id { get; set; }
     public int? PaymentTermsType { get; set; }
-    /// <summary>Payment Request ID (<see cref="StageWisePayment.Id"/>) shown on the Payment Request page and sent to SAP as U_BSC_3.</summary>
+    /// <summary>Payment Request ID (<see cref="StageWisePayment.Id"/>) shown on the Payment Request page (also sent to SAP as U_BSC_3 on Purchase Down Payments only — not on VendorPayments).</summary>
     public string? PaymentRequestId { get; set; }
     public string? StageDesc { get; set; }
     public string? Bank { get; set; }

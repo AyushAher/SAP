@@ -55,9 +55,8 @@
         [JsonPropertyName("BPLID"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? BPLId { get; set; }
 
-        /// <summary>Payment Request ID (<see cref="Domain.Entities.StageWisePayment.Id"/>) sent to SAP UDF U_BSC_3.</summary>
-        [JsonPropertyName("U_BSC_3"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public string? PaymentRequestId { get; set; }
+        // Do not send U_BSC_3 on VendorPayments — PBBPL_LIVE OVPM/Payment has no such UDF
+        // (-1000 Property 'U_BSC_3' of 'Payment' is invalid). Keep U_BSC_3 on PurchaseDownPayments only.
     }
 
     public class CashFlowAssignments
