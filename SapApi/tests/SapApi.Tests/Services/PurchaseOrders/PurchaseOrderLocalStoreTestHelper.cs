@@ -1,5 +1,9 @@
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Options;
 using Moq;
 using SapApi.Domain.Interfaces;
+using SapApi.Infrastructure.Caching;
 using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Infrastructure.Persistence;
@@ -12,22 +16,16 @@ internal static class PurchaseOrderLocalStoreTestHelper
         AppDbContext context,
         IHttpRequestHandler http,
         ICurrentCompanyDbAccessor companyDbAccessor) =>
-        new(context, http, companyDbAccessor, CreateMasterDataService(companyDbAccessor));
+        new(context, http, companyDbAccessor, CreateMasterDataService(http, companyDbAccessor));
 
-    private static SapMasterDataService CreateMasterDataService(ICurrentCompanyDbAccessor companyDbAccessor)
+    private static SapMasterDataService CreateMasterDataService(IHttpRequestHandler http, ICurrentCompanyDbAccessor companyDbAccessor)
     {
-        var http = new Mock<IHttpRequestHandler>();
         var sapLogin = new Mock<ISapLoginService>();
         sapLogin.Setup(s => s.SapLoginAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        var cache = new Mock<ISapMasterDataCache>();
-        cache.Setup(c => c.GetOrCreateAsync(
-                It.IsAny<string>(),
-                It.IsAny<Func<Task<object?>>>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, Func<Task<object?>> factory, TimeSpan _, CancellationToken ct) => factory()!);
+        var cache = new SapMasterDataCache(
+            new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())));
 
-        return new SapMasterDataService(http.Object, sapLogin.Object, cache.Object, companyDbAccessor);
+        return new SapMasterDataService(http, sapLogin.Object, cache, companyDbAccessor);
     }
 }
