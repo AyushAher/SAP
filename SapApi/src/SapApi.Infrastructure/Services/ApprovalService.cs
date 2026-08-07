@@ -446,6 +446,64 @@ public class ApprovalService
 
         #endregion
 
+        #region SAP RETRY
+
+        /// <summary>
+        /// True when workflow approval completed but SAP posting did not produce a DocEntry
+        /// (Failed after final approval, or Approved with no SAP document).
+        /// </summary>
+        public static bool IsEligibleForSapRetry(ApprovalRequest request) =>
+            request.IsApproved
+            && string.IsNullOrWhiteSpace(request.SapResponseDocEntry)
+            && !string.IsNullOrWhiteSpace(request.RequestBody)
+            && request.OverallStatus is ApprovalStatus.Failed or ApprovalStatus.Approved;
+
+        public async Task<ApprovalRequest> GetRequestForSapRetryAsync(int requestId, int userId, bool isAdmin)
+        {
+            var request = await context.ApprovalRequests
+                .Include(x => x.UserApprovals)
+                .FirstOrDefaultAsync(x => x.Id == requestId && x.CompanyDb == CompanyDb)
+                ?? throw new ApiErrorException(BaseErrorCodes.NullValue, "Approval request not found.");
+
+            if (!isAdmin
+                && request.RequesterUserId != userId
+                && !request.UserApprovals.Any(u => u.UserId == userId))
+            {
+                throw new ApiErrorException(
+                    BaseErrorCodes.Forbidden,
+                    "You are not authorized to retry SAP posting for this request.");
+            }
+
+            if (!IsEligibleForSapRetry(request))
+            {
+                var message = !string.IsNullOrWhiteSpace(request.SapResponseDocEntry)
+                    ? "This request already has a SAP document and cannot be retried."
+                    : request.OverallStatus is ApprovalStatus.Pending or ApprovalStatus.Forwarded
+                        ? "This request is still awaiting approval and cannot be retried."
+                        : request.OverallStatus == ApprovalStatus.Rejected
+                            ? "Rejected requests cannot be retried."
+                            : "This request is not eligible for SAP retry.";
+                throw new ApiErrorException(BaseErrorCodes.ValidationFailed, message);
+            }
+
+            return request;
+        }
+
+        public async Task MarkSapRetrySucceededAsync(int requestId)
+        {
+            var request = await context.ApprovalRequests
+                .FirstOrDefaultAsync(x => x.Id == requestId && x.CompanyDb == CompanyDb)
+                ?? throw new ApiErrorException(BaseErrorCodes.NullValue, "Approval request not found.");
+
+            request.OverallStatus = ApprovalStatus.Approved;
+            request.FailureReason = null;
+            context.Entry(request).State = EntityState.Modified;
+            await AddLogAsync(requestId, UserId, "SapRetrySucceeded", comment: "SAP posting succeeded on retry.");
+            await context.SaveChangesAsync();
+        }
+
+        #endregion
+
         #region AUDIT LOG
 
         private async Task AddLogAsync(int approvalRequestId, int actionByUserId, string action, string? comment = null, string? oldValue = null, string? newValue = null)

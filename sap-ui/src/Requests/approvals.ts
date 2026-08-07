@@ -84,6 +84,13 @@ export async function rejectRequest(id: number, comment?: string) {
   return apiPost(`/approvals/${id}/reject`, { action: 'Reject', comment })
 }
 
+export async function retrySapExecution(id: number) {
+  return apiPost<{ result?: ApprovalRequest; sapResponse?: { approvalDocEntry?: string; approvalDocNumber?: string } }>(
+    `/approvals/${id}/retry-sap`,
+    { action: 'RetrySap' },
+  )
+}
+
 export interface BulkActionResultItem {
   id: number
   error?: string

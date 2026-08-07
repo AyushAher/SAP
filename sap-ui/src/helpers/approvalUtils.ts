@@ -60,6 +60,14 @@ export function canActOnRequest(request: ApprovalRequest, readOnly: boolean): bo
   return request.overallStatus === 'Pending' || request.overallStatus === 'Forwarded'
 }
 
+/** Approved locally but SAP document missing or previous SAP post failed. */
+export function canRetrySapExecution(request: ApprovalRequest): boolean {
+  const hasSapDoc = Boolean(request.sapResponseDocEntry?.trim())
+  const hasPayload = Boolean(request.requestBody?.trim())
+  const workflowApproved = request.overallStatus === 'Failed' || request.overallStatus === 'Approved'
+  return workflowApproved && hasPayload && !hasSapDoc
+}
+
 /**
  * True when this approval finalizes a Payment request — at which point payment date, reference
  * number, and user remarks must all be captured before SAP will accept the outgoing payment.

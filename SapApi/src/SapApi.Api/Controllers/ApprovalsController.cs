@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
@@ -25,7 +26,8 @@ public class ApprovalsController(
     StageWisePaymentService stageWisePaymentService,
     AppDbContext db,
     IHttpContextAccessor httpContext,
-    ICurrentCompanyDbAccessor companyDbAccessor) : ControllerBase
+    ICurrentCompanyDbAccessor companyDbAccessor,
+    ILogger<ApprovalsController> logger) : ControllerBase
 {
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
     [HttpGet("{requestId:int}")]
@@ -102,6 +104,21 @@ public class ApprovalsController(
         {
             var sapResponse = await executionService.ExecuteAsync(result, data, cancellationToken);
             await executionService.FinalizeApprovalAsync(result, data, sapResponse, cancellationToken);
+
+            if (sapResponse is null)
+            {
+                return Ok(ApiResponse<object>.Fail(
+                    BaseErrorCodes.ValidationFailed,
+                    "Approval recorded but SAP posting did not run. Use Retry SAP on the approval request."));
+            }
+
+            if (!string.IsNullOrEmpty(sapResponse.Error?.Message?.Value))
+            {
+                return Ok(ApiResponse<object>.Fail(
+                    BaseErrorCodes.ValidationFailed,
+                    sapResponse.Error.Message.Value));
+            }
+
             return Ok(ApiResponse<object>.Ok(new { result, sapResponse }));
         }
 
@@ -129,6 +146,50 @@ public class ApprovalsController(
             throw new ApiErrorException(
                 BaseErrorCodes.ValidationFailed,
                 "Payment date, reference number, and user remarks are required to finalize a payment approval.");
+    }
+
+    [HttpPost("{requestId:int}/retry-sap")]
+    public async Task<IActionResult> RetrySap(int requestId, CancellationToken cancellationToken)
+    {
+        var userId = httpContext.GetUserIdAsync() ?? throw new UnauthorizedAccessException();
+        var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+
+        var request = await approvalService.GetRequestForSapRetryAsync(requestId, userId, isAdmin);
+
+        logger.LogInformation(
+            "Retrying SAP execution for approval request {ApprovalRequestId} (document type {DocumentType}) by user {UserId}",
+            requestId,
+            request.DocumentType,
+            userId);
+
+        var actionData = new ApprovalActionData { Action = "RetrySap", Comment = "SAP retry" };
+        var sapResponse = await executionService.ExecuteAsync(request, actionData, cancellationToken);
+
+        if (sapResponse is null)
+        {
+            return Ok(ApiResponse<object>.Fail(
+                BaseErrorCodes.ValidationFailed,
+                "Unable to post to SAP — the request payload is missing or unsupported for this document type."));
+        }
+
+        if (!string.IsNullOrEmpty(sapResponse.Error?.Message?.Value))
+        {
+            return Ok(ApiResponse<object>.Fail(
+                BaseErrorCodes.ValidationFailed,
+                sapResponse.Error.Message.Value));
+        }
+
+        await executionService.FinalizeApprovalAsync(request, actionData, sapResponse, cancellationToken);
+        await approvalService.MarkSapRetrySucceededAsync(requestId);
+
+        var updated = await requestViewService.GetRequestAsync(requestId, cancellationToken);
+
+        logger.LogInformation(
+            "SAP retry succeeded for approval request {ApprovalRequestId}; DocEntry {SapDocEntry}",
+            requestId,
+            sapResponse.ApprovalDocEntry);
+
+        return Ok(ApiResponse<object>.Ok(new { result = updated, sapResponse }, "SAP posting succeeded."));
     }
 
     [HttpPost("{requestId:int}/reject")]

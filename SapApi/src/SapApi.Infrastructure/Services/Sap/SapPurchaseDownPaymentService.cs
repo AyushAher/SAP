@@ -9,18 +9,26 @@ namespace SapApi.Infrastructure.Services.Sap
 {
     public class SapPurchaseDownPaymentService(IHttpRequestHandler httpRequestHandler, ApprovalService approvalService)
     {
-        public async Task<SapPurchaseDownPaymentResponse?> SaveDownPayment(SapPurchaseDownPaymentRequest request, int? reqId = null, string? supportingData = null)
+        public async Task<SapPurchaseDownPaymentResponse?> SaveDownPayment(
+            SapPurchaseDownPaymentRequest request,
+            int? reqId = null,
+            string? supportingData = null,
+            bool ignoreApproval = false)
         {
-            SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(reqId, request, ApprovalDocumentType.StagewisePayments_DP, ApprovalAction.Create, supportingData);
-            if (policyApproval.PendingApproval)
+            if (!ignoreApproval)
             {
-
-                return new SapPurchaseDownPaymentResponse
+                SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(
+                    reqId, request, ApprovalDocumentType.StagewisePayments_DP, ApprovalAction.Create, supportingData);
+                if (policyApproval.PendingApproval)
                 {
-                    PendingApproval = true,
-                    PendingApprovalRequestId = policyApproval.PendingApprovalRequestId
-                };
+                    return new SapPurchaseDownPaymentResponse
+                    {
+                        PendingApproval = true,
+                        PendingApprovalRequestId = policyApproval.PendingApprovalRequestId
+                    };
+                }
             }
+
             return await httpRequestHandler.PostAsync<SapPurchaseDownPaymentRequest, SapPurchaseDownPaymentResponse>(
                 Constants.SapApiUrls.PurchaseDownPayment, request);
         }

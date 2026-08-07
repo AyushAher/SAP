@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canActOnRequest,
+  canRetrySapExecution,
   formatApprovalLabel,
   formatApprovalValue,
   formatDocumentType,
@@ -74,6 +75,34 @@ describe('approvalUtils', () => {
     expect(canActOnRequest(makeRequest(), false)).toBe(true)
     expect(canActOnRequest(makeRequest({ overallStatus: 'Approved' }), false)).toBe(false)
     expect(canActOnRequest(makeRequest(), true)).toBe(false)
+  })
+
+  it('canRetrySapExecution is true only when approved without SAP DocEntry', () => {
+    expect(canRetrySapExecution(makeRequest({
+      overallStatus: 'Failed',
+      requestBody: '{"CardCode":"V1"}',
+    }))).toBe(true)
+
+    expect(canRetrySapExecution(makeRequest({
+      overallStatus: 'Approved',
+      requestBody: '{"CardCode":"V1"}',
+    }))).toBe(true)
+
+    expect(canRetrySapExecution(makeRequest({
+      overallStatus: 'Failed',
+      sapResponseDocEntry: '123',
+      requestBody: '{"CardCode":"V1"}',
+    }))).toBe(false)
+
+    expect(canRetrySapExecution(makeRequest({
+      overallStatus: 'Pending',
+      requestBody: '{"CardCode":"V1"}',
+    }))).toBe(false)
+
+    expect(canRetrySapExecution(makeRequest({
+      overallStatus: 'Failed',
+      requestBody: '',
+    }))).toBe(false)
   })
 
   it('requiresPaymentFinalizationDetails is true only for final payment approvals', () => {

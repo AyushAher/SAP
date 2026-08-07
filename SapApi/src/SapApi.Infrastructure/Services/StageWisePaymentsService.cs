@@ -2,6 +2,7 @@ using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
+using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
@@ -926,11 +927,12 @@ public class StageWisePaymentService(
         await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask);
     }
 
-    public async Task MarkApprovedWhenAllRequestsCompleteAsync(int approvalRequestId)
+    public async Task MarkApprovedWhenAllRequestsCompleteAsync(int approvalRequestId, string? companyDb = null)
     {
+        var company = companyDb ?? CompanyDb;
         var approvalRequestIdStr = approvalRequestId.ToString();
         var records = await context.StageWisePayments
-            .Where(x => x.CompanyDb == CompanyDb && x.ApprovalRequestId != null && x.Status == StageWisePaymentStatus.PendingApproval)
+            .Where(x => x.CompanyDb == company && x.ApprovalRequestId != null && x.Status == StageWisePaymentStatus.PendingApproval)
             .ToListAsync();
 
         foreach (var record in records)
@@ -942,30 +944,72 @@ public class StageWisePaymentService(
             if (requestIds.Count == 0)
                 continue;
 
-            var statuses = await context.ApprovalRequests
-                .Where(r => r.CompanyDb == CompanyDb && requestIds.Contains(r.Id))
-                .Select(r => r.OverallStatus)
+            var approvalRows = await context.ApprovalRequests
+                .Where(r => r.CompanyDb == company && requestIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.OverallStatus, r.DocumentType })
                 .ToListAsync();
 
-            if (statuses.Count != requestIds.Count)
+            if (approvalRows.Count != requestIds.Count)
                 continue;
 
-            if (statuses.All(s => s == ApprovalStatus.Approved))
-            {
-                record.Status = StageWisePaymentStatus.Approved;
-                record.LastModifiedOn = DateTime.UtcNow;
-                context.AttachModified(record);
-                await SyncBatchStatusForPaymentAsync(record.Id, StageWisePaymentBatchStatus.Approved);
-            }
+            if (!approvalRows.All(r => r.OverallStatus == ApprovalStatus.Approved))
+                continue;
+
+            if (!HasSapDocumentsForLinkedApprovals(record, approvalRows.Select(r => (r.Id, r.DocumentType)).ToList()))
+                continue;
+
+            record.Status = StageWisePaymentStatus.Approved;
+            record.LastModifiedOn = DateTime.UtcNow;
+            context.AttachModified(record);
+            await SyncBatchStatusForPaymentAsync(record.Id, StageWisePaymentBatchStatus.Approved, company);
         }
 
         await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask);
     }
 
-    private async Task SyncBatchStatusForPaymentAsync(int stageWisePaymentId, StageWisePaymentBatchStatus status)
+    /// <summary>
+    /// True when every linked approval request has a corresponding SAP document on the payment row.
+    /// Outgoing payment approvals require <see cref="StageWisePayment.PaymentDocEntry"/>; down-payment
+    /// approvals require down-payment doc entries. This prevents workflow-only approval from clearing
+    /// PendingApproval when SAP posting never ran or Finalize aborted mid-request.
+    /// </summary>
+    static bool HasSapDocumentsForLinkedApprovals(
+        StageWisePayment record,
+        IReadOnlyList<(int Id, ApprovalDocumentType DocumentType)> approvalRows)
     {
+        var approvalIds = approvalRows.Select(r => r.Id.ToString()).ToHashSet(StringComparer.Ordinal);
+        var linkedIds = ParseApprovalRequestIds(record.ApprovalRequestId)
+            .Select(id => id.ToString())
+            .Where(approvalIds.Contains)
+            .ToList();
+
+        foreach (var idText in linkedIds)
+        {
+            var row = approvalRows.First(r => r.Id.ToString() == idText);
+            if (row.DocumentType == ApprovalDocumentType.Payments)
+            {
+                if (string.IsNullOrWhiteSpace(record.PaymentDocEntry))
+                    return false;
+            }
+            else if (row.DocumentType == ApprovalDocumentType.StagewisePayments_DP)
+            {
+                if (string.IsNullOrWhiteSpace(record.DownPaymentDocEntry)
+                    && string.IsNullOrWhiteSpace(record.ApDownPaymentInvoiceEntryNumber))
+                    return false;
+            }
+        }
+
+        return linkedIds.Count > 0;
+    }
+
+    private async Task SyncBatchStatusForPaymentAsync(
+        int stageWisePaymentId,
+        StageWisePaymentBatchStatus status,
+        string? companyDb = null)
+    {
+        var company = companyDb ?? CompanyDb;
         var batch = await context.StageWisePaymentBatches
-            .FirstOrDefaultAsync(b => b.CompanyDb == CompanyDb
+            .FirstOrDefaultAsync(b => b.CompanyDb == company
                 && (b.StageWisePaymentId == stageWisePaymentId
                     || b.DownPaymentStageWisePaymentId == stageWisePaymentId));
         if (batch is null)

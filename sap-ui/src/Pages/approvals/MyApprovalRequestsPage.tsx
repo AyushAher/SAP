@@ -1,13 +1,21 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AlertTriangle, Eye } from 'lucide-react'
+import { AlertTriangle, Eye, RefreshCw } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
 import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
+import { RowActionsMenu } from '@/Components/shared/RowActionsMenu'
 import { Badge, DataTable, type DataTableColumn } from '@/Components/ui'
-import { formatDocumentType, getApprovalStatusBadgeVariant, getBusinessPartnerDisplayFromRequest, getCardCodeFromRequest } from '@/helpers/approvalUtils'
+import {
+  canRetrySapExecution,
+  formatDocumentType,
+  getApprovalStatusBadgeVariant,
+  getBusinessPartnerDisplayFromRequest,
+  getCardCodeFromRequest,
+} from '@/helpers/approvalUtils'
+import { toast } from '@/helpers/toast'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
-import { listMyApprovalRequests, type ApprovalRequest } from '@/Requests/approvals'
+import { listMyApprovalRequests, retrySapExecution, type ApprovalRequest } from '@/Requests/approvals'
 
 const extractors = {
   cardCodes: (row: ApprovalRequest) => getCardCodeFromRequest(row),
@@ -27,12 +35,29 @@ export function MyApprovalRequestsPage() {
   const flashMessage = (location.state as { message?: string } | null)?.message
   const [viewRow, setViewRow] = useState<ApprovalRequest | null>(null)
   const [banner, setBanner] = useState<string | null>(flashMessage ?? null)
+  const [retryingId, setRetryingId] = useState<number | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const fetchRequests = useCallback(
     (request: Parameters<typeof listMyApprovalRequests>[0]) => listMyApprovalRequests(request),
-    [],
+    [refreshKey],
   )
   const { fetchData, lookupMaps } = useEnrichedListFetch(fetchRequests, extractors)
+
+  const reload = () => setRefreshKey((k) => k + 1)
+
+  const handleRetrySap = async (row: ApprovalRequest) => {
+    setRetryingId(row.id)
+    try {
+      await retrySapExecution(row.id)
+      toast.success(`Request #${row.id} posted to SAP successfully.`)
+      reload()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'SAP retry failed')
+    } finally {
+      setRetryingId(null)
+    }
+  }
 
   const columns = useMemo<DataTableColumn<ApprovalRequest>[]>(() => [
     { key: 'id', header: 'ID', sortable: true, filterable: true, accessor: (r) => r.id },
@@ -70,15 +95,36 @@ export function MyApprovalRequestsPage() {
     {
       key: 'actions',
       header: 'Actions',
-      render: (row) => (
-        <RowActionButton
-          title="View request"
-          icon={<Eye className={rowActionIconClassName} />}
-          onClick={() => setViewRow(row)}
-        />
-      ),
+      render: (row) => {
+        const retryEligible = canRetrySapExecution(row)
+        const rowBusy = retryingId === row.id
+
+        return (
+          <RowActionsMenu
+            items={[
+              {
+                key: 'view',
+                label: 'View',
+                icon: <Eye className={rowActionIconClassName} />,
+                onClick: () => setViewRow(row),
+              },
+              {
+                key: 'retry-sap',
+                label: 'Retry SAP',
+                disabled: !retryEligible || rowBusy,
+                icon: (
+                  <RefreshCw
+                    className={`${rowActionIconClassName}${rowBusy ? ' animate-spin' : ''}`}
+                  />
+                ),
+                onClick: () => void handleRetrySap(row),
+              },
+            ]}
+          />
+        )
+      },
     },
-  ], [lookupMaps])
+  ], [lookupMaps, retryingId])
 
   return (
     <div className="space-y-6">
@@ -104,7 +150,13 @@ export function MyApprovalRequestsPage() {
           </button>
         </div>
       ) : null}
-      <DataTable columns={columns} fetchData={fetchData} getRowKey={(r) => r.id} initialSorts={[{ field: 'createdAt', direction: 'desc' }]} />
+      <DataTable
+        key={refreshKey}
+        columns={columns}
+        fetchData={fetchData}
+        getRowKey={(r) => r.id}
+        initialSorts={[{ field: 'createdAt', direction: 'desc' }]}
+      />
       <RequestViewDialog
         request={viewRow}
         readOnly

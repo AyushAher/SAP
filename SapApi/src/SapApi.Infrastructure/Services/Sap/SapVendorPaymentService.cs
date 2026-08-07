@@ -17,9 +17,9 @@ namespace SapApi.Infrastructure.Services.Sap
         private const int PurchaseOrderBaseType = 22;
         private const int GrpoBaseType = 20;
 
-        public async Task<SapVendorPaymentsResponse?> CreateVendorPayments(SapVendorPaymentRequests requests, int? reqId = null, string? supportingData = null, bool? ignoreApproval = false)
+        public async Task<SapVendorPaymentsResponse?> CreateVendorPayments(SapVendorPaymentRequests requests, int? reqId = null, string? supportingData = null, bool ignoreApproval = false)
         {
-            if (ignoreApproval == false)
+            if (!ignoreApproval)
             {
                 SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(reqId, requests, ApprovalDocumentType.Payments, ApprovalAction.Create, supportingData);
                 if (policyApproval.PendingApproval)

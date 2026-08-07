@@ -24,10 +24,27 @@ public class ApprovalExecutionService(
     ApprovalService approvalService,
     PurchaseOrders.PurchaseOrderLinkResolver purchaseOrderLinks)
 {
+    private static readonly JsonSerializerOptions RequestBodyJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
+
     public async Task<SapBaseResponse?> ExecuteAsync(ApprovalRequest request, ApprovalActionData? data, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(request.RequestBody))
+        {
+            await approvalService.FailedAsync(
+                request.Id,
+                "Unable to post to SAP — the stored approval payload is missing.");
             return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.SapResponseDocEntry))
+        {
+            throw new ApiErrorException(
+                BaseErrorCodes.Conflict,
+                "A SAP document already exists for this approval request.");
+        }
 
         try
         {
@@ -106,8 +123,14 @@ public class ApprovalExecutionService(
             }
             case ApprovalDocumentType.StagewisePayments_DP:
             {
-                var body = JsonSerializer.Deserialize<SapPurchaseDownPaymentRequest>(request.RequestBody);
-                if (body == null) return sapBaseResponse;
+                var body = JsonSerializer.Deserialize<SapPurchaseDownPaymentRequest>(
+                    request.RequestBody, RequestBodyJsonOptions);
+                if (body is null)
+                {
+                    throw new ApiErrorException(
+                        BaseErrorCodes.ValidationFailed,
+                        "Unable to post to SAP — the down payment approval payload could not be read.");
+                }
 
                 var dpRecords = await GetStageWisePaymentsLinkedToApprovalAsync(
                     request.Id, request.CompanyDb, cancellationToken);
@@ -130,12 +153,22 @@ public class ApprovalExecutionService(
 
                 if (request.Action == ApprovalAction.Create)
                 {
-                    var dpResponse = await sapPurchaseDownPaymentService.SaveDownPayment(body, request.Id);
+                    var dpResponse = await sapPurchaseDownPaymentService.SaveDownPayment(
+                        body, request.Id, request.SupportingData, ignoreApproval: true);
                     sapBaseResponse = dpResponse;
+
+                    if (dpResponse?.PendingApproval == true)
+                    {
+                        throw new ApiErrorException(
+                            BaseErrorCodes.Conflict,
+                            "Down payment is already approved but SAP posting did not proceed. Use Retry SAP.");
+                    }
+
                     var docEntry = dpResponse?.DocEntry?.ToString() ?? "";
                     var docNumber = dpResponse?.DocNum?.ToString() ?? "";
 
-                    if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value))
+                    if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value)
+                        && !string.IsNullOrWhiteSpace(docEntry))
                     {
                         foreach (var item in dpRecords)
                         {
@@ -143,6 +176,7 @@ public class ApprovalExecutionService(
                                 item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNum?.ToString();
                             else
                                 item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNum;
+                            item.DownPaymentDocEntry = AppendDocEntry(item.DownPaymentDocEntry, docEntry);
                             context.AttachModified(item);
                         }
                         await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask, cancellationToken);
@@ -158,9 +192,35 @@ public class ApprovalExecutionService(
             }
             case ApprovalDocumentType.Payments:
             {
-                var body = JsonSerializer.Deserialize<SapVendorPaymentRequests>(request.RequestBody);
+                var body = JsonSerializer.Deserialize<SapVendorPaymentRequests>(
+                    request.RequestBody, RequestBodyJsonOptions);
+                if (body is null)
+                {
+                    throw new ApiErrorException(
+                        BaseErrorCodes.ValidationFailed,
+                        "Unable to post to SAP — the payment approval payload could not be read.");
+                }
+
+                body.CashFlowAssignments ??= [];
+                body.PaymentInvoices ??= [];
+
                 var record = await FindStageWisePaymentForApprovalAsync(request);
-                if (body is not null && record is not null)
+                var linkedRecords = await GetStageWisePaymentsLinkedToApprovalAsync(
+                    request.Id, request.CompanyDb, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(record?.PaymentDocEntry)
+                    || linkedRecords.Any(r => !string.IsNullOrWhiteSpace(r.PaymentDocEntry)))
+                {
+                    var existingDocEntry = record?.PaymentDocEntry
+                        ?? linkedRecords.First(r => !string.IsNullOrWhiteSpace(r.PaymentDocEntry)).PaymentDocEntry;
+                    return new SapBaseResponse
+                    {
+                        ApprovalDocEntry = existingDocEntry,
+                        ApprovalDocNumber = record?.ApDownPaymentInvoiceEntryNumber
+                            ?? linkedRecords.FirstOrDefault()?.ApDownPaymentInvoiceEntryNumber,
+                    };
+                }
+
+                if (record is not null)
                 {
                     var batch = await context.StageWisePaymentBatches
                         .FirstOrDefaultAsync(b =>
@@ -214,15 +274,27 @@ public class ApprovalExecutionService(
                     }
                 }
 
-                if (body == null) return sapBaseResponse;
                 if (request.Action == ApprovalAction.Create)
                 {
-                    var dpResponse = await sapVendorPaymentService.CreateVendorPayments(body, request.Id);
+                    var dpResponse = await sapVendorPaymentService.CreateVendorPayments(
+                        body,
+                        request.Id,
+                        request.SupportingData,
+                        ignoreApproval: true);
                     sapBaseResponse = dpResponse;
+
+                    if (dpResponse?.PendingApproval == true)
+                    {
+                        throw new ApiErrorException(
+                            BaseErrorCodes.Conflict,
+                            "Payment is already approved but SAP posting did not proceed. Use Retry SAP.");
+                    }
+
                     var docEntry = dpResponse?.DocEntry?.ToString() ?? "";
                     var docNumber = dpResponse?.DocNumber?.ToString() ?? "";
 
-                    if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value))
+                    if (string.IsNullOrEmpty(sapBaseResponse?.Error?.Message?.Value)
+                        && !string.IsNullOrWhiteSpace(docEntry))
                     {
                         var records = await GetStageWisePaymentsLinkedToApprovalAsync(request.Id, request.CompanyDb, cancellationToken);
 
@@ -232,7 +304,7 @@ public class ApprovalExecutionService(
                                 item.ApDownPaymentInvoiceEntryNumber = dpResponse?.DocNumber?.ToString();
                             else
                                 item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNumber;
-                            item.PaymentDocEntry = dpResponse?.DocEntry?.ToString();
+                            item.PaymentDocEntry = docEntry;
                             context.AttachModified(item);
                         }
                         await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask, cancellationToken);
@@ -256,48 +328,59 @@ public class ApprovalExecutionService(
 
     public async Task FinalizeApprovalAsync(ApprovalRequest result, ApprovalActionData? data, SapBaseResponse? sapResponse, CancellationToken cancellationToken = default)
     {
-        if (sapResponse is not null)
+        if (sapResponse is not null
+            && !string.IsNullOrWhiteSpace(sapResponse.ApprovalDocEntry))
         {
             result.SapResponseDocEntry = sapResponse.ApprovalDocEntry;
             result.SapResponseDocNum = sapResponse.ApprovalDocNumber;
+        }
 
-            if (result.PurchaseOrderId is null
-                && result.DocumentType is ApprovalDocumentType.PurchaseOrder
-                    or ApprovalDocumentType.StagewisePayments_DP
-                    or ApprovalDocumentType.Payments)
+        if (result.PurchaseOrderId is null
+            && sapResponse is not null
+            && result.DocumentType is ApprovalDocumentType.PurchaseOrder
+                or ApprovalDocumentType.StagewisePayments_DP
+                or ApprovalDocumentType.Payments)
+        {
+            if (int.TryParse(sapResponse.ApprovalDocEntry, out var poDocEntry) && poDocEntry > 0
+                && result.DocumentType == ApprovalDocumentType.PurchaseOrder)
             {
-                if (int.TryParse(sapResponse.ApprovalDocEntry, out var poDocEntry) && poDocEntry > 0
-                    && result.DocumentType == ApprovalDocumentType.PurchaseOrder)
+                result.PurchaseOrderId = await purchaseOrderLinks.EnsureIdByDocEntryAsync(poDocEntry, cancellationToken);
+            }
+            else if (int.TryParse(result.SupportingData, out var supportDocEntry) && supportDocEntry > 0)
+            {
+                result.PurchaseOrderId = await purchaseOrderLinks.EnsureIdByDocEntryAsync(supportDocEntry, cancellationToken);
+            }
+        }
+
+        var isPaymentApproval = result.DocumentType is ApprovalDocumentType.Payments
+            or ApprovalDocumentType.StagewisePayments_DP;
+        if (!isPaymentApproval && sapResponse is null)
+            return;
+
+        await unitOfWork.ExecuteInTransactionAsync(async _ =>
+        {
+            if (result.DocumentType == ApprovalDocumentType.Payments)
+            {
+                var record = await FindStageWisePaymentForApprovalAsync(result);
+                if (record != null)
                 {
-                    result.PurchaseOrderId = await purchaseOrderLinks.EnsureIdByDocEntryAsync(poDocEntry, cancellationToken);
-                }
-                else if (int.TryParse(result.SupportingData, out var supportDocEntry) && supportDocEntry > 0)
-                {
-                    result.PurchaseOrderId = await purchaseOrderLinks.EnsureIdByDocEntryAsync(supportDocEntry, cancellationToken);
+                    record.UtrDate = data?.UtrDate;
+                    record.UtrNo = data?.UtrNo;
+                    if (record.PurchaseOrderId is null && result.PurchaseOrderId is not null)
+                        record.PurchaseOrderId = result.PurchaseOrderId;
+                    context.AttachModified(record);
                 }
             }
 
-            await unitOfWork.ExecuteInTransactionAsync(async _ =>
+            if (isPaymentApproval)
             {
-                if (result.DocumentType == ApprovalDocumentType.Payments)
-                {
-                    var record = await FindStageWisePaymentForApprovalAsync(result);
-                    if (record != null)
-                    {
-                        record.UtrDate = data?.UtrDate;
-                        record.UtrNo = data?.UtrNo;
-                        if (record.PurchaseOrderId is null && result.PurchaseOrderId is not null)
-                            record.PurchaseOrderId = result.PurchaseOrderId;
-                        context.AttachModified(record);
-                    }
-                }
+                await stageWisePaymentService.MarkApprovedWhenAllRequestsCompleteAsync(
+                    result.Id, result.CompanyDb);
+            }
 
-                if (result.DocumentType is ApprovalDocumentType.Payments or ApprovalDocumentType.StagewisePayments_DP)
-                    await stageWisePaymentService.MarkApprovedWhenAllRequestsCompleteAsync(result.Id);
-
+            if (sapResponse is not null && !string.IsNullOrWhiteSpace(sapResponse.ApprovalDocEntry))
                 context.AttachModified(result);
-            }, cancellationToken);
-        }
+        }, cancellationToken);
     }
 
     private Task<StageWisePayment?> FindStageWisePaymentForApprovalAsync(ApprovalRequest request) =>
@@ -332,4 +415,7 @@ public class ApprovalExecutionService(
         record.ApprovalRequestId?
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Any(x => x == approvalRequestId) == true;
+
+    private static string AppendDocEntry(string? existing, string next) =>
+        string.IsNullOrWhiteSpace(existing) ? next : existing + "," + next;
 }
