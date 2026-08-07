@@ -231,7 +231,7 @@ public class StageWisePaymentPageService(
     {
         Id = record.Id,
         PaymentTermsType = record.PaymentTermsType,
-        PaymentStageId = ResolvePaymentStageId(record, batchTermMap),
+        PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(record.Id),
         StageDesc = record.StageDesc,
         Bank = record.Bank,
         UtrNo = record.UtrNo,
@@ -249,19 +249,6 @@ public class StageWisePaymentPageService(
         CreatedOn = record.CreatedOn,
         LastModifiedOn = record.LastModifiedOn,
     };
-
-    private static string? ResolvePaymentStageId(
-        StageWisePayment record,
-        IReadOnlyDictionary<int, IReadOnlyList<int>>? batchTermMap)
-    {
-        if (record.PaymentTermsType is int termId && termId > 0)
-            return StageWisePaymentService.FormatPaymentStageId(termId);
-
-        if (batchTermMap is not null && batchTermMap.TryGetValue(record.Id, out var termIds))
-            return StageWisePaymentService.FormatPaymentStageId(termIds);
-
-        return null;
-    }
 
     private static string? ResolveOutgoingPaymentNumber(StageWisePayment record)
     {

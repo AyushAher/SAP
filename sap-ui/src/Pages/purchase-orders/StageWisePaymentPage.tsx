@@ -310,7 +310,7 @@ export function StageWisePaymentPage() {
                   <th className="px-4 py-3 font-medium">Request ID</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">SAP Document No.</th>
-                  <th className="px-4 py-3 font-medium">Payment Stage ID</th>
+                  <th className="px-4 py-3 font-medium">Payment Request ID</th>
                   <th className="px-4 py-3 font-medium">Payment Term</th>
                   <th className="px-4 py-3 text-right font-medium">Gross Amount</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
@@ -356,7 +356,7 @@ export function StageWisePaymentPage() {
                           <Badge>{normalizeStatus(record.status)}</Badge>
                         </td>
                         <td className="px-4 py-3">{record.outgoingPaymentNumber || '—'}</td>
-                        <td className="px-4 py-3">{record.paymentStageId || '—'}</td>
+                        <td className="px-4 py-3">{record.paymentRequestId ?? record.id ?? '—'}</td>
                         <td className="px-4 py-3">{paymentTermForRecord(record)}</td>
                         <td className="px-4 py-3 text-right font-medium">{formatAmount(recordGrossAmount(record))}</td>
                         <td className="px-4 py-3">

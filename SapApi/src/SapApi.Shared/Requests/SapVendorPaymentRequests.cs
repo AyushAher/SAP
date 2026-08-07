@@ -55,9 +55,9 @@
         [JsonPropertyName("BPLID"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? BPLId { get; set; }
 
-        /// <summary>Payment Stage ID from the payment request (PO payment-term slot 1–11).</summary>
+        /// <summary>Payment Request ID (<see cref="Domain.Entities.StageWisePayment.Id"/>) sent to SAP UDF U_BSC_3.</summary>
         [JsonPropertyName("U_BSC_3"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public string? PaymentStageId { get; set; }
+        public string? PaymentRequestId { get; set; }
     }
 
     public class CashFlowAssignments

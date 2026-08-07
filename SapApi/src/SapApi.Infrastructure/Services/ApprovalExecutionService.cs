@@ -150,6 +150,8 @@ public class ApprovalExecutionService(
                 var postingDate = dpBatch?.PostingDate ?? body.DocDate ?? utrDate;
                 StageWisePaymentService.ApplyPostingDate(body, postingDate);
                 if (utrDate is not null) body.DocDueDate = utrDate.Value;
+                if (dpRecord is not null)
+                    body.PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(dpRecord.Id);
 
                 if (request.Action == ApprovalAction.Create)
                 {
@@ -273,6 +275,9 @@ public class ApprovalExecutionService(
                         }
                     }
                 }
+
+                if (record is not null)
+                    body.PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(record.Id);
 
                 if (request.Action == ApprovalAction.Create)
                 {

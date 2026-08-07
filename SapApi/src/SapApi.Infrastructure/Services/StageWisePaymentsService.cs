@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.Sap;
@@ -70,7 +71,18 @@ public class StageWisePaymentService(
         var entity1 = entity;
         entity1.CompanyDb = CompanyDb;
         entity1.PurchaseOrderId ??= await purchaseOrderLinks.EnsureIdFromSapPoAsync(purchaseOrder);
-        var paymentTermsLabel = selectedPaymentTermsUdf.DropDownValue();
+        var paymentTermsLabel = StageWisePaymentCalculations.FormatDownPaymentRemarkLabel(selectedPaymentTermsUdf);
+        entity1.StageDesc = desc;
+        entity1.WtCode = wtCode;
+        entity1.PaymentTermsType = selectedPaymentTermsUdf.Id;
+        entity1.DocNumber = purchaseOrder.DocNum;
+        entity1.Status = StageWisePaymentStatus.Added;
+
+        var (persisted, persistMessage) = await EnsurePaymentRequestPersistedAsync(entity1);
+        if (!persisted)
+            return (false, persistMessage, null);
+
+        var paymentRequestId = FormatPaymentRequestId(entity1.Id);
 
         SapBaseResponse? sapResponse = null;
         double tdsAmount = 0;
@@ -89,7 +101,9 @@ public class StageWisePaymentService(
                 purchaseOrder, selectedPaymentTermsUdf, downPaymentAmount, totalBasic, existingRecords);
             entity1.GrossAmount = gross;
             entity1.GstAmount = gst;
-            (sapResponse, tdsAmount) = await AddToSap(purchaseOrder, selectedPaymentTermsUdf, false, downPaymentAmount, wtCode, paymentTermsLabel, entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted);
+            (sapResponse, tdsAmount) = await AddToSap(
+                purchaseOrder, selectedPaymentTermsUdf, false, downPaymentAmount, wtCode, paymentTermsLabel,
+                entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted, paymentRequestId);
             if (sapResponse is not null && sapResponse.PendingApproval)
             {
                 entity1.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
@@ -97,7 +111,7 @@ public class StageWisePaymentService(
             }
             else if (sapResponse?.Error?.Message?.Value is not null)
             {
-                return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null);
+                return await FailCreatePaymentAsync(entity1, $"SAP Error: {sapResponse.Error.Message.Value}");
             }
             else if (sapResponse?.BaseDocEntry.HasValue == true)
             {
@@ -131,9 +145,9 @@ public class StageWisePaymentService(
                 entity1.GrossAmount ?? 0,
                 entity1.GstAmount ?? 0,
                 hadTdsDeducted,
-                FormatPaymentStageId(selectedPaymentTermsUdf.Id));
+                paymentRequestId);
             if (!dpOk)
-                return (false, dpMessage, null);
+                return await FailCreatePaymentAsync(entity1, dpMessage);
             tdsAmount = dpTds;
             entity1.Tds = tdsAmount;
         }
@@ -152,9 +166,9 @@ public class StageWisePaymentService(
                 grossAmount: 0,
                 gstAmount: downPaymentAmount,
                 hadTdsDeducted,
-                FormatPaymentStageId(selectedPaymentTermsUdf.Id));
+                paymentRequestId);
             if (!dpOk)
-                return (false, dpMessage, null);
+                return await FailCreatePaymentAsync(entity1, dpMessage);
             tdsAmount = dpTds;
             entity1.Tds = tdsAmount;
         }
@@ -163,24 +177,21 @@ public class StageWisePaymentService(
         if (string.IsNullOrEmpty(entity1.ApDownPaymentInvoiceEntryNumber)
              && string.IsNullOrEmpty(entity1.ApprovalRequestId))
         {
-            return (false, "No records saved in SAP!", null);
+            return await FailCreatePaymentAsync(entity1, "No records saved in SAP!");
         }
 
         if (!string.IsNullOrEmpty(entity1.ApprovalRequestId))
             entity1.Status = StageWisePaymentStatus.PendingApproval;
         else entity1.Status = StageWisePaymentStatus.Added;
 
-        entity1.StageDesc = desc;
-        entity1.WtCode = wtCode;
-        entity1.CreatedOn = DateTime.UtcNow;
-        entity1.PaymentTermsType = selectedPaymentTermsUdf.Id;
         entity1.LastModifiedOn = DateTime.UtcNow;
 
         try
         {
-            await unitOfWork.ExecuteInTransactionAsync(async ct =>
+            await unitOfWork.ExecuteInTransactionAsync(_ =>
             {
-                await context.StageWisePayments.AddAsync(entity1, ct);
+                context.StageWisePayments.Update(entity1);
+                return Task.CompletedTask;
             });
         }
         catch (Exception ex)
@@ -203,7 +214,7 @@ public class StageWisePaymentService(
                 entity.Bank,
                 netOutgoing,
                 paymentInvoices,
-                paymentStageId: FormatPaymentStageId(selectedPaymentTermsUdf.Id));
+                paymentRequestId: paymentRequestId);
 
             if (outgoingResponse?.PendingApproval == true)
             {
@@ -294,17 +305,7 @@ public class StageWisePaymentService(
         totalGst = Math.Round(totalGst, 2);
         const string batchDesc = "Batch down payment";
         const bool hadTdsDeducted = false;
-        var paymentTermsLabel = string.Join(", ",
-            lines.SelectMany(l => l.PaymentTermsTypes)
-                .Where(id => id > 0)
-                .Distinct()
-                .OrderBy(id => id)
-                .Select(id =>
-                {
-                    var term = paymentTerms.FirstOrDefault(t => t.Id == id);
-                    return term?.DropDownValue() ?? term?.Desc ?? $"Term {id}";
-                })
-                .Where(label => !string.IsNullOrWhiteSpace(label)));
+        var paymentTermsLabel = StageWisePaymentCalculations.ResolveBatchDownPaymentRemarkLabel(paymentTerms, lines);
 
         var entity = new StageWisePayment
         {
@@ -322,8 +323,11 @@ public class StageWisePaymentService(
         };
 
         // Separate SAP AP Down Payments for Basic and GST; one Outgoing Payment covers both.
-        var paymentStageId = FormatPaymentStageId(
-            lines.SelectMany(l => l.PaymentTermsTypes));
+        var (persisted, persistMessage) = await EnsurePaymentRequestPersistedAsync(entity);
+        if (!persisted)
+            return (false, persistMessage, null);
+
+        var paymentRequestId = FormatPaymentRequestId(entity.Id);
 
         var (dpOk, dpMessage, tdsAmount) = await ApplySeparateDownPaymentsAsync(
             entity,
@@ -333,7 +337,7 @@ public class StageWisePaymentService(
             totalGross,
             totalGst,
             hadTdsDeducted,
-            paymentStageId,
+            paymentRequestId,
             postingDate);
         if (!dpOk)
             return (false, dpMessage, null);
@@ -361,7 +365,7 @@ public class StageWisePaymentService(
                 netOutgoing,
                 paymentInvoices,
                 userRemark,
-                paymentStageId);
+                paymentRequestId);
 
             if (outgoingResponse?.PendingApproval == true)
             {
@@ -385,9 +389,10 @@ public class StageWisePaymentService(
 
         try
         {
-            await unitOfWork.ExecuteInTransactionAsync(async ct =>
+            await unitOfWork.ExecuteInTransactionAsync(_ =>
             {
-                await context.StageWisePayments.AddAsync(entity, ct);
+                context.StageWisePayments.Update(entity);
+                return Task.CompletedTask;
             }, cancellationToken);
         }
         catch (Exception ex)
@@ -406,7 +411,7 @@ public class StageWisePaymentService(
         double grossAmount,
         double gstAmount,
         bool hadTdsDeducted,
-        string? paymentStageId = null,
+        string? paymentRequestId = null,
         DateTime? postingDate = null)
     {
         var docNums = new List<string>();
@@ -418,7 +423,7 @@ public class StageWisePaymentService(
         {
             var (sapResponse, basicTds) = await AddDownPayment(
                 purchaseOrder, isGst: false, grossAmount, wtCode, desc, hadTdsDeducted,
-                paymentStageId, postingDate);
+                paymentRequestId, postingDate);
 
             if (sapResponse?.PendingApproval == true)
             {
@@ -447,7 +452,7 @@ public class StageWisePaymentService(
         {
             var (sapResponse, _) = await AddDownPayment(
                 purchaseOrder, isGst: true, gstAmount, wtCode, desc, hadTdsDeducted,
-                paymentStageId, postingDate);
+                paymentRequestId, postingDate);
 
             if (sapResponse?.PendingApproval == true)
             {
@@ -557,14 +562,70 @@ public class StageWisePaymentService(
         return existing + "," + next;
     }
 
-    /// <summary>Formats payment-term slot IDs (1–11) for SAP UDF U_BSC_3.</summary>
-    public static string? FormatPaymentStageId(int? id) =>
+    /// <summary>Formats <see cref="StageWisePayment.Id"/> for SAP UDF U_BSC_3.</summary>
+    public static string? FormatPaymentRequestId(int? id) =>
         id is null or <= 0 ? null : id.Value.ToString();
 
-    public static string? FormatPaymentStageId(IEnumerable<int> ids)
+    public async Task<(bool Success, string Message)> EnsurePaymentRequestPersistedAsync(
+        StageWisePayment entity,
+        CancellationToken cancellationToken = default)
     {
-        var list = ids.Where(x => x > 0).Distinct().OrderBy(x => x).ToList();
-        return list.Count == 0 ? null : string.Join(",", list);
+        if (entity.Id > 0)
+            return (true, string.Empty);
+
+        entity.CompanyDb = string.IsNullOrWhiteSpace(entity.CompanyDb) ? CompanyDb : entity.CompanyDb;
+        entity.CreatedOn = DateTime.UtcNow;
+        entity.LastModifiedOn = DateTime.UtcNow;
+        if (entity.Status == default)
+            entity.Status = StageWisePaymentStatus.Added;
+
+        try
+        {
+            await unitOfWork.ExecuteInTransactionAsync(async ct =>
+            {
+                await context.StageWisePayments.AddAsync(entity, ct);
+            }, cancellationToken);
+            return (true, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Failed to allocate payment request ID: {ex.Message}");
+        }
+    }
+
+    public Task DiscardDraftPaymentRequestAsync(int paymentRequestId, CancellationToken cancellationToken = default) =>
+        RemoveDraftPaymentRequestAsync(paymentRequestId, cancellationToken);
+
+    private async Task RemoveDraftPaymentRequestAsync(int paymentRequestId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await unitOfWork.ExecuteInTransactionAsync(async ct =>
+            {
+                var draft = await context.StageWisePayments
+                    .FirstOrDefaultAsync(x => x.Id == paymentRequestId && x.CompanyDb == CompanyDb, ct);
+                if (draft is not null)
+                    context.StageWisePayments.Remove(draft);
+            }, cancellationToken);
+        }
+        catch
+        {
+            // Best-effort cleanup when SAP posting fails after pre-allocation.
+        }
+    }
+
+    private async Task<(bool IsSuccess, string Message, int? PaymentId)> FailCreatePaymentAsync(
+        StageWisePayment entity,
+        string message)
+    {
+        if (entity.Id > 0
+            && string.IsNullOrEmpty(entity.ApDownPaymentInvoiceEntryNumber)
+            && string.IsNullOrEmpty(entity.ApprovalRequestId))
+        {
+            await RemoveDraftPaymentRequestAsync(entity.Id);
+        }
+
+        return (false, message, null);
     }
 
     private async Task<(SapBaseResponse? response, double tdsAmount)> AddToSap(
@@ -573,15 +634,16 @@ public class StageWisePaymentService(
         bool isGst,
         double amount,
         string? wtCode,
-        string? desc, string? bank, string? apInvoiceDoc, bool hadTdsDeducted)
+        string? desc, string? bank, string? apInvoiceDoc, bool hadTdsDeducted,
+        string? paymentRequestId)
     {
         if (purchaseOrder.DocumentStatus == "bost_Close" || paymentTerms?.Type is "Invoice" or "Retention")
             return await AddOutgoingPayment(
                 purchaseOrder, bank, amount, apInvoiceDoc, hadTdsDeducted,
-                paymentStageId: FormatPaymentStageId(paymentTerms?.Id));
+                paymentRequestId: paymentRequestId);
         return await AddDownPayment(
             purchaseOrder, isGst, amount, wtCode, desc, hadTdsDeducted,
-            paymentStageId: FormatPaymentStageId(paymentTerms?.Id));
+            paymentRequestId: paymentRequestId);
     }
 
     private async Task<(SapBaseResponse? response, double tds)> AddOutgoingPayment(
@@ -592,7 +654,7 @@ public class StageWisePaymentService(
         bool hadTdsDeducted,
         string? invoiceType = Constants.SapVendorPaymentInvoiceType.Invoice,
         string? userRemark = null,
-        string? paymentStageId = null)
+        string? paymentRequestId = null)
     {
         SapPurchaseInvoicesResponse? apInvoice = null;
         if (int.TryParse(apInvoiceDoc, out var apInvoiceDocEntry))
@@ -654,7 +716,7 @@ public class StageWisePaymentService(
             },
         };
 
-        var (response, _) = await AddOutgoingPayment(purchaseOrder, bank, net, invoices, userRemark, paymentStageId);
+        var (response, _) = await AddOutgoingPayment(purchaseOrder, bank, net, invoices, userRemark, paymentRequestId);
         if (response is not null)
             response.SupportingData = (apInvoice?.WTAmount ?? 0).ToString();
         return (response, hadTdsDeducted ? 0 : apInvoice?.WTAmount ?? 0);
@@ -666,7 +728,7 @@ public class StageWisePaymentService(
         double transferSum,
         IReadOnlyList<PaymentInvoice> paymentInvoices,
         string? userRemark = null,
-        string? paymentStageId = null)
+        string? paymentRequestId = null)
     {
         if (paymentInvoices.Count == 0 || transferSum <= 0)
         {
@@ -699,7 +761,7 @@ public class StageWisePaymentService(
                     userRemark, purchaseOrder?.BPLId, purchaseOrder?.DocNum?.ToString()),
                 PaymentInvoices = paymentInvoices.ToList(),
                 BPLId = purchaseOrder?.BPLId ?? 1,
-                PaymentStageId = paymentStageId,
+                PaymentRequestId = paymentRequestId,
             }, supportingData: purchaseOrder?.DocEntry.ToString());
         }
         catch (ApiErrorException ex)
@@ -726,7 +788,7 @@ public class StageWisePaymentService(
         string? wtCode,
         string? desc,
         bool hadTdsDeducted,
-        string? paymentStageId = null,
+        string? paymentRequestId = null,
         DateTime? postingDate = null)
     {
         // Draw PO lines with LineTotals that sum to the requested amount. Sending base refs alone
@@ -793,7 +855,7 @@ public class StageWisePaymentService(
             DocTotal = roundedAmount,
             BPLId = purchaseOrder.BPLId ?? 1,
             Comments = Constants.PaymentRemarks.BuildDownPayment(desc, purchaseOrder.DocNum?.ToString()),
-            PaymentStageId = paymentStageId,
+            PaymentRequestId = paymentRequestId,
             WithholdingTaxDataCollection = null,
         };
         ApplyPostingDate(req, postingDate);

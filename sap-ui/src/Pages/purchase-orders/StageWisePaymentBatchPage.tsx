@@ -922,7 +922,7 @@ export function StageWisePaymentBatchPage() {
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
                     <th className="px-3 py-2">Payment Type</th>
-                    <th className="px-3 py-2">Payment Stage ID</th>
+                    <th className="px-3 py-2">Payment Request ID</th>
                     <th className="px-3 py-2">AP Invoice</th>
                     <th className="px-3 py-2 text-right">AP Invoice Balance Due</th>
                     <th className="px-3 py-2 text-right">Payable</th>
@@ -940,7 +940,9 @@ export function StageWisePaymentBatchPage() {
                     const apLabel = readOnly
                       ? batchLine?.apInvoiceLabel
                       : undefined
-                    const paymentStageId = termIds.filter((id) => id > 0).join(', ') || '—'
+                    const paymentRequestId = readOnly && batch?.stageWisePaymentId
+                      ? String(batch.stageWisePaymentId)
+                      : '—'
                     return (
                       <tr key={row.key} className="border-b border-slate-100 align-top">
                         <td className="px-3 py-3 min-w-[240px] align-top">
@@ -961,7 +963,7 @@ export function StageWisePaymentBatchPage() {
                             />
                           )}
                         </td>
-                        <td className="px-3 py-3 whitespace-nowrap align-top">{paymentStageId}</td>
+                        <td className="px-3 py-3 whitespace-nowrap align-top">{paymentRequestId}</td>
                         <td className="px-3 py-2 min-w-[220px]">
                           {readOnly ? (
                             <span>{apLabel ?? (row.apInvoiceDocEntry || '—')}</span>

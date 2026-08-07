@@ -325,6 +325,58 @@ public static class StageWisePaymentCalculations
             .FirstOrDefault(t => t?.Type is not "Invoice" and not "Retention")
         ?? selectedTermIds.Select(id => paymentTerms.FirstOrDefault(t => t.Id == id)).FirstOrDefault(t => t is not null);
 
+    /// <summary>
+    /// Single payment-term text for ODPO Comments — Desc, then Stage, then Type.
+    /// Avoids DropDownValue's "Basic X% &amp; GST Y%" fallback, which reads as two stages.
+    /// </summary>
+    public static string FormatDownPaymentRemarkLabel(PaymentTermsUdf? term)
+    {
+        if (term is null)
+            return "Down Payment";
+
+        if (!string.IsNullOrWhiteSpace(term.Desc))
+            return term.Desc.Trim();
+
+        if (!string.IsNullOrWhiteSpace(term.Stage))
+            return term.Stage.Trim();
+
+        if (!string.IsNullOrWhiteSpace(term.Type))
+            return term.Type.Trim();
+
+        return "Down Payment";
+    }
+
+    /// <summary>
+    /// Resolves one remark label for batch down payments — never comma-joins multiple PO payment stages.
+    /// </summary>
+    public static string ResolveBatchDownPaymentRemarkLabel(
+        IReadOnlyList<PaymentTermsUdf> paymentTerms,
+        IReadOnlyList<StageWisePaymentBatchLineRequest> lines)
+    {
+        if (lines.Count == 0)
+            return "Down Payment";
+
+        if (lines.Count == 1)
+        {
+            var term = ResolveDownPaymentTerm(paymentTerms, lines[0].PaymentTermsTypes);
+            return FormatDownPaymentRemarkLabel(term);
+        }
+
+        var distinctTermIds = lines
+            .SelectMany(l => l.PaymentTermsTypes)
+            .Where(id => id > 0)
+            .Distinct()
+            .ToList();
+
+        if (distinctTermIds.Count == 1)
+        {
+            var term = paymentTerms.FirstOrDefault(t => t.Id == distinctTermIds[0]);
+            return FormatDownPaymentRemarkLabel(term);
+        }
+
+        return "Batch down payment";
+    }
+
     public static (double BalanceDue, double Payable) ResolveBatchRowAmounts(
         SapPurchaseOrdersResponse po,
         IReadOnlyList<PaymentTermsUdf> paymentTerms,

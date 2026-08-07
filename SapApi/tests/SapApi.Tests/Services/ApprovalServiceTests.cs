@@ -8,6 +8,7 @@ using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Infrastructure.Services.PurchaseOrders;
+using SapApi.Tests.Services.PurchaseOrders;
 using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Requests;
@@ -64,7 +65,7 @@ public class ApprovalServiceTests
         companyDbAccessor.Setup(x => x.GetCompanyDbName()).Returns(CompanyDb);
 
         var requestHandler = new Mock<IHttpRequestHandler>();
-        var localStore = new PurchaseOrderLocalStore(_context, requestHandler.Object, companyDbAccessor.Object);
+        var localStore = PurchaseOrderLocalStoreTestHelper.Create(_context, requestHandler.Object, companyDbAccessor.Object);
         var purchaseOrderLinks = new PurchaseOrderLinkResolver(_context, companyDbAccessor.Object, localStore);
 
         _sut = new ApprovalService(

@@ -10,8 +10,8 @@ export interface PaymentTermUdf {
 export interface StageWisePayment {
   id: number
   paymentTermsType?: number
-  /** Payment Stage ID(s) sent to SAP as U_BSC_3 (PO payment-term slot 1–11). */
-  paymentStageId?: string
+  /** Payment Request ID (StageWisePayment.id) sent to SAP as U_BSC_3. */
+  paymentRequestId?: string
   stageDesc?: string
   bank?: string
   grossAmount?: number
