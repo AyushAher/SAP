@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Ban, Download, Layers, Plus, Trash2 } from 'lucide-react'
+import { Ban, Download, Layers, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
 import { Button, Card, CardContent, Badge } from '@/Components/ui'
-import { getApprovalRequest, type ApprovalRequest } from '@/Requests/approvals'
+import { getApprovalRequest, retrySapExecution, type ApprovalRequest } from '@/Requests/approvals'
 import { ROUTES } from '@/config/constants'
 import { isAdminUser } from '@/helpers/roles'
+import { toast } from '@/helpers/toast'
 import { useAppSelector } from '@/store/hooks'
 import {
   cancelStageWisePayment,
@@ -189,6 +190,28 @@ export function StageWisePaymentPage() {
     }
   }
 
+  const handleRetrySap = async (record: StageWisePayment) => {
+    const approvalRequestId = record.retrySapApprovalRequestId
+    if (!approvalRequestId) return
+    if (!window.confirm(`Retry SAP posting for approval request #${approvalRequestId}?`)) return
+
+    setActingId(record.id)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      await retrySapExecution(approvalRequestId)
+      toast.success(`Approval #${approvalRequestId} posted to SAP successfully.`)
+      setSuccessMessage('SAP posting succeeded.')
+      await reload()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'SAP retry failed'
+      setError(message)
+      toast.error(message)
+    } finally {
+      setActingId(null)
+    }
+  }
+
   const poDate = po?.PostingDate ?? po?.DocDate
 
   return (
@@ -361,6 +384,18 @@ export function StageWisePaymentPage() {
                         <td className="px-4 py-3 text-right font-medium">{formatAmount(recordGrossAmount(record))}</td>
                         <td className="px-4 py-3">
                           <RowActions>
+                            {record.canRetrySap && record.retrySapApprovalRequestId != null && (
+                              <RowActionButton
+                                title="Retry SAP posting"
+                                disabled={busy}
+                                icon={(
+                                  <RefreshCw
+                                    className={`${rowActionIconClassName}${busy ? ' animate-spin' : ''}`}
+                                  />
+                                )}
+                                onClick={() => void handleRetrySap(record)}
+                              />
+                            )}
                             {isBatchPayment(record) && (
                               <RowActionButton
                                 title="Open batch"

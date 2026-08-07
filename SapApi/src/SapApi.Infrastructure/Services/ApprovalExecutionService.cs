@@ -48,7 +48,8 @@ public class ApprovalExecutionService(
 
         try
         {
-            return await ExecuteInternalAsync(request, data, cancellationToken);
+            var response = await ExecuteInternalAsync(request, data, cancellationToken);
+            return await EnsurePaymentSapDocOrFailAsync(request, response);
         }
         catch (ApiErrorException ex)
         {
@@ -63,6 +64,50 @@ public class ApprovalExecutionService(
                 },
             };
         }
+        catch (Exception ex)
+        {
+            // Json/deserialization and unexpected SAP client failures must not leave the request
+            // stuck as Approved with a blank SapResponseDocEntry (no Retry surface).
+            var message = string.IsNullOrWhiteSpace(ex.Message)
+                ? "SAP posting failed unexpectedly. Use Retry SAP."
+                : ex.Message;
+            await approvalService.FailedAsync(request.Id, message);
+            return new SapBaseResponse
+            {
+                Error = new SapError
+                {
+                    Message = new SapMessage { Value = message },
+                },
+            };
+        }
+    }
+
+    /// <summary>
+    /// Payment / down-payment approvals must produce a SAP DocEntry. An empty success response used to
+    /// leave OverallStatus=Approved and the StageWisePayment stuck on PendingApproval with no Retry cue.
+    /// </summary>
+    private async Task<SapBaseResponse?> EnsurePaymentSapDocOrFailAsync(ApprovalRequest request, SapBaseResponse? response)
+    {
+        var isPaymentApproval = request.DocumentType is ApprovalDocumentType.Payments
+            or ApprovalDocumentType.StagewisePayments_DP;
+        if (!isPaymentApproval)
+            return response;
+
+        if (!string.IsNullOrEmpty(response?.Error?.Message?.Value))
+            return response;
+
+        if (!string.IsNullOrWhiteSpace(response?.ApprovalDocEntry))
+            return response;
+
+        const string message = "SAP posting did not return a document entry. Use Retry SAP.";
+        await approvalService.FailedAsync(request.Id, message);
+        return new SapBaseResponse
+        {
+            Error = new SapError
+            {
+                Message = new SapMessage { Value = message },
+            },
+        };
     }
 
     private async Task<SapBaseResponse?> ExecuteInternalAsync(ApprovalRequest request, ApprovalActionData? data, CancellationToken cancellationToken)

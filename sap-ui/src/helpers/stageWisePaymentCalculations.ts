@@ -27,6 +27,9 @@ export interface StageWisePayment {
   utrNo?: string
   utrDate?: string
   createdOn?: string
+  /** Workflow complete but SAP posting missing/failed — show row Retry. */
+  canRetrySap?: boolean
+  retrySapApprovalRequestId?: number
 }
 
 export interface ApInvoice {
@@ -141,7 +144,7 @@ export function isPaymentTermSelectable(term: PaymentTermUdf): boolean {
 
 export function normalizeStatus(status: number | string): string {
   if (typeof status === 'string') {
-    if (['Created', 'Approval Pending', 'Approved', 'Cancelled'].includes(status)) return status
+    if (['Created', 'Approval Pending', 'SAP Posting Pending', 'Approved', 'Cancelled'].includes(status)) return status
     if (status === '0') return 'Created'
     if (status === '1') return 'Approval Pending'
     if (status === '2') return 'Approved'

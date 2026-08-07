@@ -3,6 +3,7 @@ using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
+using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Responses;
 using SapApi.Shared.Responses.Sap;
@@ -53,9 +54,11 @@ public class StageWisePaymentPageService(
         var projectNameTask = masterDataService.GetProjectNameAsync(po.Project, cancellationToken);
         var apInvoicesTask = LoadApInvoicesAsync(po, cancellationToken);
         var wtCodesTask = LoadWithholdingTaxCodesAsync(po.CardCode, cancellationToken);
+        var approvalsTask = LoadLinkedApprovalsAsync(tableRecords, cancellationToken);
 
-        await Task.WhenAll(projectNameTask, apInvoicesTask, wtCodesTask);
+        await Task.WhenAll(projectNameTask, apInvoicesTask, wtCodesTask, approvalsTask);
 
+        var linkedApprovals = await approvalsTask;
         var banks = Constants.BankAccounts.GetBanksForBplId(po.BPLId)
             .Select(b => new StageWisePaymentBankOption { Key = b.Key, Value = b.Value })
             .ToList();
@@ -67,15 +70,34 @@ public class StageWisePaymentPageService(
             TotalBasic = totalBasic,
             BalancePayment = StageWisePaymentCalculations.GetBalancePayment(po, activeRecords),
             PaymentTerms = paymentTerms,
-            TableRecords = tableRecords.Select(r => MapRecord(r, batchTermMap)).ToList(),
+            TableRecords = tableRecords.Select(r => MapRecord(r, batchTermMap, linkedApprovals)).ToList(),
             // Expanded so FE stage payable subtracts prior batch Gross/Gst by payment term.
-            ActiveRecords = calcActiveRecords.Select(r => MapRecord(r, batchTermMap)).ToList(),
+            ActiveRecords = calcActiveRecords.Select(r => MapRecord(r, batchTermMap, linkedApprovals)).ToList(),
             Banks = banks,
             BankLabels = Constants.BankAccounts.Banks,
             ApInvoices = await apInvoicesTask,
             WithholdingTaxCodes = await wtCodesTask,
             PaymentSummary = StageWisePaymentCalculations.BuildPaymentSummary(po, activeRecords),
         };
+    }
+
+    private async Task<IReadOnlyDictionary<int, ApprovalRequest>> LoadLinkedApprovalsAsync(
+        IReadOnlyList<StageWisePayment> tableRecords,
+        CancellationToken cancellationToken)
+    {
+        var approvalIds = tableRecords
+            .SelectMany(r => ParseApprovalRequestIds(r.ApprovalRequestId))
+            .Distinct()
+            .ToList();
+        if (approvalIds.Count == 0)
+            return new Dictionary<int, ApprovalRequest>();
+
+        var rows = await db.ApprovalRequests
+            .AsNoTracking()
+            .Where(r => r.CompanyDb == CompanyDb && approvalIds.Contains(r.Id))
+            .ToListAsync(cancellationToken);
+
+        return rows.ToDictionary(r => r.Id);
     }
 
     private async Task<Dictionary<int, IReadOnlyList<int>>> LoadBatchTermMapAsync(
@@ -227,28 +249,37 @@ public class StageWisePaymentPageService(
 
     private static StageWisePaymentRecordDto MapRecord(
         StageWisePayment record,
-        IReadOnlyDictionary<int, IReadOnlyList<int>>? batchTermMap = null) => new()
+        IReadOnlyDictionary<int, IReadOnlyList<int>>? batchTermMap = null,
+        IReadOnlyDictionary<int, ApprovalRequest>? linkedApprovals = null)
     {
-        Id = record.Id,
-        PaymentTermsType = record.PaymentTermsType,
-        PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(record.Id),
-        StageDesc = record.StageDesc,
-        Bank = record.Bank,
-        UtrNo = record.UtrNo,
-        UtrDate = record.UtrDate,
-        ApprovalRequestId = record.ApprovalRequestId,
-        ApInvoiceDocEntry = record.ApInvoiceDocEntry,
-        ApDownPaymentInvoiceEntryNumber = record.ApDownPaymentInvoiceEntryNumber,
-        OutgoingPaymentNumber = ResolveOutgoingPaymentNumber(record),
-        WtCode = record.WtCode,
-        GrossAmount = record.GrossAmount,
-        GstAmount = record.GstAmount,
-        Tds = record.Tds,
-        Status = MapStatus(record.Status),
-        DocNumber = record.DocNumber,
-        CreatedOn = record.CreatedOn,
-        LastModifiedOn = record.LastModifiedOn,
-    };
+        linkedApprovals ??= new Dictionary<int, ApprovalRequest>();
+        var (canRetrySap, retryRequestId) = ResolveRetrySap(record, linkedApprovals);
+
+        return new StageWisePaymentRecordDto
+        {
+            Id = record.Id,
+            PaymentTermsType = record.PaymentTermsType,
+            PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(record.Id),
+            StageDesc = record.StageDesc,
+            Bank = record.Bank,
+            UtrNo = record.UtrNo,
+            UtrDate = record.UtrDate,
+            ApprovalRequestId = record.ApprovalRequestId,
+            ApInvoiceDocEntry = record.ApInvoiceDocEntry,
+            ApDownPaymentInvoiceEntryNumber = record.ApDownPaymentInvoiceEntryNumber,
+            OutgoingPaymentNumber = ResolveOutgoingPaymentNumber(record),
+            WtCode = record.WtCode,
+            GrossAmount = record.GrossAmount,
+            GstAmount = record.GstAmount,
+            Tds = record.Tds,
+            Status = MapStatus(record, linkedApprovals),
+            DocNumber = record.DocNumber,
+            CreatedOn = record.CreatedOn,
+            LastModifiedOn = record.LastModifiedOn,
+            CanRetrySap = canRetrySap,
+            RetrySapApprovalRequestId = retryRequestId,
+        };
+    }
 
     private static string? ResolveOutgoingPaymentNumber(StageWisePayment record)
     {
@@ -268,12 +299,98 @@ public class StageWisePaymentPageService(
         return null;
     }
 
-    private static string MapStatus(StageWisePaymentStatus status) => status switch
+    /// <summary>
+    /// Row-level Retry when workflow approvals are done but SAP posting is missing/failed.
+    /// Reuses <see cref="ApprovalService.IsEligibleForSapRetry"/> (same gate as Approval Status Report).
+    /// </summary>
+    public static (bool CanRetry, int? ApprovalRequestId) ResolveRetrySap(
+        StageWisePayment record,
+        IReadOnlyDictionary<int, ApprovalRequest> linkedApprovals)
     {
-        StageWisePaymentStatus.PendingApproval => "Approval Pending",
-        StageWisePaymentStatus.Approved => "Approved",
-        StageWisePaymentStatus.Added => "Created",
-        StageWisePaymentStatus.Cancelled => "Cancelled",
-        _ => status.ToString(),
-    };
+        foreach (var id in ParseApprovalRequestIds(record.ApprovalRequestId))
+        {
+            if (!linkedApprovals.TryGetValue(id, out var approval))
+                continue;
+            if (!ApprovalService.IsEligibleForSapRetry(approval))
+                continue;
+
+            var sapDocsMissing = IsSapDocumentMissingForApproval(record, approval);
+            var paymentAwaitingPost =
+                record.Status == StageWisePaymentStatus.PendingApproval
+                || approval.OverallStatus == ApprovalStatus.Failed
+                || sapDocsMissing;
+
+            if (paymentAwaitingPost)
+                return (true, id);
+        }
+
+        return (false, null);
+    }
+
+    public static string MapStatus(
+        StageWisePayment record,
+        IReadOnlyDictionary<int, ApprovalRequest> linkedApprovals)
+    {
+        if (record.Status == StageWisePaymentStatus.PendingApproval
+            && IsWorkflowCompleteAwaitingSap(record, linkedApprovals))
+        {
+            return "SAP Posting Pending";
+        }
+
+        return record.Status switch
+        {
+            StageWisePaymentStatus.PendingApproval => "Approval Pending",
+            StageWisePaymentStatus.Approved => "Approved",
+            StageWisePaymentStatus.Added => "Created",
+            StageWisePaymentStatus.Cancelled => "Cancelled",
+            _ => record.Status.ToString(),
+        };
+    }
+
+    static bool IsWorkflowCompleteAwaitingSap(
+        StageWisePayment record,
+        IReadOnlyDictionary<int, ApprovalRequest> linkedApprovals)
+    {
+        var ids = ParseApprovalRequestIds(record.ApprovalRequestId);
+        if (ids.Count == 0)
+            return false;
+
+        var linked = new List<ApprovalRequest>(ids.Count);
+        foreach (var id in ids)
+        {
+            if (!linkedApprovals.TryGetValue(id, out var approval))
+                return false;
+            linked.Add(approval);
+        }
+
+        if (!linked.All(a => a.OverallStatus is ApprovalStatus.Approved or ApprovalStatus.Failed))
+            return false;
+
+        return linked.Any(a => IsSapDocumentMissingForApproval(record, a)
+            || string.IsNullOrWhiteSpace(a.SapResponseDocEntry));
+    }
+
+    static bool IsSapDocumentMissingForApproval(StageWisePayment record, ApprovalRequest approval)
+    {
+        if (!string.IsNullOrWhiteSpace(approval.SapResponseDocEntry))
+            return false;
+
+        return approval.DocumentType switch
+        {
+            ApprovalDocumentType.Payments => string.IsNullOrWhiteSpace(record.PaymentDocEntry),
+            ApprovalDocumentType.StagewisePayments_DP =>
+                string.IsNullOrWhiteSpace(record.DownPaymentDocEntry)
+                && string.IsNullOrWhiteSpace(record.ApDownPaymentInvoiceEntryNumber),
+            _ => true,
+        };
+    }
+
+    static List<int> ParseApprovalRequestIds(string? approvalRequestIds) =>
+        approvalRequestIds?
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => int.TryParse(id, out var parsed) ? parsed : (int?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList() ?? [];
 }

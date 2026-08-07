@@ -40,6 +40,12 @@ public class StageWisePaymentRecordDto
     public int? DocNumber { get; set; }
     public DateTime CreatedOn { get; set; }
     public DateTime LastModifiedOn { get; set; }
+    /// <summary>
+    /// True when workflow approvals are complete but SAP posting is missing/failed —
+    /// payment row may call POST /api/approvals/{RetrySapApprovalRequestId}/retry-sap.
+    /// </summary>
+    public bool CanRetrySap { get; set; }
+    public int? RetrySapApprovalRequestId { get; set; }
 }
 
 public class StageWisePaymentBankOption
