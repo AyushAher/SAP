@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { AlertTriangle, Eye, RefreshCw } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
-import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
+import { rowActionIconClassName } from '@/Components/shared/RowActions'
 import { RowActionsMenu } from '@/Components/shared/RowActionsMenu'
 import { Badge, DataTable, type DataTableColumn } from '@/Components/ui'
 import {
