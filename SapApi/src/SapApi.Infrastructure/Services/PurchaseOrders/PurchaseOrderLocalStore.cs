@@ -4,6 +4,7 @@ using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Sap;
+using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Models;
@@ -33,7 +34,8 @@ public record PurchaseOrderSyncResult(
 public class PurchaseOrderLocalStore(
     AppDbContext db,
     IHttpRequestHandler requestHandler,
-    ICurrentCompanyDbAccessor companyDbAccessor)
+    ICurrentCompanyDbAccessor companyDbAccessor,
+    SapMasterDataService masterDataService)
 {
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
 
@@ -45,7 +47,10 @@ public class PurchaseOrderLocalStore(
             .AsNoTracking()
             .Where(x => x.CompanyDb == CompanyDb);
 
-        var (queryWithFilters, remainingFilters) = ApplyPurchaseOrderListFilters(query, request.Filters);
+        var (queryWithFilters, remainingFilters) = await ApplyPurchaseOrderListFiltersAsync(
+            query,
+            request.Filters,
+            cancellationToken);
         query = queryWithFilters;
 
         if (request.Sorts.Count == 0)
@@ -734,11 +739,12 @@ public class PurchaseOrderLocalStore(
     }
 
     /// <summary>
-    /// Business Partner column search matches CardCode or CardName so mid-name keywords work.
+    /// Column filters that need cross-field or master-data matching (contains, not prefix-only).
     /// </summary>
-    private static (IQueryable<PurchaseOrder> Query, List<FilterModel> RemainingFilters) ApplyPurchaseOrderListFilters(
+    private async Task<(IQueryable<PurchaseOrder> Query, List<FilterModel> RemainingFilters)> ApplyPurchaseOrderListFiltersAsync(
         IQueryable<PurchaseOrder> query,
-        List<FilterModel> filters)
+        List<FilterModel> filters,
+        CancellationToken cancellationToken)
     {
         var remaining = new List<FilterModel>();
 
@@ -747,19 +753,105 @@ public class PurchaseOrderLocalStore(
             if (filter.Value is null || string.IsNullOrWhiteSpace(filter.Value.ToString()))
                 continue;
 
-            if (!filter.Field.Equals("CardCode", StringComparison.OrdinalIgnoreCase))
+            var term = filter.Value.ToString()!.Trim();
+            var termLower = term.ToLowerInvariant();
+
+            if (filter.Field.Equals("CardCode", StringComparison.OrdinalIgnoreCase))
             {
-                remaining.Add(filter);
+                query = query.Where(x =>
+                    (x.CardCode != null && x.CardCode.ToLower().Contains(termLower)) ||
+                    (x.CardName != null && x.CardName.ToLower().Contains(termLower)));
                 continue;
             }
 
-            var term = filter.Value.ToString()!.Trim().ToLowerInvariant();
-            query = query.Where(x =>
-                (x.CardCode != null && x.CardCode.ToLower().Contains(term)) ||
-                (x.CardName != null && x.CardName.ToLower().Contains(term)));
+            if (filter.Field.Equals("Project", StringComparison.OrdinalIgnoreCase))
+            {
+                var matchingCodes = await ResolveProjectCodesMatchingSearchAsync(term, cancellationToken);
+                if (matchingCodes.Count == 0)
+                {
+                    query = query.Where(x => x.Project != null && x.Project.ToLower().Contains(termLower));
+                }
+                else
+                {
+                    query = query.Where(x =>
+                        (x.Project != null && x.Project.ToLower().Contains(termLower)) ||
+                        (x.Project != null && matchingCodes.Contains(x.Project)));
+                }
+
+                continue;
+            }
+
+            if (filter.Field.Equals("BPLId", StringComparison.OrdinalIgnoreCase))
+            {
+                var matchingBranchIds = await ResolveBranchIdsMatchingSearchAsync(term, cancellationToken);
+                if (matchingBranchIds.Count == 0)
+                {
+                    if (int.TryParse(term, out var branchId))
+                        query = query.Where(x => x.BPLId == branchId);
+                    else
+                        query = query.Where(x => false);
+                }
+                else
+                {
+                    query = query.Where(x => x.BPLId != null && matchingBranchIds.Contains(x.BPLId.Value));
+                }
+
+                continue;
+            }
+
+            remaining.Add(filter);
         }
 
         return (query, remaining);
+    }
+
+    private async Task<List<string>> ResolveProjectCodesMatchingSearchAsync(
+        string term,
+        CancellationToken cancellationToken)
+    {
+        var page = await masterDataService.SearchProjectsAsync(
+            new PaginationRequest
+            {
+                PageNumber = 1,
+                PageSize = 500,
+                Filters =
+                [
+                    new FilterModel
+                    {
+                        Field = "__search",
+                        Operator = "contains",
+                        Value = term,
+                    },
+                ],
+            },
+            cancellationToken);
+
+        return page.Data?
+            .Select(p => p.ProjectCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+    }
+
+    private async Task<List<int>> ResolveBranchIdsMatchingSearchAsync(
+        string term,
+        CancellationToken cancellationToken)
+    {
+        var termLower = term.ToLowerInvariant();
+        var branches = await masterDataService.ListBranchOptionsAsync(cancellationToken);
+        var matches = branches
+            .Where(branch =>
+                branch.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || branch.Id.ToString().Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Select(branch => branch.Id)
+            .Distinct()
+            .ToList();
+
+        if (matches.Count == 0 && int.TryParse(term, out var branchId))
+            matches.Add(branchId);
+
+        return matches;
     }
 
     private static string BuildSyncStartUrl(int minDocEntryExclusive)

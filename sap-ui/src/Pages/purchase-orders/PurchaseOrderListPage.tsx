@@ -15,6 +15,7 @@ import { getBranchesApi } from '@/Requests/auth'
 import {
   enqueueFullPurchaseOrderSyncJob,
   getPurchaseOrderSyncStatus,
+  getPurchaseOrderBranchId,
   syncPurchaseOrderFromSap,
   type PurchaseOrder,
 } from '@/Requests/purchaseOrders'
@@ -175,7 +176,8 @@ export function PurchaseOrderListPage() {
   }, [])
 
   const resolveBranchLabel = useCallback(
-    (bplId?: number) => {
+    (order: Pick<PurchaseOrder, 'BPLId' | 'BPL_IDAssignedToInvoice'>) => {
+      const bplId = getPurchaseOrderBranchId(order)
       if (bplId == null) return '—'
       return branchMap[bplId] ?? String(bplId)
     },
@@ -197,7 +199,7 @@ export function PurchaseOrderListPage() {
       header: 'Branch',
       sortable: true,
       filterable: true,
-      accessor: (r) => resolveBranchLabel(r.BPLId),
+      accessor: (r) => resolveBranchLabel(r),
     },
     {
       key: 'CardCode',

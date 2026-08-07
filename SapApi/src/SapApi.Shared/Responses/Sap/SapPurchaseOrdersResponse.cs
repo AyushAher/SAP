@@ -78,6 +78,14 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("BPL_IDAssignedToInvoice"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? BPLId { get; set; } = 1;
 
+        /// <summary>API alias so clients can read/write branch id as BPLId (SAP uses BPL_IDAssignedToInvoice).</summary>
+        [JsonPropertyName("BPLId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? BPLIdClient
+        {
+            get => BPLId;
+            set => BPLId = value;
+        }
+
         [JsonPropertyName("ContactPersonCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? ContactPersonCode { get; set; }
 

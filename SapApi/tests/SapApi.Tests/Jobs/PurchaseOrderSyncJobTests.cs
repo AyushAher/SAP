@@ -8,6 +8,7 @@ using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Jobs;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services.PurchaseOrders;
+using SapApi.Tests.Services.PurchaseOrders;
 using SapApi.Shared.Configuration;
 using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
@@ -44,7 +45,7 @@ public class PurchaseOrderSyncJobTests
         companyDb.Setup(c => c.GetCompanyDbName()).Returns(CompanyDb);
 
         _httpContextAccessor = new HttpContextAccessor();
-        _localStore = new PurchaseOrderLocalStore(_db, _http.Object, companyDb.Object);
+        _localStore = PurchaseOrderLocalStoreTestHelper.Create(_db, _http.Object, companyDb.Object);
     }
 
     [TearDown]

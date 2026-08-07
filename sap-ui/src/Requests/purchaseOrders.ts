@@ -6,6 +6,8 @@ export interface PurchaseOrder {
   DocNum?: number
   DocDate?: string
   BPLId?: number
+  /** SAP wire name for branch id — kept for backward compatibility with older API payloads. */
+  BPL_IDAssignedToInvoice?: number
   CardCode?: string
   CardName?: string
   Project?: string
@@ -17,6 +19,10 @@ export interface PurchaseOrder {
   pendingApproval?: boolean
   pendingApprovalRequestId?: number
   [key: string]: unknown
+}
+
+export function getPurchaseOrderBranchId(order: Pick<PurchaseOrder, 'BPLId' | 'BPL_IDAssignedToInvoice'>): number | undefined {
+  return order.BPLId ?? order.BPL_IDAssignedToInvoice
 }
 
 export interface PurchaseOrderSyncResult {

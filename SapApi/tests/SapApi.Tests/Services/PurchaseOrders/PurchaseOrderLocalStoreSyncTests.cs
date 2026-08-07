@@ -42,7 +42,7 @@ public class PurchaseOrderLocalStoreSyncTests
         var companyDbAccessor = new Mock<ICurrentCompanyDbAccessor>();
         companyDbAccessor.Setup(x => x.GetCompanyDbName()).Returns(CompanyDb);
 
-        _sut = new PurchaseOrderLocalStore(_context, _http.Object, companyDbAccessor.Object);
+        _sut = PurchaseOrderLocalStoreTestHelper.Create(_context, _http.Object, companyDbAccessor.Object);
     }
 
     [TearDown]
