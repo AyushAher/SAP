@@ -193,10 +193,19 @@ public class ApprovalExecutionService(
                 }
 
                 var postingDate = dpBatch?.PostingDate ?? body.DocDate ?? utrDate;
-                StageWisePaymentService.ApplyPostingDate(body, postingDate);
+                var paymentDate = dpBatch?.PaymentDate ?? utrDate ?? postingDate;
+                StageWisePaymentService.ApplyPostingDate(body, postingDate, paymentDate);
                 if (utrDate is not null) body.DocDueDate = utrDate.Value;
                 if (dpRecord is not null)
                     body.PaymentRequestId = StageWisePaymentService.FormatPaymentRequestId(dpRecord.Id);
+
+                var dpUserRemark = !string.IsNullOrWhiteSpace(dpBatch?.JournalRemark)
+                    ? dpBatch.JournalRemark.Trim()
+                    : comment?.Trim();
+                if (!string.IsNullOrWhiteSpace(dpUserRemark))
+                    body.JournalMemo = dpUserRemark;
+                else if (string.IsNullOrWhiteSpace(body.JournalMemo) && !string.IsNullOrWhiteSpace(body.Comments))
+                    body.JournalMemo = body.Comments;
 
                 if (request.Action == ApprovalAction.Create)
                 {
@@ -287,13 +296,11 @@ public class ApprovalExecutionService(
 
                     body.TransferReference = reference ?? "";
                     body.CounterReference = reference ?? "";
-                    body.TransferDate = paymentDate;
-                    body.DocDueDate = paymentDate;
-                    body.DocDate = paymentDate;
-                    body.PostingDate = postingDate;
-                    body.Remarks = Constants.PaymentRemarks.Build(
+                    StageWisePaymentService.ApplyVendorPaymentDates(body, paymentDate, postingDate);
+                    var remarks = Constants.PaymentRemarks.Build(
                         userRemark, body.BPLId, body.PoNumber);
-                    body.JournalRemarks = null;
+                    body.Remarks = remarks;
+                    body.JournalRemarks = remarks;
 
                     if (!string.IsNullOrWhiteSpace(batch?.Account))
                     {

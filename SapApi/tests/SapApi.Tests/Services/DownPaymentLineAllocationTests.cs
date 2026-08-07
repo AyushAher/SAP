@@ -21,6 +21,19 @@ public class DownPaymentLineAllocationTests
     }
 
     [Test]
+    public void ApplyPostingDate_PaymentDate_PreferredForDocDate()
+    {
+        var request = new SapPurchaseDownPaymentRequest();
+        var postingDate = new DateTime(2026, 8, 6);
+        var paymentDate = new DateTime(2026, 8, 10);
+
+        StageWisePaymentService.ApplyPostingDate(request, postingDate, paymentDate);
+
+        request.DocDate.Should().Be(paymentDate);
+        request.TaxDate.Should().Be(postingDate);
+    }
+
+    [Test]
     public void ApplyPostingDate_Null_LeavesDatesUnset()
     {
         var request = new SapPurchaseDownPaymentRequest();
@@ -29,6 +42,28 @@ public class DownPaymentLineAllocationTests
 
         request.DocDate.Should().BeNull();
         request.TaxDate.Should().BeNull();
+    }
+
+    [Test]
+    public void ApplyVendorPaymentDates_MapsPaymentDateToDocDate()
+    {
+        var request = new SapVendorPaymentRequests
+        {
+            CardCode = "V001",
+            TransferSum = "100",
+            TransferReference = "R1",
+            CounterReference = "R1",
+            TransferAccount = "_SYS00000000980",
+        };
+        var paymentDate = new DateTime(2026, 8, 10);
+        var postingDate = new DateTime(2026, 8, 6);
+
+        StageWisePaymentService.ApplyVendorPaymentDates(request, paymentDate, postingDate);
+
+        request.DocDate.Should().Be(paymentDate);
+        request.PostingDate.Should().Be(postingDate);
+        request.TransferDate.Should().Be(paymentDate);
+        request.DocDueDate.Should().Be(paymentDate);
     }
 
     [Test]

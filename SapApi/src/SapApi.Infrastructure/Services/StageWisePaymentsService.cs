@@ -83,6 +83,8 @@ public class StageWisePaymentService(
             return (false, persistMessage, null);
 
         var paymentRequestId = FormatPaymentRequestId(entity1.Id);
+        if (string.IsNullOrEmpty(paymentRequestId))
+            return (false, "Failed to allocate payment request ID.", null);
 
         SapBaseResponse? sapResponse = null;
         double tdsAmount = 0;
@@ -269,6 +271,7 @@ public class StageWisePaymentService(
         List<StageWisePayment> existingRecords,
         string? userRemark = null,
         DateTime? postingDate = null,
+        DateTime? paymentDate = null,
         bool persist = true,
         CancellationToken cancellationToken = default)
     {
@@ -327,6 +330,8 @@ public class StageWisePaymentService(
             return (false, persistMessage, null);
 
         var paymentRequestId = FormatPaymentRequestId(entity.Id);
+        if (string.IsNullOrEmpty(paymentRequestId))
+            return (false, "Failed to allocate payment request ID.", null);
 
         var (dpOk, dpMessage, tdsAmount) = await ApplySeparateDownPaymentsAsync(
             entity,
@@ -337,7 +342,9 @@ public class StageWisePaymentService(
             totalGst,
             hadTdsDeducted,
             paymentRequestId,
-            postingDate);
+            postingDate,
+            paymentDate,
+            userRemark);
         if (!dpOk)
             return (false, dpMessage, null);
 
@@ -363,7 +370,9 @@ public class StageWisePaymentService(
                 bank,
                 netOutgoing,
                 paymentInvoices,
-                userRemark);
+                userRemark,
+                paymentDate,
+                postingDate);
 
             if (outgoingResponse?.PendingApproval == true)
             {
@@ -410,7 +419,9 @@ public class StageWisePaymentService(
         double gstAmount,
         bool hadTdsDeducted,
         string? paymentRequestId = null,
-        DateTime? postingDate = null)
+        DateTime? postingDate = null,
+        DateTime? paymentDate = null,
+        string? userRemark = null)
     {
         var docNums = new List<string>();
         var docEntries = new List<string>();
@@ -421,7 +432,7 @@ public class StageWisePaymentService(
         {
             var (sapResponse, basicTds) = await AddDownPayment(
                 purchaseOrder, isGst: false, grossAmount, wtCode, desc, hadTdsDeducted,
-                paymentRequestId, postingDate);
+                paymentRequestId, postingDate, paymentDate, userRemark);
 
             if (sapResponse?.PendingApproval == true)
             {
@@ -450,7 +461,7 @@ public class StageWisePaymentService(
         {
             var (sapResponse, _) = await AddDownPayment(
                 purchaseOrder, isGst: true, gstAmount, wtCode, desc, hadTdsDeducted,
-                paymentRequestId, postingDate);
+                paymentRequestId, postingDate, paymentDate, userRemark);
 
             if (sapResponse?.PendingApproval == true)
             {
@@ -723,7 +734,9 @@ public class StageWisePaymentService(
         string? bank,
         double transferSum,
         IReadOnlyList<PaymentInvoice> paymentInvoices,
-        string? userRemark = null)
+        string? userRemark = null,
+        DateTime? paymentDate = null,
+        DateTime? postingDate = null)
     {
         if (paymentInvoices.Count == 0 || transferSum <= 0)
         {
@@ -741,22 +754,28 @@ public class StageWisePaymentService(
                }, 0);
         }
 
+        var remarks = Constants.PaymentRemarks.Build(
+            userRemark, purchaseOrder?.BPLId, purchaseOrder?.DocNum?.ToString());
+        var vendorRequest = new SapVendorPaymentRequests
+        {
+            CardCode = purchaseOrder?.CardCode ?? "",
+            TransferAccount = bank ?? "_SYS00000000980",
+            TransferSum = transferSum.ToString("F2"),
+            ProjectCode = purchaseOrder?.Project,
+            PoNumber = purchaseOrder?.DocNum?.ToString() ?? "",
+            Remarks = remarks,
+            JournalRemarks = remarks,
+            PaymentInvoices = paymentInvoices.ToList(),
+            BPLId = purchaseOrder?.BPLId ?? 1,
+        };
+        // Prefer payment date for DocDate; fall back to today when omitted (single-payment create).
+        ApplyVendorPaymentDates(vendorRequest, paymentDate ?? DateTime.UtcNow, postingDate ?? paymentDate);
+
         SapVendorPaymentsResponse? sapResponse;
         try
         {
-            sapResponse = await sapVendorPaymentService.CreateVendorPayments(new SapVendorPaymentRequests
-            {
-                CardCode = purchaseOrder?.CardCode ?? "",
-                TransferAccount = bank ?? "_SYS00000000980",
-                TransferDate = DateTime.UtcNow,
-                TransferSum = transferSum.ToString("F2"),
-                ProjectCode = purchaseOrder?.Project,
-                PoNumber = purchaseOrder?.DocNum?.ToString() ?? "",
-                Remarks = Constants.PaymentRemarks.Build(
-                    userRemark, purchaseOrder?.BPLId, purchaseOrder?.DocNum?.ToString()),
-                PaymentInvoices = paymentInvoices.ToList(),
-                BPLId = purchaseOrder?.BPLId ?? 1,
-            }, supportingData: purchaseOrder?.DocEntry.ToString());
+            sapResponse = await sapVendorPaymentService.CreateVendorPayments(
+                vendorRequest, supportingData: purchaseOrder?.DocEntry.ToString());
         }
         catch (ApiErrorException ex)
         {
@@ -783,7 +802,9 @@ public class StageWisePaymentService(
         string? desc,
         bool hadTdsDeducted,
         string? paymentRequestId = null,
-        DateTime? postingDate = null)
+        DateTime? postingDate = null,
+        DateTime? paymentDate = null,
+        string? userRemark = null)
     {
         // Draw PO lines with LineTotals that sum to the requested amount. Sending base refs alone
         // makes SAP copy the full open PO line value, which triggers
@@ -837,6 +858,7 @@ public class StageWisePaymentService(
             }, 0);
         }
 
+        var comments = Constants.PaymentRemarks.BuildDownPayment(desc, purchaseOrder.DocNum?.ToString());
         var req = new SapPurchaseDownPaymentRequest
         {
             DocumentLines = documentLines,
@@ -848,11 +870,13 @@ public class StageWisePaymentService(
             // Must match sum of LineTotals so SAP does not expand to full PO open value.
             DocTotal = roundedAmount,
             BPLId = purchaseOrder.BPLId ?? 1,
-            Comments = Constants.PaymentRemarks.BuildDownPayment(desc, purchaseOrder.DocNum?.ToString()),
+            Comments = comments,
+            // JrnlMemo: user remarks when provided; otherwise same text as Comments (SapForms pattern).
+            JournalMemo = string.IsNullOrWhiteSpace(userRemark) ? comments : userRemark.Trim(),
             PaymentRequestId = paymentRequestId,
             WithholdingTaxDataCollection = null,
         };
-        ApplyPostingDate(req, postingDate);
+        ApplyPostingDate(req, postingDate, paymentDate);
 
         if (!isGst && !string.IsNullOrWhiteSpace(wtCode))
         {
@@ -889,17 +913,41 @@ public class StageWisePaymentService(
     }
 
     /// <summary>
-    /// Maps batch posting date onto SAP PurchaseDownPayments fields.
-    /// Service Layer uses <c>DocDate</c> as the posting date; <c>TaxDate</c> is kept in sync.
+    /// Maps batch dates onto SAP PurchaseDownPayments fields.
+    /// Document date (<c>DocDate</c>) prefers payment date when provided; tax/posting date
+    /// (<c>TaxDate</c>) prefers posting date — matching VendorPayments DocDate/TaxDate split.
     /// </summary>
-    public static void ApplyPostingDate(SapPurchaseDownPaymentRequest request, DateTime? postingDate)
+    public static void ApplyPostingDate(
+        SapPurchaseDownPaymentRequest request,
+        DateTime? postingDate,
+        DateTime? paymentDate = null)
     {
-        if (postingDate is null)
+        var docDate = (paymentDate ?? postingDate)?.Date;
+        var taxDate = (postingDate ?? paymentDate)?.Date;
+        if (docDate is null)
             return;
 
-        var date = postingDate.Value.Date;
-        request.DocDate = date;
-        request.TaxDate = date;
+        request.DocDate = docDate;
+        request.TaxDate = taxDate;
+    }
+
+    /// <summary>
+    /// Maps payment/posting dates onto VendorPayments DocDate (document date) and TaxDate.
+    /// </summary>
+    public static void ApplyVendorPaymentDates(
+        SapVendorPaymentRequests request,
+        DateTime? paymentDate,
+        DateTime? postingDate = null)
+    {
+        var pay = (paymentDate ?? postingDate)?.Date;
+        if (pay is null)
+            return;
+
+        var post = (postingDate ?? paymentDate)!.Value.Date;
+        request.TransferDate = pay.Value;
+        request.DocDueDate = pay.Value;
+        request.DocDate = pay.Value;
+        request.PostingDate = post;
     }
 
     /// <summary>

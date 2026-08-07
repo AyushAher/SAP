@@ -379,7 +379,11 @@ export function StageWisePaymentPage() {
                           <Badge>{normalizeStatus(record.status)}</Badge>
                         </td>
                         <td className="px-4 py-3">{record.outgoingPaymentNumber || '—'}</td>
-                        <td className="px-4 py-3">{record.paymentRequestId ?? record.id ?? '—'}</td>
+                        <td className="px-4 py-3">
+                          {record.paymentRequestId
+                            || (record.id != null && record.id > 0 ? String(record.id) : null)
+                            || '—'}
+                        </td>
                         <td className="px-4 py-3">{paymentTermForRecord(record)}</td>
                         <td className="px-4 py-3 text-right font-medium">{formatAmount(recordGrossAmount(record))}</td>
                         <td className="px-4 py-3">

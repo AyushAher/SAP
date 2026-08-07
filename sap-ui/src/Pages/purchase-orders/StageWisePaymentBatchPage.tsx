@@ -940,9 +940,18 @@ export function StageWisePaymentBatchPage() {
                     const apLabel = readOnly
                       ? batchLine?.apInvoiceLabel
                       : undefined
-                    const paymentRequestId = readOnly && batch?.stageWisePaymentId
-                      ? String(batch.stageWisePaymentId)
-                      : '—'
+                    // Prefer the StageWisePayment.Id that matches the row (DP id for down-payment
+                    // rows — same value posted as U_BSC_3 on ODPO). Fall back across both links.
+                    const paymentRequestId = (() => {
+                      if (!batch) return '—'
+                      if (!requiresAp && batch.downPaymentStageWisePaymentId)
+                        return String(batch.downPaymentStageWisePaymentId)
+                      if (batch.stageWisePaymentId)
+                        return String(batch.stageWisePaymentId)
+                      if (batch.downPaymentStageWisePaymentId)
+                        return String(batch.downPaymentStageWisePaymentId)
+                      return '—'
+                    })()
                     return (
                       <tr key={row.key} className="border-b border-slate-100 align-top">
                         <td className="px-3 py-3 min-w-[240px] align-top">

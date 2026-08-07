@@ -300,6 +300,7 @@ public class StageWisePaymentBatchService(
                 activeRecords,
                 userRemark: request.JournalRemark,
                 postingDate: request.PostingDate,
+                paymentDate: request.PaymentDate,
                 persist: false,
                 cancellationToken);
 
@@ -1410,6 +1411,7 @@ public class StageWisePaymentBatchService(
                 activeRecords,
                 userRemark: request.JournalRemark,
                 postingDate: request.PostingDate,
+                paymentDate: request.PaymentDate,
                 persist: false,
                 cancellationToken);
 
@@ -1767,14 +1769,13 @@ public class StageWisePaymentBatchService(
         var paymentDate = DateTimeUtcConverter.ToUtc(batchRequest.PaymentDate) ?? DateTime.UtcNow;
         var postingDate = DateTimeUtcConverter.ToUtc(batchRequest.PostingDate) ?? paymentDate;
 
-        request.TransferDate = paymentDate;
-        request.DocDate = paymentDate;
-        request.DocDueDate = paymentDate;
-        request.PostingDate = postingDate;
+        StageWisePaymentService.ApplyVendorPaymentDates(request, paymentDate, postingDate);
         request.TransferReference = batchRequest.ReferenceNo ?? string.Empty;
         request.CounterReference = batchRequest.ReferenceNo ?? string.Empty;
-        request.Remarks = Constants.PaymentRemarks.Build(batchRequest.JournalRemark, bplId, poNumber);
-        request.JournalRemarks = null;
+        var remarks = Constants.PaymentRemarks.Build(batchRequest.JournalRemark, bplId, poNumber);
+        request.Remarks = remarks;
+        // SapForms Approvals: Remarks + JournalRemarks (JrnlMemo) both carry user remarks.
+        request.JournalRemarks = remarks;
 
         switch (mode)
         {
