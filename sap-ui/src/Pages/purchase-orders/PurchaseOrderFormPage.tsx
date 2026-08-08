@@ -35,6 +35,7 @@ import {
   readLogisticsFromPo,
   readOtherTermsFromPo,
   resolvePaymentTermPercent,
+  type PaymentPercentBasis,
 } from '@/helpers/purchaseOrderForm'
 import { useAppSelector } from '@/store/hooks'
 import { getBranchesApi } from '@/Requests/auth'
@@ -103,6 +104,11 @@ type PaymentTermDraft = Omit<PaymentTermRow, 'id'>
 function emptyPaymentTermDraft(): PaymentTermDraft {
   return { type: '', basic: undefined, gst: undefined, stage: '', desc: '' }
 }
+
+const PAYMENT_PERCENT_BASIS_OPTIONS: { value: PaymentPercentBasis; label: string }[] = [
+  { value: 'basic', label: 'Basic amount' },
+  { value: 'gst', label: 'GST amount' },
+]
 
 function paymentTermTypeOptionsFromApi(options: PaymentTermTypeOption[] | undefined): SelectOption[] {
   const source = options?.length
@@ -190,6 +196,7 @@ export function PurchaseOrderFormPage() {
   const [lines, setLines] = useState<PurchaseOrderLineItem[]>([])
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermRow[]>([])
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentTermDraft())
+  const [paymentBasis, setPaymentBasis] = useState<PaymentPercentBasis>('basic')
   const [logistics, setLogistics] = useState<PurchaseOrderLogistics>({})
   const [otherTerms, setOtherTerms] = useState<PurchaseOrderOtherTerms>({})
 
@@ -419,19 +426,22 @@ export function PurchaseOrderFormPage() {
   }, [id, purchaseOrder, queryLoading, authBranchId, loadDispatchLogisticsOptions])
 
   const handleAddPaymentTerm = () => {
-    const percent = resolvePaymentTermPercent(paymentDraft)
+    const basis: PaymentPercentBasis =
+      paymentBasis === 'gst' || isGstPaymentTermType(paymentDraft.type) ? 'gst' : 'basic'
+    const percent = resolvePaymentTermPercent({ ...paymentDraft, id: basis === 'gst' ? 11 : 0 })
+      ?? (basis === 'gst' ? paymentDraft.gst : paymentDraft.basic)
     if (!paymentDraft.type && percent == null && !paymentDraft.stage) {
       setError('Enter at least type, percentage, or stage for the payment term.')
       return
     }
-    if (isGstPaymentTermType(paymentDraft.type) && hasGstPaymentTerm(paymentTerms)) {
+    if (basis === 'gst' && hasGstPaymentTerm(paymentTerms)) {
       setError('Only one GST payment term is allowed (stored in U_G11).')
       return
     }
-    const slot = nextPaymentTermSlot(paymentTerms, paymentDraft.type)
+    const slot = nextPaymentTermSlot(paymentTerms, paymentDraft.type, basis)
     if (slot == null) {
       setError(
-        isGstPaymentTermType(paymentDraft.type)
+        basis === 'gst'
           ? 'Only one GST payment term is allowed (stored in U_G11).'
           : 'Maximum payment terms reached.',
       )
@@ -447,6 +457,7 @@ export function PurchaseOrderFormPage() {
       },
       percent,
       paymentDraft.type,
+      basis,
     )
     setPaymentTerms([
       ...paymentTerms,
@@ -456,6 +467,7 @@ export function PurchaseOrderFormPage() {
       },
     ])
     setPaymentDraft(emptyPaymentTermDraft())
+    setPaymentBasis('basic')
     setError(null)
   }
 
@@ -890,7 +902,7 @@ export function PurchaseOrderFormPage() {
                     onChange={(value) => setLogistics({ ...logistics, priceBasis: value || undefined })}
                     placeholder="Select price basis"
                     clearable
-                    hint="From SAP UDF U_PRI_BAS."
+                    hint="SAP U_PRI_BAS ValidValues (same list as B1 client)."
                   />
                   <Select
                     label="Mode of Transport"
@@ -899,7 +911,7 @@ export function PurchaseOrderFormPage() {
                     onChange={(value) => setLogistics({ ...logistics, modeOfTransport: value || undefined })}
                     placeholder="Select mode of transport"
                     clearable
-                    hint="From SAP UDF U_TransMode."
+                    hint="SAP U_TransMode ValidValues (same list as B1 client)."
                   />
                 </div>
                 </TabsContent>
@@ -910,27 +922,63 @@ export function PurchaseOrderFormPage() {
                   description={FORM_TABS[2].description}
                 >
                 <div className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                     <Select
                       label="Type"
                       options={paymentTypeSelectOptions}
                       value={paymentDraft.type ?? ''}
                       onChange={(value) => {
-                        const percent = resolvePaymentTermPercent(paymentDraft)
-                        setPaymentDraft(applyPaymentPercentToTerm(paymentDraft, percent, value))
+                        const nextBasis: PaymentPercentBasis =
+                          isGstPaymentTermType(value) ? 'gst' : paymentBasis
+                        if (isGstPaymentTermType(value)) setPaymentBasis('gst')
+                        const percent =
+                          resolvePaymentTermPercent({
+                            ...paymentDraft,
+                            id: nextBasis === 'gst' ? 11 : 0,
+                          }) ?? (nextBasis === 'gst' ? paymentDraft.gst : paymentDraft.basic)
+                        setPaymentDraft(applyPaymentPercentToTerm(paymentDraft, percent, value, nextBasis))
                       }}
                       placeholder="Select type"
-                      hint={isGstPaymentTermType(paymentDraft.type) ? 'GST types use a single U_G11 slot only.' : undefined}
+                    />
+                    <Select
+                      label="Percent applies to"
+                      options={PAYMENT_PERCENT_BASIS_OPTIONS}
+                      value={isGstPaymentTermType(paymentDraft.type) ? 'gst' : paymentBasis}
+                      onChange={(value) => {
+                        const nextBasis = (value === 'gst' ? 'gst' : 'basic') as PaymentPercentBasis
+                        setPaymentBasis(nextBasis)
+                        const percent =
+                          resolvePaymentTermPercent({
+                            ...paymentDraft,
+                            id: nextBasis === 'gst' ? 11 : 0,
+                          }) ?? (nextBasis === 'gst' ? paymentDraft.gst : paymentDraft.basic)
+                        setPaymentDraft(
+                          applyPaymentPercentToTerm(paymentDraft, percent, paymentDraft.type, nextBasis),
+                        )
+                      }}
+                      hint="GST amount always saves to U_G11 only."
                     />
                     <Input
                       label="Payment %"
                       type="number"
                       min="0"
                       nonNegative
-                      value={resolvePaymentTermPercent(paymentDraft) != null ? String(resolvePaymentTermPercent(paymentDraft)) : ''}
+                      value={(() => {
+                        const basis =
+                          paymentBasis === 'gst' || isGstPaymentTermType(paymentDraft.type) ? 'gst' : 'basic'
+                        const v = resolvePaymentTermPercent({
+                          ...paymentDraft,
+                          id: basis === 'gst' ? 11 : 0,
+                        })
+                        return v != null ? String(v) : ''
+                      })()}
                       onChange={(e) => {
                         const percent = e.target.value === '' ? undefined : Number(e.target.value)
-                        setPaymentDraft(applyPaymentPercentToTerm(paymentDraft, percent, paymentDraft.type))
+                        const basis: PaymentPercentBasis =
+                          paymentBasis === 'gst' || isGstPaymentTermType(paymentDraft.type) ? 'gst' : 'basic'
+                        setPaymentDraft(
+                          applyPaymentPercentToTerm(paymentDraft, percent, paymentDraft.type, basis),
+                        )
                       }}
                     />
                     <Input

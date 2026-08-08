@@ -1,4 +1,5 @@
 using SapApi.Shared;
+using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 
@@ -140,7 +141,83 @@ public static class SapPurchaseOrderPayloadBuilder
         payload.PostingDate = null;
         payload.DueDate = null;
 
+        NormalizePaymentTermGstToSlot11(payload);
+
         return payload;
+    }
+
+    /// <summary>
+    /// GST payment % must live only on U_G11. Move any positive U_G1–U_G10 onto G11 and clear those slots.
+    /// Also clears U_B11 (field does not exist on this company DB).
+    /// </summary>
+    internal static void NormalizePaymentTermGstToSlot11(SapPurchaseOrdersResponse payload)
+    {
+        int? gstPercent = payload.UGst11 is > 0 ? payload.UGst11 : null;
+        string? gstType = payload.UType11;
+        string? gstStage = payload.UStage11;
+        string? gstDesc = payload.UDes11;
+
+        void TakeGstFromSlot(int? gst, string? type, string? stage, string? desc, int? basic, Action clearGstOnlyMeta)
+        {
+            if (gst is not > 0)
+                return;
+
+            if (gstPercent is null or 0)
+            {
+                gstPercent = gst;
+                if (PaymentTermTypeOptions.IsGstMappedType(type) || string.IsNullOrWhiteSpace(gstType))
+                    gstType = type;
+                if (string.IsNullOrWhiteSpace(gstStage))
+                    gstStage = stage;
+                if (string.IsNullOrWhiteSpace(gstDesc))
+                    gstDesc = desc;
+            }
+
+            // Legacy GST-only row on slots 1–10: drop type/stage/desc so it is not a ghost term.
+            if (basic is not > 0)
+                clearGstOnlyMeta();
+        }
+
+        TakeGstFromSlot(payload.UGst1, payload.UType1, payload.UStage1, payload.UDes1, payload.UBasic1,
+            () => { payload.UType1 = null; payload.UStage1 = null; payload.UDes1 = null; });
+        TakeGstFromSlot(payload.UGst2, payload.UType2, payload.UStage2, payload.UDes2, payload.UBasic2,
+            () => { payload.UType2 = null; payload.UStage2 = null; payload.UDes2 = null; });
+        TakeGstFromSlot(payload.UGst3, payload.UType3, payload.UStage3, payload.UDes3, payload.UBasic3,
+            () => { payload.UType3 = null; payload.UStage3 = null; payload.UDes3 = null; });
+        TakeGstFromSlot(payload.UGst4, payload.UType4, payload.UStage4, payload.UDes4, payload.UBasic4,
+            () => { payload.UType4 = null; payload.UStage4 = null; payload.UDes4 = null; });
+        TakeGstFromSlot(payload.UGst5, payload.UType5, payload.UStage5, payload.UDes5, payload.UBasic5,
+            () => { payload.UType5 = null; payload.UStage5 = null; payload.UDes5 = null; });
+        TakeGstFromSlot(payload.UGst6, payload.UType6, payload.UStage6, payload.UDes6, payload.UBasic6,
+            () => { payload.UType6 = null; payload.UStage6 = null; payload.UDes6 = null; });
+        TakeGstFromSlot(payload.UGst7, payload.UType7, payload.UStage7, payload.UDes7, payload.UBasic7,
+            () => { payload.UType7 = null; payload.UStage7 = null; payload.UDes7 = null; });
+        TakeGstFromSlot(payload.UGst8, payload.UType8, payload.UStage8, payload.UDes8, payload.UBasic8,
+            () => { payload.UType8 = null; payload.UStage8 = null; payload.UDes8 = null; });
+        TakeGstFromSlot(payload.UGst9, payload.UType9, payload.UStage9, payload.UDes9, payload.UBasic9,
+            () => { payload.UType9 = null; payload.UStage9 = null; payload.UDes9 = null; });
+        TakeGstFromSlot(payload.UGst10, payload.UType10, payload.UStage10, payload.UDes10, payload.UBasic10,
+            () => { payload.UType10 = null; payload.UStage10 = null; payload.UDes10 = null; });
+
+        payload.UGst1 = 0;
+        payload.UGst2 = 0;
+        payload.UGst3 = 0;
+        payload.UGst4 = 0;
+        payload.UGst5 = 0;
+        payload.UGst6 = 0;
+        payload.UGst7 = 0;
+        payload.UGst8 = 0;
+        payload.UGst9 = 0;
+        payload.UGst10 = 0;
+        payload.UGst11 = gstPercent ?? 0;
+        payload.UBasic11 = null;
+
+        if (!string.IsNullOrWhiteSpace(gstType))
+            payload.UType11 = gstType;
+        if (!string.IsNullOrWhiteSpace(gstStage))
+            payload.UStage11 = gstStage;
+        if (!string.IsNullOrWhiteSpace(gstDesc))
+            payload.UDes11 = gstDesc;
     }
 
     static bool IsServiceDocument(string? docType) =>

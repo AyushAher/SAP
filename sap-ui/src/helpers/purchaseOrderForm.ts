@@ -26,13 +26,25 @@ function readNumber(source: PoRecord, ...keys: string[]): number | undefined {
   return undefined
 }
 
-/** GST types store Payment% in U_G11 only; all other types use U_Bn. */
+/** GST-dedicated types store Payment% in U_G11; other types default to U_Bn unless Basis=GST. */
 export function isGstPaymentTermType(type?: string | null): boolean {
   const normalized = normalizePaymentTermType(type)
   if (!normalized) return false
   return (GST_PAYMENT_TERM_TYPES as readonly string[]).some(
     (t) => t.localeCompare(normalized, undefined, { sensitivity: 'accent' }) === 0,
   )
+}
+
+/** True when this row's Payment% belongs on U_G11 (not U_Bn). */
+export function isGstPaymentTermRow(
+  term: Pick<PaymentTermRow, 'id' | 'type' | 'basic' | 'gst'>,
+): boolean {
+  if (term.id === GST_PAYMENT_TERM_SLOT) return true
+  if (isGstPaymentTermType(term.type)) return true
+  const gst = term.gst != null && Number.isFinite(term.gst) && term.gst > 0
+  const basic = term.basic != null && Number.isFinite(term.basic) && term.basic > 0
+  // Legacy / Basis=GST rows: percent lives in gst (e.g. Invoice + 100% GST on old U_G3).
+  return gst && !basic
 }
 
 /** Legacy UI used "Running"; SAP ValidValue is "Proforma". */
@@ -45,37 +57,43 @@ export function normalizePaymentTermType(type?: string | null): string {
 
 /**
  * Resolve the single Payment% for display/edit from stored basic/gst + type.
- * GST-mapped + gst>0 → gst; else basic if basic>0; else gst (legacy mixed rows).
+ * GST rows → gst; else basic if set; else gst (legacy mixed rows).
  */
-export function resolvePaymentTermPercent(term: Pick<PaymentTermRow, 'type' | 'basic' | 'gst'>): number | undefined {
+export function resolvePaymentTermPercent(term: Pick<PaymentTermRow, 'id' | 'type' | 'basic' | 'gst'>): number | undefined {
   const basic = term.basic != null && Number.isFinite(term.basic) && term.basic > 0 ? term.basic : undefined
   const gst = term.gst != null && Number.isFinite(term.gst) && term.gst > 0 ? term.gst : undefined
-  if (isGstPaymentTermType(term.type) && gst != null) return gst
+  if (isGstPaymentTermRow(term) && gst != null) return gst
+  if (isGstPaymentTermRow(term) && gst == null && basic != null) return basic
   if (basic != null) return basic
   if (gst != null) return gst
   return undefined
 }
 
-/** Split a Payment% into basic/gst fields based on type (clears the unused field). */
+export type PaymentPercentBasis = 'basic' | 'gst'
+
+/** Split a Payment% into basic/gst fields (clears the unused field). */
 export function applyPaymentPercentToTerm<T extends Pick<PaymentTermRow, 'type' | 'basic' | 'gst'>>(
   term: T,
   percent: number | undefined,
   type: string | undefined = term.type,
+  basis?: PaymentPercentBasis,
 ): T {
   const normalizedType = normalizePaymentTermType(type) || undefined
-  if (isGstPaymentTermType(normalizedType)) {
+  const asGst = basis === 'gst' || (basis !== 'basic' && isGstPaymentTermType(normalizedType))
+  if (asGst) {
     return { ...term, type: normalizedType, basic: undefined, gst: percent }
   }
   return { ...term, type: normalizedType, basic: percent, gst: undefined }
 }
 
 export function hasGstPaymentTerm(terms: PaymentTermRow[]): boolean {
-  return terms.some((t) => isGstPaymentTermType(t.type) || t.id === GST_PAYMENT_TERM_SLOT)
+  return terms.some((t) => isGstPaymentTermRow(t))
 }
 
 /**
  * Parse OPOR payment-term UDFs.
- * GST% lives only on U_G11 — coalesce legacy GST types from slots 1–10 into slot 11.
+ * Any U_G{n}>0 (n=1–11) coalesces into the single U_G11 GST term.
+ * If a slot also has Basic%, keep the basic row on that slot.
  */
 export function parsePaymentTermsFromPo(po: PoRecord): PaymentTermRow[] {
   const terms: PaymentTermRow[] = []
@@ -91,18 +109,31 @@ export function parsePaymentTermsFromPo(po: PoRecord): PaymentTermRow[] {
     const isGstSlot = i === GST_PAYMENT_TERM_SLOT
     const isGstType = isGstPaymentTermType(type)
     const gstValue = gst != null && gst > 0 ? gst : undefined
+    const basicValue = basic != null && basic > 0 ? basic : basic === 0 ? 0 : undefined
+    const hasBasic = basicValue != null && basicValue > 0
 
-    if (isGstSlot || isGstType || (isGstSlot && gstValue != null)) {
-      // Prefer explicit slot 11; otherwise first legacy GST row wins.
-      if (!gstTerm || isGstSlot) {
+    // Any positive GST% on slots 1–11 belongs on the single G11 term (incl. legacy Invoice on U_G3).
+    if (isGstSlot || isGstType || gstValue != null) {
+      if (!gstTerm || isGstSlot || (gstValue != null && gstTerm.gst == null)) {
         gstTerm = {
           id: GST_PAYMENT_TERM_SLOT,
-          type: type || gstTerm?.type,
+          type: (isGstSlot || isGstType || !hasBasic ? type : undefined) || gstTerm?.type,
           basic: undefined,
           gst: gstValue ?? gstTerm?.gst,
-          stage: stage || gstTerm?.stage,
-          desc: desc || gstTerm?.desc,
+          stage: (isGstSlot || isGstType || !hasBasic ? stage : undefined) || gstTerm?.stage,
+          desc: (isGstSlot || isGstType || !hasBasic ? desc : undefined) || gstTerm?.desc,
         }
+      }
+      // Dual-field legacy: keep Basic% on the original slot; GST moved to 11.
+      if (!isGstSlot && !isGstType && hasBasic) {
+        terms.push({
+          id: i,
+          type,
+          basic: basicValue,
+          gst: undefined,
+          stage: stage || undefined,
+          desc: desc || undefined,
+        })
       }
       continue
     }
@@ -111,7 +142,7 @@ export function parsePaymentTermsFromPo(po: PoRecord): PaymentTermRow[] {
       terms.push({
         id: i,
         type,
-        basic: basic != null && basic > 0 ? basic : basic === 0 ? 0 : undefined,
+        basic: basicValue,
         gst: undefined,
         stage: stage || undefined,
         desc: desc || undefined,
@@ -135,6 +166,12 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
     delete next[`U_D${i}`]
     delete next[`U_S${i}`]
     delete next[`U_T${i}`]
+    // Defensive: API camelCase clones must not leak legacy UGst3 into SAP.
+    delete next[`UGst${i}`]
+    delete next[`UBasic${i}`]
+    delete next[`UType${i}`]
+    delete next[`UStage${i}`]
+    delete next[`UDes${i}`]
   }
 
   // Always clear GST% on slots 1–10 — only U_G11 may hold GST.
@@ -142,38 +179,30 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
     next[`U_G${i}`] = 0
   }
 
-  const basicTerms = terms.filter((t) => !isGstPaymentTermType(t.type) && t.id !== GST_PAYMENT_TERM_SLOT)
-  const gstTerms = terms.filter((t) => isGstPaymentTermType(t.type) || t.id === GST_PAYMENT_TERM_SLOT)
-  const gstTerm = gstTerms[0]
+  const basicTerms = terms.filter((t) => !isGstPaymentTermRow(t))
+  const gstTerm = terms.find((t) => isGstPaymentTermRow(t))
 
   for (const term of basicTerms.slice(0, MAX_BASIC_PAYMENT_TERMS)) {
     const slot = Math.min(Math.max(term.id, 1), MAX_BASIC_PAYMENT_TERMS)
-    const mapped = applyPaymentPercentToTerm(
-      term,
-      resolvePaymentTermPercent(term) ?? term.basic,
-      term.type,
-    )
-    if (mapped.type || mapped.basic != null || mapped.stage || mapped.desc) {
-      next[`U_B${slot}`] = mapped.basic ?? 0
+    const percent = resolvePaymentTermPercent(term) ?? term.basic
+    if (term.type || percent != null || term.stage || term.desc) {
+      next[`U_B${slot}`] = percent ?? 0
       next[`U_G${slot}`] = 0
-      if (mapped.desc) next[`U_D${slot}`] = mapped.desc
-      if (mapped.stage) next[`U_S${slot}`] = mapped.stage
-      if (mapped.type) next[`U_T${slot}`] = mapped.type
+      if (term.desc) next[`U_D${slot}`] = term.desc
+      if (term.stage) next[`U_S${slot}`] = term.stage
+      if (term.type) next[`U_T${slot}`] = normalizePaymentTermType(term.type) || term.type
     }
   }
 
   if (gstTerm) {
-    const mapped = applyPaymentPercentToTerm(
-      gstTerm,
-      resolvePaymentTermPercent(gstTerm) ?? gstTerm.gst,
-      gstTerm.type,
-    )
+    const percent = resolvePaymentTermPercent(gstTerm) ?? gstTerm.gst ?? 0
     const slot = GST_PAYMENT_TERM_SLOT
-    next[`U_G${slot}`] = mapped.gst ?? 0
+    // Always write GST% to U_G11 — even when type is Invoice / Retention (legacy habit).
+    next[`U_G${slot}`] = percent
     // U_B11 does not exist on this company DB — never write it.
-    if (mapped.desc) next[`U_D${slot}`] = mapped.desc
-    if (mapped.stage) next[`U_S${slot}`] = mapped.stage
-    if (mapped.type) next[`U_T${slot}`] = mapped.type
+    if (gstTerm.desc) next[`U_D${slot}`] = gstTerm.desc
+    if (gstTerm.stage) next[`U_S${slot}`] = gstTerm.stage
+    if (gstTerm.type) next[`U_T${slot}`] = normalizePaymentTermType(gstTerm.type) || gstTerm.type
   } else {
     next[`U_G${GST_PAYMENT_TERM_SLOT}`] = 0
   }
@@ -181,19 +210,21 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
   return next
 }
 
-/** Next free slot for a new term. GST types always use slot 11 (one only). */
+/** Next free slot for a new term. GST rows always use slot 11 (one only). */
 export function nextPaymentTermSlot(
   existing: PaymentTermRow[],
   type?: string | null,
+  basis?: PaymentPercentBasis,
 ): number | null {
-  if (isGstPaymentTermType(type)) {
+  const asGst = basis === 'gst' || (basis !== 'basic' && isGstPaymentTermType(type))
+  if (asGst) {
     if (hasGstPaymentTerm(existing)) return null
     return GST_PAYMENT_TERM_SLOT
   }
 
   const used = new Set(
     existing
-      .filter((t) => !isGstPaymentTermType(t.type) && t.id !== GST_PAYMENT_TERM_SLOT)
+      .filter((t) => !isGstPaymentTermRow(t))
       .map((t) => t.id),
   )
   for (let i = 1; i <= MAX_BASIC_PAYMENT_TERMS; i += 1) {

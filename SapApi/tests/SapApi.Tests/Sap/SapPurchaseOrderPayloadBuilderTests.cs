@@ -206,4 +206,29 @@ public class SapPurchaseOrderPayloadBuilderTests
 
         payload.ShipToCode.Should().Be("PEARLS METALS");
     }
+
+    [Test]
+    public void Prepare_MovesLegacyGstPercentFromUG3ToUG11()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            UType1 = "Advance",
+            UBasic1 = 20,
+            UType2 = "Invoice",
+            UBasic2 = 80,
+            UType3 = "Invoice",
+            UGst3 = 100,
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.UGst3.Should().Be(0);
+        payload.UGst11.Should().Be(100);
+        payload.UType11.Should().Be("Invoice");
+        payload.UType3.Should().BeNull();
+        payload.UBasic1.Should().Be(20);
+        payload.UBasic2.Should().Be(80);
+        payload.UBasic11.Should().BeNull();
+    }
 }

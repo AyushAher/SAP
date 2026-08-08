@@ -319,43 +319,52 @@ public class SapMasterDataService(
 
         foreach (var name in PaymentTermTypeUdfNames)
         {
-            var field = await GetOporTypeUserFieldAsync(name, cancellationToken);
-            if (field?.FieldID is null)
-                continue;
-
-            var fieldId = field.FieldID.Value;
-            var size = field.Size ?? 0;
-            if (size < PaymentTermTypeUdfMinSize)
+            try
             {
+                var field = await GetOporTypeUserFieldAsync(name, cancellationToken);
+                if (field?.FieldID is null)
+                    continue;
+
+                var fieldId = field.FieldID.Value;
+                var size = field.Size ?? 0;
+                if (size < PaymentTermTypeUdfMinSize)
+                {
+                    await http.PatchAsync<object, object>(
+                        Constants.SapApiUrls.UserFieldsMd("OPOR", fieldId),
+                        new { Size = PaymentTermTypeUdfMinSize, EditSize = PaymentTermTypeUdfMinSize },
+                        cancellationToken);
+                    // Re-read so ValidValues append uses the resized field.
+                    field = await GetOporTypeUserFieldAsync(name, cancellationToken) ?? field;
+                }
+
+                var existing = new HashSet<string>(
+                    (field.ValidValuesMD ?? [])
+                        .Select(v => v.Value?.Trim() ?? string.Empty)
+                        .Where(v => v.Length > 0),
+                    StringComparer.OrdinalIgnoreCase);
+
+                var missing = PaymentTermTypeOptions.AppExtras
+                    .Where(extra => !existing.Contains(extra.Value))
+                    .Select(extra => new SapUserFieldsMdValidValue
+                    {
+                        Value = extra.Value,
+                        Description = extra.Description,
+                    })
+                    .ToList();
+
+                if (missing.Count == 0)
+                    continue;
+
+                // PATCH with only new ValidValues appends; sending existing values causes Duplicate value.
                 await http.PatchAsync<object, object>(
                     Constants.SapApiUrls.UserFieldsMd("OPOR", fieldId),
-                    new { Size = PaymentTermTypeUdfMinSize, EditSize = PaymentTermTypeUdfMinSize },
+                    new { ValidValuesMD = missing },
                     cancellationToken);
             }
-
-            var existing = new HashSet<string>(
-                (field.ValidValuesMD ?? [])
-                    .Select(v => v.Value?.Trim() ?? string.Empty)
-                    .Where(v => v.Length > 0),
-                StringComparer.OrdinalIgnoreCase);
-
-            var missing = PaymentTermTypeOptions.AppExtras
-                .Where(extra => !existing.Contains(extra.Value))
-                .Select(extra => new SapUserFieldsMdValidValue
-                {
-                    Value = extra.Value,
-                    Description = extra.Description,
-                })
-                .ToList();
-
-            if (missing.Count == 0)
-                continue;
-
-            // PATCH with only new ValidValues appends; sending existing values causes Duplicate value.
-            await http.PatchAsync<object, object>(
-                Constants.SapApiUrls.UserFieldsMd("OPOR", fieldId),
-                new { ValidValuesMD = missing },
-                cancellationToken);
+            catch
+            {
+                // Do not block payment-term type dropdowns if one UDF (e.g. T11) fails to patch.
+            }
         }
     }
 
@@ -416,8 +425,9 @@ public class SapMasterDataService(
         string fieldName,
         CancellationToken cancellationToken)
     {
-        // Prefer OPOR, then ADOC (marketing-document UDFs are often defined once on ADOC).
-        foreach (var table in new[] { "OPOR", "ADOC" })
+        // ADOC first — marketing-document UDFs (PRICE BASIS / Transport Mode) are defined on ADOC;
+        // OPOR often inherits the same FieldID. Prefer ADOC so we match the SAP client dropdown.
+        foreach (var table in new[] { "ADOC", "OPOR" })
         {
             var filter =
                 $"TableName eq '{table}' and Name eq '{SapPaginationBuilder.EscapeODataString(fieldName)}'";
@@ -427,6 +437,7 @@ public class SapMasterDataService(
             if (field?.ValidValuesMD is null || field.ValidValuesMD.Count == 0)
                 continue;
 
+            // Preserve SAP ValidValues order; label = Description (what the B1 client shows).
             return field.ValidValuesMD
                 .Where(v => !string.IsNullOrWhiteSpace(v.Value))
                 .Select(v => new SapUdfValidValueOption

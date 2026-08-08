@@ -173,6 +173,42 @@ describe('payment term type → basic/gst mapping', () => {
       { id: 11, type: 'GstProforma', basic: undefined, gst: 18, stage: undefined, desc: undefined },
     ])
   })
+
+  it('coalesces Invoice + U_G3 into U_G11 and never writes U_G3 on apply', () => {
+    const terms = parsePaymentTermsFromPo({
+      U_T1: 'Advance',
+      U_B1: 20,
+      U_T2: 'Invoice',
+      U_B2: 80,
+      U_T3: 'Invoice',
+      U_G3: 100,
+    })
+    expect(terms).toEqual([
+      { id: 1, type: 'Advance', basic: 20, gst: undefined, stage: undefined, desc: undefined },
+      { id: 2, type: 'Invoice', basic: 80, gst: undefined, stage: undefined, desc: undefined },
+      { id: 11, type: 'Invoice', basic: undefined, gst: 100, stage: undefined, desc: undefined },
+    ])
+
+    const payload = applyPaymentTermsToPo({}, terms)
+    expect(payload.U_G3).toBe(0)
+    expect(payload.U_G11).toBe(100)
+    expect(payload.U_T11).toBe('Invoice')
+    expect(payload.U_B1).toBe(20)
+    expect(payload.U_B2).toBe(80)
+    expect(payload.U_T3).toBeUndefined()
+  })
+
+  it('routes Amount basis=GST with Invoice type to slot 11', () => {
+    expect(nextPaymentTermSlot([], 'Invoice', 'gst')).toBe(11)
+    expect(nextPaymentTermSlot([], 'Invoice', 'basic')).toBe(1)
+    const payload = applyPaymentTermsToPo({}, [
+      { id: 11, type: 'Invoice', gst: 100 },
+      { id: 1, type: 'Advance', basic: 20 },
+    ])
+    expect(payload.U_G11).toBe(100)
+    expect(payload.U_G3).toBe(0)
+    expect(payload.U_T11).toBe('Invoice')
+  })
 })
 
 describe('logistics SAP field mapping', () => {
