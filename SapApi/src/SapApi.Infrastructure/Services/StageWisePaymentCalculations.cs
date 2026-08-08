@@ -374,7 +374,14 @@ public static class StageWisePaymentCalculations
             return FormatDownPaymentRemarkLabel(term);
         }
 
-        return "Batch down payment";
+        // Multiple terms (e.g. Basic + GST rows): keep each Desc for ODPO/PDF remark, separated.
+        var labels = distinctTermIds
+            .Select(id => FormatDownPaymentRemarkLabel(paymentTerms.FirstOrDefault(t => t.Id == id)))
+            .Where(label => !string.IsNullOrWhiteSpace(label) && label != "Down Payment")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return labels.Count > 0 ? string.Join(" / ", labels) : "Batch down payment";
     }
 
     public static (double BalanceDue, double Payable) ResolveBatchRowAmounts(

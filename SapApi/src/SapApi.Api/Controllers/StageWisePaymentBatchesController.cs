@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services;
+using SapApi.Shared;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
 using Serilog;
@@ -146,7 +147,7 @@ public class StageWisePaymentBatchesController(
         var placeholders = await pdfBuilder.BuildPlaceholdersAsync(
             record,
             pageData,
-            User.Identity?.Name,
+            ClaimsPrincipalDisplayName.GetDisplayName(User),
             cancellationToken,
             userRemark: batch.JournalRemark,
             paymentTermOverride: string.IsNullOrWhiteSpace(paymentTermLabel) ? null : paymentTermLabel,

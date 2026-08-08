@@ -6,6 +6,7 @@ using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Infrastructure.Services.Sap;
+using SapApi.Shared;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
 
@@ -122,7 +123,7 @@ public class StageWisePaymentsController(
         var placeholders = await pdfBuilder.BuildPlaceholdersAsync(
             record,
             pageData,
-            User.Identity?.Name,
+            ClaimsPrincipalDisplayName.GetDisplayName(User),
             cancellationToken,
             postingDate: postingDate);
 

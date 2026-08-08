@@ -1,5 +1,6 @@
 using SapApi.Domain.Entities;
 using SapApi.Infrastructure.Services.Sap;
+using SapApi.Shared;
 using SapApi.Shared.Helpers;
 using SapApi.Shared.Responses;
 using SapApi.Shared.Responses.Sap;
@@ -30,8 +31,13 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
         var paymentTypeLabel = isBatchAp || paymentTerm?.Type is "Invoice" or "Retention"
             ? "Outgoing Payment Request"
             : "Downpayment Request";
-        var defaultRemark = isBatchAp || isBatchDown ? "Batch payment request" : "Auto generated from system";
-        var journalRemarks = string.IsNullOrWhiteSpace(userRemark) ? defaultRemark : userRemark.Trim();
+        var paymentTermText = ResolvePaymentTermText(record, paymentTerm, paymentTermOverride);
+        var journalRemarks = ResolveJournalRemarks(
+            paymentTypeLabel,
+            isBatchDown,
+            paymentTermText,
+            po.DocNum?.ToString(),
+            userRemark);
 
         var branch = await masterDataService.GetBusinessPlaceByIdAsync(po.BPLId, cancellationToken: cancellationToken);
 
@@ -43,9 +49,7 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             ["grossTotal"] = (po.DocTotal ?? 0).ToString("N2"),
             ["outgoingPaymentValue"] = grossOutgoing.ToString("N2"),
             ["outgoingPaymentValueInWords"] = AmountInWords.ConvertToWords(grossOutgoing),
-            ["paymentTerm"] = !string.IsNullOrWhiteSpace(paymentTermOverride)
-                ? paymentTermOverride.Trim()
-                : (record.StageDesc ?? paymentTerm?.Desc ?? string.Empty),
+            ["paymentTerm"] = paymentTermText,
             ["vendor"] = $"{po.CardCode} - {po.CardName}",
             ["documentNo"] = po.DocNum?.ToString() ?? string.Empty,
             ["documentDate"] = po.DocDate?.ToString("dd/MM/yyyy") ?? string.Empty,
@@ -92,6 +96,48 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
         }
 
         return placeholders;
+    }
+
+    /// <summary>
+    /// Downpayment Request remark: "{Payment Terms}. Based on Purchase Order no. {DocNum}".
+    /// Outgoing keeps free-text user remark when provided.
+    /// </summary>
+    public static string ResolveJournalRemarks(
+        string paymentTypeLabel,
+        bool isBatchDown,
+        string paymentTermText,
+        string? poDocNum,
+        string? userRemark)
+    {
+        var isDownPayment = isBatchDown
+            || string.Equals(paymentTypeLabel, "Downpayment Request", StringComparison.OrdinalIgnoreCase);
+
+        if (isDownPayment)
+            return Constants.PaymentRemarks.BuildDownPayment(paymentTermText, poDocNum);
+
+        if (!string.IsNullOrWhiteSpace(userRemark))
+            return userRemark.Trim();
+
+        return "Auto generated from system";
+    }
+
+    public static string ResolvePaymentTermText(
+        StageWisePayment record,
+        PaymentTermsUdf? paymentTerm,
+        string? paymentTermOverride)
+    {
+        if (!string.IsNullOrWhiteSpace(paymentTermOverride))
+            return paymentTermOverride.Trim();
+
+        var fromTerm = StageWisePaymentCalculations.FormatDownPaymentRemarkLabel(paymentTerm);
+        if (!string.IsNullOrWhiteSpace(fromTerm) && fromTerm != "Down Payment")
+            return fromTerm;
+
+        if (!string.IsNullOrWhiteSpace(record.StageDesc)
+            && record.StageDesc is not "Batch down payment" and not "Batch AP payment")
+            return record.StageDesc.Trim();
+
+        return fromTerm;
     }
 
     async Task ApplyWithholdingTaxPlaceholdersAsync(

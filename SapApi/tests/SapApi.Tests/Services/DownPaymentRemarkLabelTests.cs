@@ -51,7 +51,7 @@ public class DownPaymentRemarkLabelTests
     }
 
     [Test]
-    public void ResolveBatchDownPaymentRemarkLabel_MultipleLinesDifferentTerms_DoesNotConcatenate()
+    public void ResolveBatchDownPaymentRemarkLabel_MultipleLinesDifferentTerms_JoinsDistinctDescs()
     {
         var lines = new List<StageWisePaymentBatchLineRequest>
         {
@@ -60,7 +60,7 @@ public class DownPaymentRemarkLabelTests
         };
 
         StageWisePaymentCalculations.ResolveBatchDownPaymentRemarkLabel(PaymentTerms, lines)
-            .Should().Be("Batch down payment");
+            .Should().Be("30% Advance against PO / 70% Against delivery");
     }
 
     [Test]
@@ -68,5 +68,17 @@ public class DownPaymentRemarkLabelTests
     {
         Constants.PaymentRemarks.BuildDownPayment("30% Advance against PO", "1234")
             .Should().Be("30% Advance against PO. Based on Purchase Order no. 1234");
+    }
+
+    [Test]
+    public void PdfJournalRemarks_Downpayment_UsesPaymentTermsAndPoNumber()
+    {
+        StageWisePaymentPdfBuilder.ResolveJournalRemarks(
+                paymentTypeLabel: "Downpayment Request",
+                isBatchDown: true,
+                paymentTermText: "80% Basic Against Proforma",
+                poDocNum: "262711481",
+                userRemark: "ignored for down payment")
+            .Should().Be("80% Basic Against Proforma. Based on Purchase Order no. 262711481");
     }
 }
