@@ -36,11 +36,14 @@ public static class SapPurchaseOrderPayloadBuilder
             DocumentsOwner = source.DocumentsOwner,
             ContactPersonCode = source.ContactPersonCode,
             TransportationCode = source.TransportationCode,
-            ShipToCode = NullIfWhiteSpace(source.ShipToCode),
+            // ShipToCode must be a BPAddresses.AddressName on the document vendor — never a CardCode.
+            // Dispatch-to BP is stored on U_CardCode; do not forward a mistaken CardCode as ShipToCode.
+            ShipToCode = ResolveShipToCode(source),
             RoundingDiffAmount = source.RoundingDiffAmount,
             TotalDiscount = source.TotalDiscount,
             UStage = NullIfWhiteSpace(source.UStage),
-            UWarehouse = NullIfWhiteSpace(source.UWarehouse),
+            // U_Warehouse is not a valid PurchaseOrders UDF on this company DB.
+            UWarehouse = null,
             UOwner = NullIfWhiteSpace(source.UOwner),
             UPoType = NullIfWhiteSpace(source.UPoType),
             UTrn = NullIfWhiteSpace(source.UTrn),
@@ -218,6 +221,28 @@ public static class SapPurchaseOrderPayloadBuilder
                     TaxLiable = NullIfWhiteSpace(line.TaxLiable),
                 })
             .ToList();
+    }
+
+    /// <summary>
+    /// Returns ShipToCode only when it is not a Dispatch-To CardCode mistaken for an address name.
+    /// </summary>
+    static string? ResolveShipToCode(SapPurchaseOrdersResponse source)
+    {
+        var shipTo = NullIfWhiteSpace(source.ShipToCode);
+        if (shipTo is null)
+            return null;
+
+        var dispatchBp = NullIfWhiteSpace(source.UCardCode) ?? NullIfWhiteSpace(source.UDispatchTo);
+        if (dispatchBp is not null
+            && string.Equals(shipTo, dispatchBp, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var vendor = NullIfWhiteSpace(source.CardCode);
+        if (vendor is not null
+            && string.Equals(shipTo, vendor, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return shipTo;
     }
 
     static string? NullIfWhiteSpace(string? value) =>

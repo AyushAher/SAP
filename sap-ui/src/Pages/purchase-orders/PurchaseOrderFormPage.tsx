@@ -531,7 +531,6 @@ export function PurchaseOrderFormPage() {
       Comments: form.Comments,
       U_Owner: form.U_Owner,
       U_Stage: form.U_Stage,
-      U_Warehouse: form.U_Warehouse,
       RoundingDiffAmount: totals.roundingOff,
     }
     // Do not send client-calculated totals — SAP computes them.
@@ -539,6 +538,9 @@ export function PurchaseOrderFormPage() {
     delete payload.VatSum
     delete payload.PostingDate
     delete payload.DueDate
+    // Header warehouse is UI default for lines only (not a valid OPOR UDF).
+    delete payload.U_Warehouse
+    delete payload.ShipToCode
     payload = applyPaymentTermsToPo(payload, paymentTerms)
     payload = applyLogisticsToPo(payload, logistics)
     payload = applyOtherTermsToPo(payload, otherTerms)

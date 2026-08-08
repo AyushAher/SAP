@@ -215,7 +215,7 @@ export function readLogisticsFromPo(po: PoRecord): PurchaseOrderLogistics {
 }
 
 export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogistics): PoRecord {
-  return {
+  const next: PoRecord = {
     ...po,
     U_CardCode: logistics.dispatchTo || undefined,
     U_DispachAdd: logistics.dispatchAddress || undefined,
@@ -226,7 +226,12 @@ export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogisti
     U_DispatchTo: undefined,
     U_PriceBasis: undefined,
     U_ModeOfTransport: undefined,
+    ShipToCode: undefined,
   }
+  // Header warehouse is line-default UI only — U_Warehouse is not a valid OPOR UDF on this DB.
+  delete next.U_Warehouse
+  delete next.ShipToCode
+  return next
 }
 
 /** Format a SAP BPAddresses row for U_DispachAdd (max 120 chars). */

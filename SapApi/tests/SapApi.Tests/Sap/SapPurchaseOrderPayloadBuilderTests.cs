@@ -173,4 +173,37 @@ public class SapPurchaseOrderPayloadBuilderTests
         line.WarehouseCode.Should().BeNull();
         line.HSNEntry.Should().BeNull();
     }
+
+    [Test]
+    public void Prepare_Create_DropsShipToCode_WhenItMatchesDispatchCardCode()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "S000744",
+            ShipToCode = "C000030",
+            UCardCode = "C000030",
+            UWarehouse = "Store1",
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.ShipToCode.Should().BeNull();
+        payload.UWarehouse.Should().BeNull();
+        payload.UCardCode.Should().Be("C000030");
+    }
+
+    [Test]
+    public void Prepare_Create_KeepsShipToCode_WhenItIsAddressName()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "S000744",
+            ShipToCode = "PEARLS METALS",
+            UCardCode = "C000030",
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.ShipToCode.Should().Be("PEARLS METALS");
+    }
 }
