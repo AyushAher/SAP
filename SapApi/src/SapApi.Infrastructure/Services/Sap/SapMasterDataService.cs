@@ -29,8 +29,8 @@ public class SapMasterDataService(
     private static readonly TimeSpan PaymentTermTypeCacheTtl = TimeSpan.FromMinutes(20);
 
     private const int PaymentTermTypeUdfMinSize = 20;
-    private static readonly string[] PaymentTermTypeUdfNames =
-        Enumerable.Range(1, 10).Select(i => $"T{i}").ToArray();
+  private static readonly string[] PaymentTermTypeUdfNames =
+      Enumerable.Range(1, 11).Select(i => $"T{i}").ToArray();
 
     private static readonly string[] ItemLookupKeyFields = ["ItemCode"];
     private static readonly string[] BusinessPartnerLookupKeyFields = ["CardCode"];

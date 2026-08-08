@@ -4,7 +4,9 @@ import {
   applyOtherTermsToPo,
   applyPaymentPercentToTerm,
   applyPaymentTermsToPo,
+  hasGstPaymentTerm,
   isGstPaymentTermType,
+  nextPaymentTermSlot,
   normalizePaymentTermType,
   parsePaymentTermsFromPo,
   readLogisticsFromPo,
@@ -131,7 +133,7 @@ describe('payment term type → basic/gst mapping', () => {
     expect(resolvePaymentTermPercent({ type: 'Advance', basic: 0, gst: 12 })).toBe(12)
   })
 
-  it('parses legacy Running and applies mapped fields to PO', () => {
+  it('writes GST Payment% only to U_G11 and basic terms to U_Bn', () => {
     const terms = parsePaymentTermsFromPo({ U_T1: 'Running', U_B1: 25 })
     expect(terms[0]?.type).toBe('Proforma')
     expect(resolvePaymentTermPercent(terms[0]!)).toBe(25)
@@ -141,13 +143,35 @@ describe('payment term type → basic/gst mapping', () => {
       { id: 2, type: 'Advance', basic: 40 },
     ])
     expect(payload).toMatchObject({
-      U_T1: 'TaxInvoice',
-      U_G1: 18,
-      U_B1: 0,
       U_T2: 'Advance',
       U_B2: 40,
       U_G2: 0,
+      U_T11: 'TaxInvoice',
+      U_G11: 18,
     })
+    expect(payload.U_G1).toBe(0)
+    expect(payload.U_B1).toBeUndefined()
+    expect(payload.U_B11).toBeUndefined()
+  })
+
+  it('allows only one GST term on slot 11', () => {
+    expect(nextPaymentTermSlot([], 'GstProforma')).toBe(11)
+    expect(nextPaymentTermSlot([{ id: 11, type: 'TaxInvoice', gst: 18 }], 'GstProforma')).toBeNull()
+    expect(hasGstPaymentTerm([{ id: 11, type: 'GstProforma', gst: 100 }])).toBe(true)
+    expect(nextPaymentTermSlot([{ id: 11, type: 'GstProforma', gst: 100 }], 'Advance')).toBe(1)
+  })
+
+  it('coalesces legacy GST rows from slot 1–10 into slot 11 when reading', () => {
+    const terms = parsePaymentTermsFromPo({
+      U_T1: 'Advance',
+      U_B1: 80,
+      U_T3: 'GstProforma',
+      U_G3: 18,
+    })
+    expect(terms).toEqual([
+      { id: 1, type: 'Advance', basic: 80, gst: undefined, stage: undefined, desc: undefined },
+      { id: 11, type: 'GstProforma', basic: undefined, gst: 18, stage: undefined, desc: undefined },
+    ])
   })
 })
 

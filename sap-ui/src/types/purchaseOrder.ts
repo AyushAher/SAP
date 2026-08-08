@@ -108,10 +108,16 @@ export const MODE_OF_TRANSPORT_OPTIONS = [
   { value: '4', label: 'Ship' },
 ] as const
 
-/** Types that store Payment% in U_Gn (GST) rather than U_Bn (Basic). */
+/** Types that store Payment% in U_G11 (GST) rather than U_Bn (Basic). */
 export const GST_PAYMENT_TERM_TYPES = ['GstProforma', 'TaxInvoice'] as const
 
 export type GstPaymentTermType = (typeof GST_PAYMENT_TERM_TYPES)[number]
+
+/** Fixed OPOR slot for GST payment % — only U_G11 (no U_B11 on this company DB). */
+export const GST_PAYMENT_TERM_SLOT = 11
+
+/** Non-GST payment terms use slots 1–10 (U_Bn). */
+export const MAX_BASIC_PAYMENT_TERMS = 10
 
 /**
  * Fallback when GET /masters/payment-term-types fails.
@@ -126,4 +132,5 @@ export const PAYMENT_TERM_TYPE_OPTIONS = [
   { value: 'TaxInvoice', label: 'Against Tax Invoice' },
 ] as const
 
-export const MAX_PAYMENT_TERMS = 11
+/** Total slots including GST slot 11. */
+export const MAX_PAYMENT_TERMS = GST_PAYMENT_TERM_SLOT

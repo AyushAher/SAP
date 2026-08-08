@@ -14,12 +14,15 @@ public static class PaymentTermTypeOptions
     public const string GstProforma = "GstProforma";
     public const string TaxInvoice = "TaxInvoice";
 
-    /// <summary>Types that store Payment% in U_Gn (GST) rather than U_Bn (Basic).</summary>
+    /// <summary>Types that store Payment% in U_G11 (GST) rather than U_Bn (Basic).</summary>
     public static readonly HashSet<string> GstMappedTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         GstProforma,
         TaxInvoice,
     };
+
+    /// <summary>Fixed OPOR slot for GST payment % (U_G11 only).</summary>
+    public const int GstPaymentTermSlot = 11;
 
     public static readonly PaymentTermTypeOption[] AppExtras =
     [

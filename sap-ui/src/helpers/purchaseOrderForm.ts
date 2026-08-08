@@ -1,5 +1,10 @@
 import type { PaymentTermRow, PurchaseOrderLineItem, PurchaseOrderLogistics, PurchaseOrderOtherTerms } from '@/types/purchaseOrder'
-import { GST_PAYMENT_TERM_TYPES, MAX_PAYMENT_TERMS } from '@/types/purchaseOrder'
+import {
+  GST_PAYMENT_TERM_SLOT,
+  GST_PAYMENT_TERM_TYPES,
+  MAX_BASIC_PAYMENT_TERMS,
+  MAX_PAYMENT_TERMS,
+} from '@/types/purchaseOrder'
 
 type PoRecord = Record<string, unknown>
 
@@ -21,7 +26,7 @@ function readNumber(source: PoRecord, ...keys: string[]): number | undefined {
   return undefined
 }
 
-/** GST types store Payment% in U_Gn; all other types use U_Bn. */
+/** GST types store Payment% in U_G11 only; all other types use U_Bn. */
 export function isGstPaymentTermType(type?: string | null): boolean {
   const normalized = normalizePaymentTermType(type)
   if (!normalized) return false
@@ -64,8 +69,18 @@ export function applyPaymentPercentToTerm<T extends Pick<PaymentTermRow, 'type' 
   return { ...term, type: normalizedType, basic: percent, gst: undefined }
 }
 
+export function hasGstPaymentTerm(terms: PaymentTermRow[]): boolean {
+  return terms.some((t) => isGstPaymentTermType(t.type) || t.id === GST_PAYMENT_TERM_SLOT)
+}
+
+/**
+ * Parse OPOR payment-term UDFs.
+ * GST% lives only on U_G11 — coalesce legacy GST types from slots 1–10 into slot 11.
+ */
 export function parsePaymentTermsFromPo(po: PoRecord): PaymentTermRow[] {
   const terms: PaymentTermRow[] = []
+  let gstTerm: PaymentTermRow | undefined
+
   for (let i = 1; i <= MAX_PAYMENT_TERMS; i += 1) {
     const rawType = readString(po, `U_T${i}`, `UType${i}`)
     const type = normalizePaymentTermType(rawType) || undefined
@@ -73,11 +88,43 @@ export function parsePaymentTermsFromPo(po: PoRecord): PaymentTermRow[] {
     const gst = readNumber(po, `U_G${i}`, `UGst${i}`)
     const stage = readString(po, `U_S${i}`, `UStage${i}`)
     const desc = readString(po, `U_D${i}`, `UDes${i}`)
-    if (type || basic != null || gst != null || stage || desc) {
-      terms.push({ id: i, type, basic, gst, stage: stage || undefined, desc: desc || undefined })
+    const isGstSlot = i === GST_PAYMENT_TERM_SLOT
+    const isGstType = isGstPaymentTermType(type)
+    const gstValue = gst != null && gst > 0 ? gst : undefined
+
+    if (isGstSlot || isGstType || (isGstSlot && gstValue != null)) {
+      // Prefer explicit slot 11; otherwise first legacy GST row wins.
+      if (!gstTerm || isGstSlot) {
+        gstTerm = {
+          id: GST_PAYMENT_TERM_SLOT,
+          type: type || gstTerm?.type,
+          basic: undefined,
+          gst: gstValue ?? gstTerm?.gst,
+          stage: stage || gstTerm?.stage,
+          desc: desc || gstTerm?.desc,
+        }
+      }
+      continue
+    }
+
+    if (type || basic != null || stage || desc) {
+      terms.push({
+        id: i,
+        type,
+        basic: basic != null && basic > 0 ? basic : basic === 0 ? 0 : undefined,
+        gst: undefined,
+        stage: stage || undefined,
+        desc: desc || undefined,
+      })
     }
   }
-  return terms
+
+  // Slot 11 may only have U_G11 with empty type.
+  if (gstTerm && (gstTerm.type || gstTerm.gst != null || gstTerm.stage || gstTerm.desc)) {
+    terms.push(gstTerm)
+  }
+
+  return terms.sort((a, b) => a.id - b.id)
 }
 
 export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): PoRecord {
@@ -89,31 +136,67 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
     delete next[`U_S${i}`]
     delete next[`U_T${i}`]
   }
-  for (const term of terms.slice(0, MAX_PAYMENT_TERMS)) {
-    const slot = term.id
+
+  // Always clear GST% on slots 1–10 — only U_G11 may hold GST.
+  for (let i = 1; i <= MAX_BASIC_PAYMENT_TERMS; i += 1) {
+    next[`U_G${i}`] = 0
+  }
+
+  const basicTerms = terms.filter((t) => !isGstPaymentTermType(t.type) && t.id !== GST_PAYMENT_TERM_SLOT)
+  const gstTerms = terms.filter((t) => isGstPaymentTermType(t.type) || t.id === GST_PAYMENT_TERM_SLOT)
+  const gstTerm = gstTerms[0]
+
+  for (const term of basicTerms.slice(0, MAX_BASIC_PAYMENT_TERMS)) {
+    const slot = Math.min(Math.max(term.id, 1), MAX_BASIC_PAYMENT_TERMS)
     const mapped = applyPaymentPercentToTerm(
       term,
-      resolvePaymentTermPercent(term) ?? (isGstPaymentTermType(term.type) ? term.gst : term.basic),
+      resolvePaymentTermPercent(term) ?? term.basic,
       term.type,
     )
-    // Explicit 0 clears the unused percent field on SAP PATCH (omitted nulls are ignored).
-    if (isGstPaymentTermType(mapped.type)) {
-      next[`U_G${slot}`] = mapped.gst ?? 0
-      next[`U_B${slot}`] = 0
-    } else if (mapped.type || mapped.basic != null || mapped.gst != null || mapped.stage || mapped.desc) {
+    if (mapped.type || mapped.basic != null || mapped.stage || mapped.desc) {
       next[`U_B${slot}`] = mapped.basic ?? 0
       next[`U_G${slot}`] = 0
+      if (mapped.desc) next[`U_D${slot}`] = mapped.desc
+      if (mapped.stage) next[`U_S${slot}`] = mapped.stage
+      if (mapped.type) next[`U_T${slot}`] = mapped.type
     }
+  }
+
+  if (gstTerm) {
+    const mapped = applyPaymentPercentToTerm(
+      gstTerm,
+      resolvePaymentTermPercent(gstTerm) ?? gstTerm.gst,
+      gstTerm.type,
+    )
+    const slot = GST_PAYMENT_TERM_SLOT
+    next[`U_G${slot}`] = mapped.gst ?? 0
+    // U_B11 does not exist on this company DB — never write it.
     if (mapped.desc) next[`U_D${slot}`] = mapped.desc
     if (mapped.stage) next[`U_S${slot}`] = mapped.stage
     if (mapped.type) next[`U_T${slot}`] = mapped.type
+  } else {
+    next[`U_G${GST_PAYMENT_TERM_SLOT}`] = 0
   }
+
   return next
 }
 
-export function nextPaymentTermSlot(existing: PaymentTermRow[]): number | null {
-  const used = new Set(existing.map((t) => t.id))
-  for (let i = 1; i <= MAX_PAYMENT_TERMS; i += 1) {
+/** Next free slot for a new term. GST types always use slot 11 (one only). */
+export function nextPaymentTermSlot(
+  existing: PaymentTermRow[],
+  type?: string | null,
+): number | null {
+  if (isGstPaymentTermType(type)) {
+    if (hasGstPaymentTerm(existing)) return null
+    return GST_PAYMENT_TERM_SLOT
+  }
+
+  const used = new Set(
+    existing
+      .filter((t) => !isGstPaymentTermType(t.type) && t.id !== GST_PAYMENT_TERM_SLOT)
+      .map((t) => t.id),
+  )
+  for (let i = 1; i <= MAX_BASIC_PAYMENT_TERMS; i += 1) {
     if (!used.has(i)) return i
   }
   return null

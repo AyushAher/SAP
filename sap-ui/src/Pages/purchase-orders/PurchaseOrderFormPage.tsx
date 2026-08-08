@@ -27,6 +27,8 @@ import {
   applyPaymentTermsToPo,
   calculatePurchaseOrderTotals,
   formatPoAmount,
+  hasGstPaymentTerm,
+  isGstPaymentTermType,
   nextPaymentTermSlot,
   parsePaymentTermsFromPo,
   paymentTermDisplayLabel,
@@ -417,14 +419,22 @@ export function PurchaseOrderFormPage() {
   }, [id, purchaseOrder, queryLoading, authBranchId, loadDispatchLogisticsOptions])
 
   const handleAddPaymentTerm = () => {
-    const slot = nextPaymentTermSlot(paymentTerms)
-    if (slot == null) {
-      setError('Maximum payment terms reached.')
-      return
-    }
     const percent = resolvePaymentTermPercent(paymentDraft)
     if (!paymentDraft.type && percent == null && !paymentDraft.stage) {
       setError('Enter at least type, percentage, or stage for the payment term.')
+      return
+    }
+    if (isGstPaymentTermType(paymentDraft.type) && hasGstPaymentTerm(paymentTerms)) {
+      setError('Only one GST payment term is allowed (stored in U_G11).')
+      return
+    }
+    const slot = nextPaymentTermSlot(paymentTerms, paymentDraft.type)
+    if (slot == null) {
+      setError(
+        isGstPaymentTermType(paymentDraft.type)
+          ? 'Only one GST payment term is allowed (stored in U_G11).'
+          : 'Maximum payment terms reached.',
+      )
       return
     }
     const mapped = applyPaymentPercentToTerm(
@@ -908,6 +918,7 @@ export function PurchaseOrderFormPage() {
                         setPaymentDraft(applyPaymentPercentToTerm(paymentDraft, percent, value))
                       }}
                       placeholder="Select type"
+                      hint={isGstPaymentTermType(paymentDraft.type) ? 'GST types use a single U_G11 slot only.' : undefined}
                     />
                     <Input
                       label="Payment %"
