@@ -231,6 +231,11 @@ namespace SapApi.Shared
             public static string CreateVendorPayments = SapServiceLayerUrl + SapBaseUrl + "/VendorPayments";
             public static string GetAllProjectDetails = SapServiceLayerUrl + SapBaseUrl + "/Projects";
             public static string GetAllBpl = SapServiceLayerUrl + SapBaseUrl + "/BusinessPlaces";
+            public static string UserFieldsMdCollection = SapServiceLayerUrl + SapBaseUrl + "/UserFieldsMD";
+            public static string UserFieldsMd(string tableName, int fieldId) =>
+                $"{SapServiceLayerUrl}{SapBaseUrl}/UserFieldsMD(TableName='{tableName}',FieldID={fieldId})";
+            public static string UserFieldsMdValidValues(string tableName, int fieldId) =>
+                $"{UserFieldsMd(tableName, fieldId)}/ValidValuesMD";
 
         }
 

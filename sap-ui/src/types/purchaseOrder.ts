@@ -112,19 +112,22 @@ export const MODE_OF_TRANSPORT_OPTIONS = [
   { value: 'Multimodal', label: 'Multimodal' },
 ] as const
 
+/** Types that store Payment% in U_Gn (GST) rather than U_Bn (Basic). */
+export const GST_PAYMENT_TERM_TYPES = ['GstProforma', 'TaxInvoice'] as const
+
+export type GstPaymentTermType = (typeof GST_PAYMENT_TERM_TYPES)[number]
+
+/**
+ * Fallback when GET /masters/payment-term-types fails.
+ * Values match SAP OPOR T1 ValidValues (+ app extras). Legacy UI "Running" maps to Proforma.
+ */
 export const PAYMENT_TERM_TYPE_OPTIONS = [
-  { value: 'Advance', label: 'Advance' },
-  { value: 'Running', label: 'Running' },
-  { value: 'Invoice', label: 'Invoice' },
+  { value: 'Advance', label: 'As Advance' },
+  { value: 'Proforma', label: 'Against Proforma' },
+  { value: 'Invoice', label: 'Against Invoice' },
   { value: 'Retention', label: 'Retention' },
+  { value: 'GstProforma', label: 'GST against Proforma Invoice' },
+  { value: 'TaxInvoice', label: 'Against Tax Invoice' },
 ] as const
-
-/** Which percentage field a payment term writes to (Basic → U_Bn, GST → U_Gn). */
-export const PAYMENT_TERM_PERCENT_KIND_OPTIONS = [
-  { value: 'basic', label: 'Basic' },
-  { value: 'gst', label: 'GST' },
-] as const
-
-export type PaymentTermPercentKind = (typeof PAYMENT_TERM_PERCENT_KIND_OPTIONS)[number]['value']
 
 export const MAX_PAYMENT_TERMS = 11

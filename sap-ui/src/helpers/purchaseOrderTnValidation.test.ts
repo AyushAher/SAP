@@ -42,17 +42,10 @@ describe('validatePurchaseOrderAgainstTn', () => {
     })).toBe('Either Production Order No OR Open Order Field is mandatory at row level.')
   })
 
-  it('requires TRN and transporter item for series 124', () => {
+  it('requires transporter item for series 124', () => {
     expect(validatePurchaseOrderAgainstTn({
       ...base,
       vendorSeries: PO_TN.transporterBpSeries,
-      trn: '',
-    })).toBe('Please Select Open Order from List in Purchase Order Row.')
-
-    expect(validatePurchaseOrderAgainstTn({
-      ...base,
-      vendorSeries: PO_TN.transporterBpSeries,
-      trn: 'OPEN-1',
       lines: [{ ItemCode: 'A1', WarehouseCode: '01', Quantity: 1, UnitPrice: 1 }],
     })).toContain('SR3346300000000000')
   })

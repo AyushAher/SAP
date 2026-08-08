@@ -23,6 +23,7 @@ import { formatCodeWithName, resolveMasterSelectLabels } from '@/helpers/masterL
 import {
   applyLogisticsToPo,
   applyOtherTermsToPo,
+  applyPaymentPercentToTerm,
   applyPaymentTermsToPo,
   calculatePurchaseOrderTotals,
   formatPoAmount,
@@ -31,10 +32,12 @@ import {
   paymentTermDisplayLabel,
   readLogisticsFromPo,
   readOtherTermsFromPo,
+  resolvePaymentTermPercent,
 } from '@/helpers/purchaseOrderForm'
 import { useAppSelector } from '@/store/hooks'
 import { getBranchesApi } from '@/Requests/auth'
 import {
+  fetchPaymentTermTypes,
   searchBusinessPartners,
   searchEmployees,
   searchProjects,
@@ -46,6 +49,7 @@ import {
   lookupEmployee,
   lookupSalesPerson,
   type MasterBusinessPartner,
+  type PaymentTermTypeOption,
 } from '@/Requests/masters'
 import { createPurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '@/Requests/purchaseOrders'
 import {
@@ -63,18 +67,17 @@ import {
 } from '@/helpers/purchaseOrderTnValidation'
 import type { SelectOption } from '@/types'
 import type {
-  PaymentTermPercentKind,
   PaymentTermRow,
   PurchaseOrderLineItem,
   PurchaseOrderLogistics,
   PurchaseOrderOtherTerms,
 } from '@/types/purchaseOrder'
 import {
-  PAYMENT_TERM_PERCENT_KIND_OPTIONS,
   PAYMENT_TERM_TYPE_OPTIONS,
   PRICE_BASIS_OPTIONS,
   MODE_OF_TRANSPORT_OPTIONS,
 } from '@/types/purchaseOrder'
+import { useQuery } from '@tanstack/react-query'
 
 type FormTab = 'logistics' | 'payment' | 'other'
 
@@ -88,27 +91,17 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10)
 }
 
-type PaymentTermDraft = Omit<PaymentTermRow, 'id'> & { percentKind: PaymentTermPercentKind }
+type PaymentTermDraft = Omit<PaymentTermRow, 'id'>
 
 function emptyPaymentTermDraft(): PaymentTermDraft {
-  return { type: '', basic: undefined, gst: undefined, stage: '', desc: '', percentKind: 'basic' }
+  return { type: '', basic: undefined, gst: undefined, stage: '', desc: '' }
 }
 
-function paymentTermDraftPercent(draft: PaymentTermDraft): number | undefined {
-  return draft.percentKind === 'basic' ? draft.basic : draft.gst
-}
-
-function withPaymentTermPercent(
-  draft: PaymentTermDraft,
-  percent: number | undefined,
-  percentKind: PaymentTermPercentKind = draft.percentKind,
-): PaymentTermDraft {
-  return {
-    ...draft,
-    percentKind,
-    basic: percentKind === 'basic' ? percent : undefined,
-    gst: percentKind === 'gst' ? percent : undefined,
-  }
+function paymentTermTypeOptionsFromApi(options: PaymentTermTypeOption[] | undefined): SelectOption[] {
+  const source = options?.length
+    ? options
+    : PAYMENT_TERM_TYPE_OPTIONS.map((o) => ({ value: o.value, description: o.label }))
+  return source.map((o) => ({ value: o.value, label: o.description || o.value }))
 }
 
 export function PurchaseOrderFormPage() {
@@ -121,6 +114,23 @@ export function PurchaseOrderFormPage() {
     isLoading: queryLoading,
     error: queryError,
   } = usePurchaseOrder(id)
+
+  const { data: paymentTermTypeOptions } = useQuery({
+    queryKey: ['masters', 'payment-term-types'],
+    queryFn: fetchPaymentTermTypes,
+    staleTime: 20 * 60 * 1000,
+  })
+
+  const paymentTypeSelectOptions = useMemo(
+    () => paymentTermTypeOptionsFromApi(paymentTermTypeOptions),
+    [paymentTermTypeOptions],
+  )
+
+  const paymentTypeLabelMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const opt of paymentTypeSelectOptions) map[opt.value] = opt.label
+    return map
+  }, [paymentTypeSelectOptions])
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -347,20 +357,27 @@ export function PurchaseOrderFormPage() {
       setError('Maximum payment terms reached.')
       return
     }
-    const percent = paymentTermDraftPercent(paymentDraft)
+    const percent = resolvePaymentTermPercent(paymentDraft)
     if (!paymentDraft.type && percent == null && !paymentDraft.stage) {
       setError('Enter at least type, percentage, or stage for the payment term.')
       return
     }
+    const mapped = applyPaymentPercentToTerm(
+      {
+        type: paymentDraft.type || undefined,
+        basic: undefined,
+        gst: undefined,
+        stage: paymentDraft.stage || undefined,
+        desc: paymentDraft.desc || undefined,
+      },
+      percent,
+      paymentDraft.type,
+    )
     setPaymentTerms([
       ...paymentTerms,
       {
         id: slot,
-        type: paymentDraft.type || undefined,
-        basic: paymentDraft.percentKind === 'basic' ? percent : undefined,
-        gst: paymentDraft.percentKind === 'gst' ? percent : undefined,
-        stage: paymentDraft.stage || undefined,
-        desc: paymentDraft.desc || undefined,
+        ...mapped,
       },
     ])
     setPaymentDraft(emptyPaymentTermDraft())
@@ -645,17 +662,6 @@ export function PurchaseOrderFormPage() {
                   value={String(form.NumAtCard ?? '')}
                   onChange={(e) => updateForm({ NumAtCard: e.target.value })}
                 />
-                <Input
-                  label={isTransporterVendor ? 'Open Order / TRN *' : 'Open Order / TRN'}
-                  value={String(form.U_TRN ?? '')}
-                  onChange={(e) => updateForm({ U_TRN: e.target.value })}
-                  hint={isTransporterVendor ? 'Required for transporter vendors (BP series 124).' : undefined}
-                />
-                <Input
-                  label="Stage"
-                  value={String(form.U_Stage ?? '')}
-                  onChange={(e) => updateForm({ U_Stage: e.target.value })}
-                />
                 <SearchableSelect
                   label="Warehouse"
                   value={String(form.U_Warehouse ?? '')}
@@ -682,44 +688,9 @@ export function PurchaseOrderFormPage() {
                     hint="Required when any line uses DRP / DRP2 warehouse. Dispatch address is on the Logistics tab."
                   />
                 ) : null}
-                <Input
-                  label="Owner (UDF)"
-                  value={String(form.U_Owner ?? '')}
-                  onChange={(e) => updateForm({ U_Owner: e.target.value })}
-                />
-                <Input
-                  label="Comments"
-                  value={String(form.Comments ?? '')}
-                  onChange={(e) => updateForm({ Comments: e.target.value })}
-                  className="md:col-span-2 xl:col-span-2"
-                />
-                <SearchableSelect
-                  label="Buyer *"
-                  value={form.SalesPersonCode != null ? String(form.SalesPersonCode) : ''}
-                  selectedLabel={buyerLabel}
-                  placeholder="Search buyer..."
-                  onSearch={searchBuyerOptions}
-                  onChange={(value, option) => {
-                    const code = value ? Number(value) : undefined
-                    setBuyerLabel(option?.label ?? value)
-                    updateForm({ SalesPersonCode: Number.isFinite(code) ? code : undefined })
-                  }}
-                />
-                <SearchableSelect
-                  label="Approver *"
-                  value={form.DocumentsOwner != null ? String(form.DocumentsOwner) : ''}
-                  selectedLabel={approverLabel}
-                  placeholder="Search approver..."
-                  onSearch={searchApproverOptions}
-                  onChange={(value, option) => {
-                    const empId = value ? Number(value) : undefined
-                    setApproverLabel(option?.label ?? value)
-                    updateForm({ DocumentsOwner: Number.isFinite(empId) ? empId : undefined })
-                  }}
-                />
                 {isTransporterVendor ? (
                   <p className="md:col-span-2 xl:col-span-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                    Transporter vendor (series 124): add item <strong>{PO_TN.transporterMandatoryItem}</strong> and fill Open Order / TRN.
+                    Transporter vendor (series 124): add item <strong>{PO_TN.transporterMandatoryItem}</strong>.
                   </p>
                 ) : null}
               </div>
@@ -810,32 +781,26 @@ export function PurchaseOrderFormPage() {
                   description={FORM_TABS[1].description}
                 >
                 <div className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <Select
                       label="Type"
-                      options={PAYMENT_TERM_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                      options={paymentTypeSelectOptions}
                       value={paymentDraft.type ?? ''}
-                      onChange={(value) => setPaymentDraft({ ...paymentDraft, type: value })}
+                      onChange={(value) => {
+                        const percent = resolvePaymentTermPercent(paymentDraft)
+                        setPaymentDraft(applyPaymentPercentToTerm(paymentDraft, percent, value))
+                      }}
                       placeholder="Select type"
                     />
-                    <Select
-                      label="Basic / GST"
-                      options={PAYMENT_TERM_PERCENT_KIND_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                      value={paymentDraft.percentKind}
-                      onChange={(value) => {
-                        const kind = (value === 'gst' ? 'gst' : 'basic') as PaymentTermPercentKind
-                        setPaymentDraft(withPaymentTermPercent(paymentDraft, paymentTermDraftPercent(paymentDraft), kind))
-                      }}
-                    />
                     <Input
-                      label={paymentDraft.percentKind === 'basic' ? 'Basic %' : 'GST %'}
+                      label="Payment %"
                       type="number"
                       min="0"
                       nonNegative
-                      value={paymentTermDraftPercent(paymentDraft) != null ? String(paymentTermDraftPercent(paymentDraft)) : ''}
+                      value={resolvePaymentTermPercent(paymentDraft) != null ? String(resolvePaymentTermPercent(paymentDraft)) : ''}
                       onChange={(e) => {
                         const percent = e.target.value === '' ? undefined : Number(e.target.value)
-                        setPaymentDraft(withPaymentTermPercent(paymentDraft, percent))
+                        setPaymentDraft(applyPaymentPercentToTerm(paymentDraft, percent, paymentDraft.type))
                       }}
                     />
                     <Input
@@ -859,8 +824,7 @@ export function PurchaseOrderFormPage() {
                         <tr>
                           <th className="px-3 py-2 font-medium">#</th>
                           <th className="px-3 py-2 font-medium">Type</th>
-                          <th className="px-3 py-2 font-medium">Basic %</th>
-                          <th className="px-3 py-2 font-medium">GST %</th>
+                          <th className="px-3 py-2 font-medium">Payment %</th>
                           <th className="px-3 py-2 font-medium">Stage</th>
                           <th className="px-3 py-2 font-medium">Description</th>
                           <th className="px-3 py-2 font-medium">Actions</th>
@@ -869,16 +833,15 @@ export function PurchaseOrderFormPage() {
                       <tbody>
                         {paymentTerms.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="px-3 py-6 text-center text-slate-500">No payment terms added.</td>
+                            <td colSpan={6} className="px-3 py-6 text-center text-slate-500">No payment terms added.</td>
                           </tr>
                         ) : paymentTerms.map((term) => (
                           <tr key={term.id} className="border-t border-slate-100">
                             <td className="px-3 py-2">{term.id}</td>
-                            <td className="px-3 py-2">{term.type ?? '—'}</td>
-                            <td className="px-3 py-2">{term.basic ?? '—'}</td>
-                            <td className="px-3 py-2">{term.gst ?? '—'}</td>
+                            <td className="px-3 py-2">{paymentTypeLabelMap[term.type ?? ''] ?? term.type ?? '—'}</td>
+                            <td className="px-3 py-2">{resolvePaymentTermPercent(term) ?? '—'}</td>
                             <td className="px-3 py-2">{term.stage ?? '—'}</td>
-                            <td className="px-3 py-2">{paymentTermDisplayLabel(term)}</td>
+                            <td className="px-3 py-2">{paymentTermDisplayLabel(term, paymentTypeLabelMap)}</td>
                             <td className="px-3 py-2">
                               <Button type="button" variant="outline" size="sm" onClick={() => handleRemovePaymentTerm(term.id)}>
                                 Remove
@@ -917,15 +880,36 @@ export function PurchaseOrderFormPage() {
 
             <section className="grid gap-4 border-t border-slate-200 pt-4 md:grid-cols-2">
               <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <SearchableSelect
+                    label="Buyer *"
+                    value={form.SalesPersonCode != null ? String(form.SalesPersonCode) : ''}
+                    selectedLabel={buyerLabel}
+                    placeholder="Search buyer..."
+                    onSearch={searchBuyerOptions}
+                    onChange={(value, option) => {
+                      const code = value ? Number(value) : undefined
+                      setBuyerLabel(option?.label ?? value)
+                      updateForm({ SalesPersonCode: Number.isFinite(code) ? code : undefined })
+                    }}
+                  />
+                  <SearchableSelect
+                    label="Approver *"
+                    value={form.DocumentsOwner != null ? String(form.DocumentsOwner) : ''}
+                    selectedLabel={approverLabel}
+                    placeholder="Search approver..."
+                    onSearch={searchApproverOptions}
+                    onChange={(value, option) => {
+                      const empId = value ? Number(value) : undefined
+                      setApproverLabel(option?.label ?? value)
+                      updateForm({ DocumentsOwner: Number.isFinite(empId) ? empId : undefined })
+                    }}
+                  />
+                </div>
                 <Textarea
                   label="User Remarks"
                   value={String(form.Comments ?? '')}
                   onChange={(e) => updateForm({ Comments: e.target.value })}
-                />
-                <Input
-                  label="Owner"
-                  value={String(form.U_Owner ?? '')}
-                  onChange={(e) => updateForm({ U_Owner: e.target.value })}
                 />
               </div>
               <div className="space-y-3 rounded-lg bg-slate-50 p-4">

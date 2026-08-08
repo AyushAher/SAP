@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyOtherTermsToPo,
+  applyPaymentPercentToTerm,
+  applyPaymentTermsToPo,
+  isGstPaymentTermType,
+  normalizePaymentTermType,
+  parsePaymentTermsFromPo,
   readOtherTermsFromPo,
   resolveLineUoms,
+  resolvePaymentTermPercent,
 } from './purchaseOrderForm'
 
 describe('resolveLineUoms', () => {
@@ -88,5 +94,57 @@ describe('other terms OPOR UDFs', () => {
     expect(payload.U_DL).toBe('fresh')
     expect(payload.U_WARR).toBe('new')
     expect(payload).not.toHaveProperty('U_DelTerms')
+  })
+})
+
+describe('payment term type → basic/gst mapping', () => {
+  it('maps Running to Proforma', () => {
+    expect(normalizePaymentTermType('Running')).toBe('Proforma')
+    expect(normalizePaymentTermType('running')).toBe('Proforma')
+  })
+
+  it('treats GstProforma and TaxInvoice as GST types', () => {
+    expect(isGstPaymentTermType('GstProforma')).toBe(true)
+    expect(isGstPaymentTermType('TaxInvoice')).toBe(true)
+    expect(isGstPaymentTermType('Advance')).toBe(false)
+    expect(isGstPaymentTermType('Proforma')).toBe(false)
+  })
+
+  it('writes Payment% to U_G for GST types and U_B otherwise', () => {
+    expect(applyPaymentPercentToTerm({ type: 'Advance' }, 30)).toEqual({
+      type: 'Advance',
+      basic: 30,
+      gst: undefined,
+    })
+    expect(applyPaymentPercentToTerm({ type: 'GstProforma' }, 18)).toEqual({
+      type: 'GstProforma',
+      basic: undefined,
+      gst: 18,
+    })
+  })
+
+  it('resolves Payment% preferring gst for GST types', () => {
+    expect(resolvePaymentTermPercent({ type: 'GstProforma', basic: 10, gst: 18 })).toBe(18)
+    expect(resolvePaymentTermPercent({ type: 'Advance', basic: 30, gst: 5 })).toBe(30)
+    expect(resolvePaymentTermPercent({ type: 'Advance', basic: 0, gst: 12 })).toBe(12)
+  })
+
+  it('parses legacy Running and applies mapped fields to PO', () => {
+    const terms = parsePaymentTermsFromPo({ U_T1: 'Running', U_B1: 25 })
+    expect(terms[0]?.type).toBe('Proforma')
+    expect(resolvePaymentTermPercent(terms[0]!)).toBe(25)
+
+    const payload = applyPaymentTermsToPo({}, [
+      { id: 1, type: 'TaxInvoice', gst: 18 },
+      { id: 2, type: 'Advance', basic: 40 },
+    ])
+    expect(payload).toMatchObject({
+      U_T1: 'TaxInvoice',
+      U_G1: 18,
+      U_B1: 0,
+      U_T2: 'Advance',
+      U_B2: 40,
+      U_G2: 0,
+    })
   })
 })

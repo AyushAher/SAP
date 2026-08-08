@@ -74,9 +74,6 @@ export function validatePurchaseOrderAgainstTn(input: PoTnValidationInput): stri
   }
 
   if (!isService && input.vendorSeries === PO_TN.transporterBpSeries) {
-    if (!input.trn?.trim()) {
-      return 'Please Select Open Order from List in Purchase Order Row.'
-    }
     const hasMandatoryItem = input.lines.some(
       (line) => (line.ItemCode ?? '').trim() === PO_TN.transporterMandatoryItem,
     )

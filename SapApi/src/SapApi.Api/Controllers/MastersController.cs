@@ -86,6 +86,10 @@ public class MastersController(SapMasterDataService masterDataService) : Control
     public async Task<IActionResult> Lookup([FromBody] MasterLookupRequest? request, CancellationToken cancellationToken) =>
         Ok(ApiResponse<MasterLookupResponse>.Ok(await masterDataService.LookupMasterDataAsync(request ?? new MasterLookupRequest(), cancellationToken)));
 
+    [HttpGet("payment-term-types")]
+    public async Task<IActionResult> GetPaymentTermTypes(CancellationToken cancellationToken) =>
+        Ok(ApiResponse<List<PaymentTermTypeOption>>.Ok(await masterDataService.GetPaymentTermTypesAsync(cancellationToken)));
+
     [HttpPost("business-places/list")]
     public async Task<IActionResult> ListBusinessPlaces([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchBusinessPlacesAsync(PaginationRequest.Normalize(request), cancellationToken));

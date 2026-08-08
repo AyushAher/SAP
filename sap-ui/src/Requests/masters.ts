@@ -413,3 +413,31 @@ export async function batchMasterLookup(payload: MasterLookupPayload): Promise<M
   })
   return normalizeLookupResult(raw)
 }
+
+export interface PaymentTermTypeOption {
+  value: string
+  description: string
+}
+
+/** SAP OPOR T1 ValidValues (+ app extras). Falls back to built-in defaults on failure. */
+export async function fetchPaymentTermTypes(): Promise<PaymentTermTypeOption[]> {
+  const { apiGet } = await import('@/helpers/api/client')
+  const { PAYMENT_TERM_TYPE_OPTIONS } = await import('@/types/purchaseOrder')
+  const fallback = PAYMENT_TERM_TYPE_OPTIONS.map((o) => ({
+    value: o.value,
+    description: o.label,
+  }))
+  try {
+    const raw = await apiGet<Array<Record<string, unknown>> | PaymentTermTypeOption[]>('/masters/payment-term-types')
+    const rows = (Array.isArray(raw) ? raw : []).map((row) => {
+      const source = row as Record<string, unknown>
+      const value = String(source.value ?? source.Value ?? '').trim()
+      const description = String(source.description ?? source.Description ?? value).trim()
+      if (!value) return undefined
+      return { value, description: description || value } satisfies PaymentTermTypeOption
+    }).filter(Boolean) as PaymentTermTypeOption[]
+    return rows.length > 0 ? rows : fallback
+  } catch {
+    return fallback
+  }
+}

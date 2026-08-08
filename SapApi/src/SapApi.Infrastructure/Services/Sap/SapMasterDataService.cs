@@ -25,6 +25,13 @@ public class SapMasterDataService(
     /// </summary>
     private static readonly TimeSpan MasterDataCacheTtl = TimeSpan.FromHours(1);
 
+    /// <summary>UDF ValidValues metadata changes rarely; short TTL so ensure-updates are visible soon.</summary>
+    private static readonly TimeSpan PaymentTermTypeCacheTtl = TimeSpan.FromMinutes(20);
+
+    private const int PaymentTermTypeUdfMinSize = 20;
+    private static readonly string[] PaymentTermTypeUdfNames =
+        Enumerable.Range(1, 10).Select(i => $"T{i}").ToArray();
+
     private static readonly string[] ItemLookupKeyFields = ["ItemCode"];
     private static readonly string[] BusinessPartnerLookupKeyFields = ["CardCode"];
     private static readonly string[] WarehouseLookupKeyFields = ["WarehouseCode"];
@@ -268,6 +275,112 @@ public class SapMasterDataService(
             }, cancellationToken);
             return page.Data?.FirstOrDefault(emp => emp.EmployeeID == employeeId);
         }
+    }
+
+    /// <summary>
+    /// Returns OPOR payment-term type options from UserFieldsMD T1 ValidValues, merged with app extras.
+    /// Best-effort ensure of extras on T1–T10 runs once per cache miss (append-only).
+    /// </summary>
+    public async Task<List<PaymentTermTypeOption>> GetPaymentTermTypesAsync(CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+        var companyDb = companyDbAccessor.GetCompanyDbName();
+        var cacheKey = $"masterdata:{companyDb}:payment-term-types";
+
+        var cached = await cache.GetOrCreateAsync(
+            cacheKey,
+            async () =>
+            {
+                try
+                {
+                    await EnsurePaymentTermTypeValidValuesAsync(cancellationToken);
+                }
+                catch
+                {
+                    // Still serve SAP list + extras even if ensure fails.
+                }
+
+                var sapOptions = await FetchPaymentTermTypesFromSapAsync(cancellationToken);
+                return PaymentTermTypeOptions.MergeWithExtras(sapOptions);
+            },
+            PaymentTermTypeCacheTtl,
+            cancellationToken);
+
+        return cached ?? PaymentTermTypeOptions.FallbackWithExtras();
+    }
+
+    /// <summary>
+    /// Appends missing GstProforma/TaxInvoice ValidValues on OPOR T1–T10 (when those UDFs exist).
+    /// Increases Size when needed so GstProforma (11 chars) fits. Never removes existing values.
+    /// </summary>
+    public async Task EnsurePaymentTermTypeValidValuesAsync(CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+
+        foreach (var name in PaymentTermTypeUdfNames)
+        {
+            var field = await GetOporTypeUserFieldAsync(name, cancellationToken);
+            if (field?.FieldID is null)
+                continue;
+
+            var fieldId = field.FieldID.Value;
+            var size = field.Size ?? 0;
+            if (size < PaymentTermTypeUdfMinSize)
+            {
+                await http.PatchAsync<object, object>(
+                    Constants.SapApiUrls.UserFieldsMd("OPOR", fieldId),
+                    new { Size = PaymentTermTypeUdfMinSize, EditSize = PaymentTermTypeUdfMinSize },
+                    cancellationToken);
+            }
+
+            var existing = new HashSet<string>(
+                (field.ValidValuesMD ?? [])
+                    .Select(v => v.Value?.Trim() ?? string.Empty)
+                    .Where(v => v.Length > 0),
+                StringComparer.OrdinalIgnoreCase);
+
+            var missing = PaymentTermTypeOptions.AppExtras
+                .Where(extra => !existing.Contains(extra.Value))
+                .Select(extra => new SapUserFieldsMdValidValue
+                {
+                    Value = extra.Value,
+                    Description = extra.Description,
+                })
+                .ToList();
+
+            if (missing.Count == 0)
+                continue;
+
+            // PATCH with only new ValidValues appends; sending existing values causes Duplicate value.
+            await http.PatchAsync<object, object>(
+                Constants.SapApiUrls.UserFieldsMd("OPOR", fieldId),
+                new { ValidValuesMD = missing },
+                cancellationToken);
+        }
+    }
+
+    private async Task<List<PaymentTermTypeOption>> FetchPaymentTermTypesFromSapAsync(CancellationToken cancellationToken)
+    {
+        var field = await GetOporTypeUserFieldAsync("T1", cancellationToken);
+        if (field?.ValidValuesMD is null || field.ValidValuesMD.Count == 0)
+            return PaymentTermTypeOptions.SapDefaults.ToList();
+
+        return field.ValidValuesMD
+            .Where(v => !string.IsNullOrWhiteSpace(v.Value))
+            .Select(v => new PaymentTermTypeOption
+            {
+                Value = v.Value!.Trim(),
+                Description = string.IsNullOrWhiteSpace(v.Description) ? v.Value.Trim() : v.Description.Trim(),
+            })
+            .ToList();
+    }
+
+    private async Task<SapUserFieldsMdResponse?> GetOporTypeUserFieldAsync(string name, CancellationToken cancellationToken)
+    {
+        var filter = $"TableName eq 'OPOR' and Name eq '{SapPaginationBuilder.EscapeODataString(name)}'";
+        var url = $"{Constants.SapApiUrls.UserFieldsMdCollection}?$filter={Uri.EscapeDataString(filter)}";
+        var response = await http.GetAsync<GetAllSapUserFieldsMdResponse>(url, cancellationToken: cancellationToken);
+        return response?.Value?.FirstOrDefault();
     }
 
     public Task<PaginationResponse<List<SapBusinessPartner>>> SearchCustomersAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>

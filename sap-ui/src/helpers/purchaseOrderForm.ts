@@ -1,5 +1,5 @@
 import type { PaymentTermRow, PurchaseOrderLineItem, PurchaseOrderLogistics, PurchaseOrderOtherTerms } from '@/types/purchaseOrder'
-import { MAX_PAYMENT_TERMS } from '@/types/purchaseOrder'
+import { GST_PAYMENT_TERM_TYPES, MAX_PAYMENT_TERMS } from '@/types/purchaseOrder'
 
 type PoRecord = Record<string, unknown>
 
@@ -21,16 +21,60 @@ function readNumber(source: PoRecord, ...keys: string[]): number | undefined {
   return undefined
 }
 
+/** GST types store Payment% in U_Gn; all other types use U_Bn. */
+export function isGstPaymentTermType(type?: string | null): boolean {
+  const normalized = normalizePaymentTermType(type)
+  if (!normalized) return false
+  return (GST_PAYMENT_TERM_TYPES as readonly string[]).some(
+    (t) => t.localeCompare(normalized, undefined, { sensitivity: 'accent' }) === 0,
+  )
+}
+
+/** Legacy UI used "Running"; SAP ValidValue is "Proforma". */
+export function normalizePaymentTermType(type?: string | null): string {
+  const value = (type ?? '').trim()
+  if (!value) return ''
+  if (value.localeCompare('Running', undefined, { sensitivity: 'accent' }) === 0) return 'Proforma'
+  return value
+}
+
+/**
+ * Resolve the single Payment% for display/edit from stored basic/gst + type.
+ * GST-mapped + gst>0 → gst; else basic if basic>0; else gst (legacy mixed rows).
+ */
+export function resolvePaymentTermPercent(term: Pick<PaymentTermRow, 'type' | 'basic' | 'gst'>): number | undefined {
+  const basic = term.basic != null && Number.isFinite(term.basic) && term.basic > 0 ? term.basic : undefined
+  const gst = term.gst != null && Number.isFinite(term.gst) && term.gst > 0 ? term.gst : undefined
+  if (isGstPaymentTermType(term.type) && gst != null) return gst
+  if (basic != null) return basic
+  if (gst != null) return gst
+  return undefined
+}
+
+/** Split a Payment% into basic/gst fields based on type (clears the unused field). */
+export function applyPaymentPercentToTerm<T extends Pick<PaymentTermRow, 'type' | 'basic' | 'gst'>>(
+  term: T,
+  percent: number | undefined,
+  type: string | undefined = term.type,
+): T {
+  const normalizedType = normalizePaymentTermType(type) || undefined
+  if (isGstPaymentTermType(normalizedType)) {
+    return { ...term, type: normalizedType, basic: undefined, gst: percent }
+  }
+  return { ...term, type: normalizedType, basic: percent, gst: undefined }
+}
+
 export function parsePaymentTermsFromPo(po: PoRecord): PaymentTermRow[] {
   const terms: PaymentTermRow[] = []
   for (let i = 1; i <= MAX_PAYMENT_TERMS; i += 1) {
-    const type = readString(po, `U_T${i}`, `UType${i}`)
+    const rawType = readString(po, `U_T${i}`, `UType${i}`)
+    const type = normalizePaymentTermType(rawType) || undefined
     const basic = readNumber(po, `U_B${i}`, `UBasic${i}`)
     const gst = readNumber(po, `U_G${i}`, `UGst${i}`)
     const stage = readString(po, `U_S${i}`, `UStage${i}`)
     const desc = readString(po, `U_D${i}`, `UDes${i}`)
     if (type || basic != null || gst != null || stage || desc) {
-      terms.push({ id: i, type: type || undefined, basic, gst, stage: stage || undefined, desc: desc || undefined })
+      terms.push({ id: i, type, basic, gst, stage: stage || undefined, desc: desc || undefined })
     }
   }
   return terms
@@ -47,11 +91,22 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
   }
   for (const term of terms.slice(0, MAX_PAYMENT_TERMS)) {
     const slot = term.id
-    if (term.basic != null) next[`U_B${slot}`] = term.basic
-    if (term.gst != null) next[`U_G${slot}`] = term.gst
-    if (term.desc) next[`U_D${slot}`] = term.desc
-    if (term.stage) next[`U_S${slot}`] = term.stage
-    if (term.type) next[`U_T${slot}`] = term.type
+    const mapped = applyPaymentPercentToTerm(
+      term,
+      resolvePaymentTermPercent(term) ?? (isGstPaymentTermType(term.type) ? term.gst : term.basic),
+      term.type,
+    )
+    // Explicit 0 clears the unused percent field on SAP PATCH (omitted nulls are ignored).
+    if (isGstPaymentTermType(mapped.type)) {
+      next[`U_G${slot}`] = mapped.gst ?? 0
+      next[`U_B${slot}`] = 0
+    } else if (mapped.type || mapped.basic != null || mapped.gst != null || mapped.stage || mapped.desc) {
+      next[`U_B${slot}`] = mapped.basic ?? 0
+      next[`U_G${slot}`] = 0
+    }
+    if (mapped.desc) next[`U_D${slot}`] = mapped.desc
+    if (mapped.stage) next[`U_S${slot}`] = mapped.stage
+    if (mapped.type) next[`U_T${slot}`] = mapped.type
   }
   return next
 }
@@ -224,12 +279,17 @@ export function formatPoAmount(value: number | undefined | null): string {
   return Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function paymentTermDisplayLabel(term: PaymentTermRow): string {
+export function paymentTermDisplayLabel(
+  term: PaymentTermRow,
+  typeLabels?: Record<string, string>,
+): string {
   if (term.desc) return term.desc
+  const typeKey = normalizePaymentTermType(term.type)
+  const typeLabel = (typeKey && typeLabels?.[typeKey]) || term.type
+  const percent = resolvePaymentTermPercent(term)
   const parts = [
-    term.type,
-    term.basic != null ? `Basic ${term.basic}%` : '',
-    term.gst != null ? `GST ${term.gst}%` : '',
+    typeLabel,
+    percent != null ? `${percent}%` : '',
     term.stage,
   ].filter(Boolean)
   return parts.join(' · ') || `Term ${term.id}`
