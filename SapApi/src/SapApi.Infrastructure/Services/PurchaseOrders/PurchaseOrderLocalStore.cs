@@ -766,16 +766,17 @@ public class PurchaseOrderLocalStore(
 
             if (filter.Field.Equals("Project", StringComparison.OrdinalIgnoreCase))
             {
+                // Match mid-string on project code (local) and project name (via master lookup of
+                // codes used on this company's POs). Do not rely on Projects $search alone —
+                // code-like name keywords previously used startswith(Name) and missed mid words.
                 var matchingCodes = await ResolveProjectCodesMatchingSearchAsync(term, cancellationToken);
                 if (matchingCodes.Count == 0)
                 {
-                    query = query.Where(x => x.Project != null && x.Project.ToLower().Contains(termLower));
+                    query = query.Where(x => false);
                 }
                 else
                 {
-                    query = query.Where(x =>
-                        (x.Project != null && x.Project.ToLower().Contains(termLower)) ||
-                        (x.Project != null && matchingCodes.Contains(x.Project)));
+                    query = query.Where(x => x.Project != null && matchingCodes.Contains(x.Project));
                 }
 
                 continue;
@@ -809,29 +810,87 @@ public class PurchaseOrderLocalStore(
         string term,
         CancellationToken cancellationToken)
     {
-        var page = await masterDataService.SearchProjectsAsync(
-            new PaginationRequest
-            {
-                PageNumber = 1,
-                PageSize = 500,
-                Filters =
-                [
-                    new FilterModel
-                    {
-                        Field = "__search",
-                        Operator = "contains",
-                        Value = term,
-                    },
-                ],
-            },
-            cancellationToken);
+        var distinctCodes = await db.PurchaseOrders
+            .AsNoTracking()
+            .Where(x => x.CompanyDb == CompanyDb && x.Project != null && x.Project != "")
+            .Select(x => x.Project!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
 
-        return page.Data?
-            .Select(p => p.ProjectCode)
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Select(code => code!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList() ?? [];
+        if (distinctCodes.Count == 0)
+            return [];
+
+        var matches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var code in distinctCodes)
+        {
+            if (code.Contains(term, StringComparison.OrdinalIgnoreCase))
+                matches.Add(code);
+        }
+
+        // Resolve display names for codes that did not already match on the code itself.
+        var needsNameLookup = distinctCodes
+            .Where(code => !matches.Contains(code))
+            .ToList();
+        if (needsNameLookup.Count == 0)
+            return matches.ToList();
+
+        try
+        {
+            var lookup = await masterDataService.LookupMasterDataAsync(
+                new MasterLookupRequest { ProjectCodes = needsNameLookup },
+                cancellationToken);
+
+            foreach (var code in needsNameLookup)
+            {
+                if (lookup.Projects.TryGetValue(code, out var name)
+                    && !string.IsNullOrWhiteSpace(name)
+                    && name.Contains(term, StringComparison.OrdinalIgnoreCase))
+                {
+                    matches.Add(code);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "PO list project name lookup failed for term {Term}; using code matches only", term);
+        }
+
+        // Also union SAP Projects contains(Name) search (covers edge cases / naming quirks).
+        try
+        {
+            var page = await masterDataService.SearchProjectsAsync(
+                new PaginationRequest
+                {
+                    PageNumber = 1,
+                    PageSize = 100,
+                    Filters =
+                    [
+                        new FilterModel
+                        {
+                            Field = "__search",
+                            Operator = "contains",
+                            Value = term,
+                        },
+                    ],
+                },
+                cancellationToken);
+
+            foreach (var code in page.Data?
+                         .Select(p => p.ProjectCode)
+                         .Where(c => !string.IsNullOrWhiteSpace(c))
+                         .Select(c => c!)
+                     ?? [])
+            {
+                if (distinctCodes.Contains(code, StringComparer.OrdinalIgnoreCase))
+                    matches.Add(code);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "PO list Projects search failed for term {Term}", term);
+        }
+
+        return matches.ToList();
     }
 
     private async Task<List<int>> ResolveBranchIdsMatchingSearchAsync(

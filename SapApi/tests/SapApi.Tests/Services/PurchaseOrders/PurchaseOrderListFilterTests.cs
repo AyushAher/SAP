@@ -45,20 +45,32 @@ public class PurchaseOrderListFilterTests
     [Test]
     public async Task ListFromDb_ProjectFilter_MatchesMiddleOfProjectName()
     {
-        string? capturedUrl = null;
+        // Primary path: batch Code eq lookup of distinct PO project codes, then match Name.
         _http.Setup(h => h.GetAsync<SapGetAllProjectDetailsResponse>(
-                It.Is<string>(url => url.Contains("Projects", StringComparison.OrdinalIgnoreCase)),
+                It.Is<string>(url =>
+                    url.Contains("Projects", StringComparison.OrdinalIgnoreCase)
+                    && Uri.UnescapeDataString(url).Contains("Code eq", StringComparison.Ordinal)),
                 It.IsAny<bool>(),
                 It.IsAny<bool>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<string, bool, bool, CancellationToken>((url, _, _, _) => capturedUrl = url)
             .ReturnsAsync(new SapGetAllProjectDetailsResponse
             {
                 Value =
                 [
                     new SapProjectDetailsResponse { ProjectCode = "PRJ-100", ProjectName = "Alpha Renovation" },
+                    new SapProjectDetailsResponse { ProjectCode = "PRJ-200", ProjectName = "Beta Build" },
                 ],
             });
+
+        // Best-effort SearchProjects contains(Name) may also run — return empty so batch path is proven.
+        _http.Setup(h => h.GetAsync<SapGetAllProjectDetailsResponse>(
+                It.Is<string>(url =>
+                    url.Contains("Projects", StringComparison.OrdinalIgnoreCase)
+                    && Uri.UnescapeDataString(url).Contains("contains(Name,", StringComparison.Ordinal)),
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapGetAllProjectDetailsResponse { Value = [] });
 
         var response = await _sut.ListFromDbAsync(new PaginationRequest
         {
@@ -66,15 +78,10 @@ public class PurchaseOrderListFilterTests
             PageSize = 20,
             Filters =
             [
-                // Code-like mid-name keyword (no spaces) — must use contains(Name,...), not startswith.
                 new FilterModel { Field = "Project", Operator = "contains", Value = "Renov" },
             ],
         });
 
-        capturedUrl.Should().NotBeNullOrEmpty();
-        var decoded = Uri.UnescapeDataString(capturedUrl!);
-        decoded.Should().Contain("contains(Name,'Renov')");
-        decoded.Should().NotContain("startswith(Name,'Renov')");
         response.Data.Should().ContainSingle();
         response.Data![0].Project.Should().Be("PRJ-100");
     }
@@ -85,7 +92,7 @@ public class PurchaseOrderListFilterTests
         _http.Setup(h => h.GetAsync<SapGetAllProjectDetailsResponse>(
                 It.Is<string>(url =>
                     url.Contains("Projects", StringComparison.OrdinalIgnoreCase)
-                    && Uri.UnescapeDataString(url).Contains("contains(Name,'SOMESHWAR')", StringComparison.Ordinal)),
+                    && Uri.UnescapeDataString(url).Contains("Code eq", StringComparison.Ordinal)),
                 It.IsAny<bool>(),
                 It.IsAny<bool>(),
                 It.IsAny<CancellationToken>()))
@@ -98,8 +105,19 @@ public class PurchaseOrderListFilterTests
                         ProjectCode = "PB/EPC/25261007",
                         ProjectName = "SHRI SOMESHWAR TEMPLE",
                     },
+                    new SapProjectDetailsResponse { ProjectCode = "PRJ-100", ProjectName = "Alpha Renovation" },
+                    new SapProjectDetailsResponse { ProjectCode = "PRJ-200", ProjectName = "Beta Build" },
                 ],
             });
+
+        _http.Setup(h => h.GetAsync<SapGetAllProjectDetailsResponse>(
+                It.Is<string>(url =>
+                    url.Contains("Projects", StringComparison.OrdinalIgnoreCase)
+                    && Uri.UnescapeDataString(url).Contains("contains(Name,", StringComparison.Ordinal)),
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapGetAllProjectDetailsResponse { Value = [] });
 
         _context.PurchaseOrders.Add(new PurchaseOrder
         {
@@ -130,6 +148,31 @@ public class PurchaseOrderListFilterTests
 
         response.Data.Should().ContainSingle();
         response.Data![0].Project.Should().Be("PB/EPC/25261007");
+    }
+
+    [Test]
+    public async Task ListFromDb_ProjectFilter_MatchesMiddleOfProjectCode_WithoutWaitingForName()
+    {
+        // Mid-string of the code itself matches even if SAP name lookup returns nothing.
+        _http.Setup(h => h.GetAsync<SapGetAllProjectDetailsResponse>(
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapGetAllProjectDetailsResponse { Value = [] });
+
+        var response = await _sut.ListFromDbAsync(new PaginationRequest
+        {
+            PageNumber = 1,
+            PageSize = 20,
+            Filters =
+            [
+                new FilterModel { Field = "Project", Operator = "contains", Value = "PRJ-10" },
+            ],
+        });
+
+        response.Data.Should().ContainSingle();
+        response.Data![0].Project.Should().Be("PRJ-100");
     }
 
     [Test]
