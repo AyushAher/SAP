@@ -59,7 +59,23 @@ public class SapPaginationBuilderTests
 
         var query = SapPaginationBuilder.ToSapQueries(request, SapPaginationProfiles.Items);
         query.Filter.Should().Contain("ItemCode eq 'FG-001'");
-        query.Filter.Should().NotContain("contains(");
+        // Code-like terms still get contains on text/name fields so mid-string name search works.
+        query.Filter.Should().Contain("contains(ItemName,'FG-001')");
+    }
+
+    [Test]
+    public void BuildSearchFilter_ProjectName_UsesContainsForCodeLikeMidStringKeyword()
+    {
+        // "SOMESHWAR" looks like a master code (no spaces) but is a mid-word in the project name.
+        var request = new PaginationRequest
+        {
+            Filters = [new FilterModel { Field = "__search", Operator = "contains", Value = "SOMESHWAR" }],
+        };
+
+        var query = SapPaginationBuilder.ToSapQueries(request, SapPaginationProfiles.Projects);
+        query.Filter.Should().Contain("contains(Name,'SOMESHWAR')");
+        query.Filter.Should().NotContain("startswith(Name,'SOMESHWAR')");
+        query.Filter.Should().Contain("Code eq 'SOMESHWAR'");
     }
 
     [Test]

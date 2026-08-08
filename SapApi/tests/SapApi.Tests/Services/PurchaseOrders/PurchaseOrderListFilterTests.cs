@@ -45,11 +45,13 @@ public class PurchaseOrderListFilterTests
     [Test]
     public async Task ListFromDb_ProjectFilter_MatchesMiddleOfProjectName()
     {
+        string? capturedUrl = null;
         _http.Setup(h => h.GetAsync<SapGetAllProjectDetailsResponse>(
                 It.Is<string>(url => url.Contains("Projects", StringComparison.OrdinalIgnoreCase)),
                 It.IsAny<bool>(),
                 It.IsAny<bool>(),
                 It.IsAny<CancellationToken>()))
+            .Callback<string, bool, bool, CancellationToken>((url, _, _, _) => capturedUrl = url)
             .ReturnsAsync(new SapGetAllProjectDetailsResponse
             {
                 Value =
@@ -64,12 +66,70 @@ public class PurchaseOrderListFilterTests
             PageSize = 20,
             Filters =
             [
+                // Code-like mid-name keyword (no spaces) — must use contains(Name,...), not startswith.
                 new FilterModel { Field = "Project", Operator = "contains", Value = "Renov" },
             ],
         });
 
+        capturedUrl.Should().NotBeNullOrEmpty();
+        var decoded = Uri.UnescapeDataString(capturedUrl!);
+        decoded.Should().Contain("contains(Name,'Renov')");
+        decoded.Should().NotContain("startswith(Name,'Renov')");
         response.Data.Should().ContainSingle();
         response.Data![0].Project.Should().Be("PRJ-100");
+    }
+
+    [Test]
+    public async Task ListFromDb_ProjectFilter_MatchesMiddleWordOfDisplayedProjectName()
+    {
+        _http.Setup(h => h.GetAsync<SapGetAllProjectDetailsResponse>(
+                It.Is<string>(url =>
+                    url.Contains("Projects", StringComparison.OrdinalIgnoreCase)
+                    && Uri.UnescapeDataString(url).Contains("contains(Name,'SOMESHWAR')", StringComparison.Ordinal)),
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapGetAllProjectDetailsResponse
+            {
+                Value =
+                [
+                    new SapProjectDetailsResponse
+                    {
+                        ProjectCode = "PB/EPC/25261007",
+                        ProjectName = "SHRI SOMESHWAR TEMPLE",
+                    },
+                ],
+            });
+
+        _context.PurchaseOrders.Add(new PurchaseOrder
+        {
+            CompanyDb = CompanyDb,
+            DocEntry = 3,
+            DocNum = 102,
+            Project = "PB/EPC/25261007",
+            CardCode = "V003",
+            CardName = "Temple Vendor",
+            BPLId = 2,
+            DocDate = new DateTime(2026, 2, 12),
+            CreatedOn = DateTime.UtcNow,
+            LastModifiedOn = DateTime.UtcNow,
+            SyncedAtUtc = DateTime.UtcNow,
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var response = await _sut.ListFromDbAsync(new PaginationRequest
+        {
+            PageNumber = 1,
+            PageSize = 20,
+            Filters =
+            [
+                new FilterModel { Field = "Project", Operator = "contains", Value = "SOMESHWAR" },
+            ],
+        });
+
+        response.Data.Should().ContainSingle();
+        response.Data![0].Project.Should().Be("PB/EPC/25261007");
     }
 
     [Test]

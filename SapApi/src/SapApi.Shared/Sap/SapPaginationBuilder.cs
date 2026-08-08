@@ -147,14 +147,12 @@ public static class SapPaginationBuilder
             }
         }
 
+        // Text fields always use contains for mid-string match (e.g. "SOMESHWAR" in
+        // "SHRI SOMESHWAR..."). Do not treat LooksLikeMasterCode as a reason to fall back to
+        // startswith — that only applies to code-field exact/prefix matching above.
         foreach (var field in textFields)
         {
-            if (exactCode)
-            {
-                if (escaped.Length >= 1)
-                    clauses.Add($"startswith({field},'{escaped}')");
-            }
-            else if (escaped.Length >= 3)
+            if (escaped.Length >= 3)
                 clauses.Add($"contains({field},'{escaped}')");
             else if (escaped.Length >= 1)
                 clauses.Add($"startswith({field},'{escaped}')");
