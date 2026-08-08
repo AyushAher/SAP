@@ -55,6 +55,7 @@ public class SapPurchaseOrderPayloadBuilderTests
         payload.DocDueDate.Should().Be(new DateTime(2026, 7, 15));
         payload.NumAtCard.Should().Be("REF-1");
         payload.BPLId.Should().Be(2);
+        payload.Series.Should().BeNull();
         payload.DocumentLines.Should().HaveCount(1);
         var line = payload.DocumentLines![0];
         line.HSNEntry.Should().Be(42);

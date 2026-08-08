@@ -128,6 +128,7 @@ public static class DependencyInjection
         services.AddScoped<SapPurchaseDownPaymentService>();
         services.AddScoped<SapVendorPaymentService>();
         services.AddScoped<InventoryItemsTransferService>();
+        services.AddScoped<SapDocumentSeriesService>();
         services.AddScoped<SapPurchaseOrderService>();
         services.AddScoped<PurchaseOrderLocalStore>();
         services.AddScoped<PurchaseOrderLinkResolver>();

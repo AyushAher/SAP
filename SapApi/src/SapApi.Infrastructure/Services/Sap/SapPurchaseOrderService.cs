@@ -14,7 +14,8 @@ namespace SapApi.Infrastructure.Services.Sap
     public class SapPurchaseOrderService(
         IHttpRequestHandler requestHandler,
         ApprovalService approvalService,
-        PurchaseOrderLocalStore localStore)
+        PurchaseOrderLocalStore localStore,
+        SapDocumentSeriesService documentSeriesService)
     {
         public Task<GetAllSapPurchaseOrdersResponse?> GetAllPurchaseOrders(SapQueries? sapQueries = null)
         {
@@ -101,6 +102,9 @@ namespace SapApi.Infrastructure.Services.Sap
                     PendingApprovalRequestId = policyApproval.PendingApprovalRequestId,
                 };
             }
+
+            // Resolve OPOR Series for BPL + DocDate FY before POST — missing series surfaces as ODBC -2028.
+            await documentSeriesService.EnsurePurchaseOrderSeriesAsync(payload);
 
             var created = await requestHandler.PostAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(
                 Constants.SapApiUrls.GetAllSapPurchaseOrders, payload);

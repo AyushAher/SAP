@@ -10,6 +10,10 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("DocNum"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? DocNum { get; set; }
 
+        /// <summary>Document numbering series (NNM1). Required when the company uses per-BPL / per-FY series.</summary>
+        [JsonPropertyName("Series"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? Series { get; set; }
+
         [JsonPropertyName("DocType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? DocType { get; set; }
 

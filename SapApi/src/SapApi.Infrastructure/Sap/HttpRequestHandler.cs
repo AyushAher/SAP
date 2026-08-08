@@ -85,16 +85,20 @@ public class HttpRequestHandler(
 
     public async Task<TResponse?> PostAsync<TRequest, TResponse>(string url, TRequest? data, CancellationToken cancellationToken = default)
     {
+        // Log the exact JSON that will be POSTed (after caller payload build / Series resolution).
+        // Do not log cookies/session — those are attached later in BuildSapRequestAsync.
+        var companyDb = companyDbAccessor.GetCompanyDb()?.ToString() ?? "(none)";
         if (data is not null)
         {
             Log.Information(
-                "SAP POST {Url} body: {Body}",
+                "SAP POST {CompanyDb} {Url} body: {Body}",
+                companyDb,
                 url,
                 JsonSerializer.Serialize(data));
         }
         else
         {
-            Log.Information("SAP POST {Url} body: null", url);
+            Log.Information("SAP POST {CompanyDb} {Url} body: null", companyDb, url);
         }
 
         var request = await BuildSapRequestAsync(HttpMethod.Post, url, cancellationToken);

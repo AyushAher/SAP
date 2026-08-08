@@ -210,6 +210,9 @@ namespace SapApi.Shared
                 $"{SapServiceLayerUrl}{SapBaseUrl}/PurchaseDownPayments({docEntry})/Cancel";
             public static string GetAllSapPurchaseOrders = SapServiceLayerUrl + SapBaseUrl + "/PurchaseOrders";
             public static string UpdateSapPurchaseOrders(int? docEntry) => SapServiceLayerUrl + SapBaseUrl + "/PurchaseOrders" + $"({docEntry})";
+            /// <summary>SeriesService_GetDocumentSeries — body DocumentTypeParams.Document (e.g. "22" = Purchase Orders).</summary>
+            public static string SeriesServiceGetDocumentSeries =
+                SapServiceLayerUrl + SapBaseUrl + "/SeriesService_GetDocumentSeries";
             public static string PurchaseDeliveryNotes = SapServiceLayerUrl + SapBaseUrl + "/PurchaseDeliveryNotes";
             public static string GetAllSalesTaxCodes = SapServiceLayerUrl + SapBaseUrl + "/SalesTaxCodes";
             public static string GetAllPurchaseInvoices = SapServiceLayerUrl + SapBaseUrl + "/PurchaseInvoices";
@@ -230,6 +233,15 @@ namespace SapApi.Shared
             public static string GetAllBpl = SapServiceLayerUrl + SapBaseUrl + "/BusinessPlaces";
 
         }
+
+        /// <summary>SAP BoObjectTypes numeric codes used with SeriesService.</summary>
+        public static class SapDocumentObject
+        {
+            public const string PurchaseOrder = "22";
+            /// <summary>A/P Down Payment Request / PurchaseDownPayments (ODPO).</summary>
+            public const string PurchaseDownPayment = "204";
+        }
+
         public static class SapVendorPaymentInvoiceType
         {
             public const string Invoice = "it_PurchaseInvoice";

@@ -27,6 +27,7 @@ public static class SapPurchaseOrderPayloadBuilder
             DocDueDate = docDue,
             TaxDate = taxDate,
             BPLId = source.BPLId,
+            Series = source.Series,
             DocType = NullIfWhiteSpace(source.DocType),
             DocCurrency = NullIfWhiteSpace(source.DocCurrency),
             DocRate = source.DocRate,

@@ -50,6 +50,13 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("BPL_IDAssignedToInvoice"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? BPLId { get; set; }
 
+        /// <summary>
+        /// Document numbering series (NNM1). When omitted, SAP uses the logged-in user's default series,
+        /// which fails for users whose A/P Down Payment default is missing/locked/wrong FY.
+        /// </summary>
+        [JsonPropertyName("Series"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? Series { get; set; }
+
         /// <summary>Payment Request ID (<see cref="Domain.Entities.StageWisePayment.Id"/>) sent to SAP UDF U_BSC_3.</summary>
         [JsonPropertyName("U_BSC_3"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? PaymentRequestId { get; set; }
