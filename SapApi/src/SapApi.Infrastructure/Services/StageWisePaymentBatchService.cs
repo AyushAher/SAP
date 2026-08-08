@@ -198,171 +198,173 @@ public class StageWisePaymentBatchService(
 
         StageWisePayment? linkedStagePayment = null;
         StageWisePayment? downPaymentEntity = null;
-        int? downPaymentStageWisePaymentId = null;
         string? batchApprovalId = null;
+        StageWisePaymentBatchResponse? response = null;
+        string? postCommitWarning = null;
 
-        // SAP Service Layer calls first — never hold a DB transaction across HTTP.
-        if (paymentInvoices.Count > 0)
-        {
-            var apLineSnapshots = lineSnapshots.Where(s => s.RequiresAp).ToList();
-            var (prepared, prepareMessage, apPayment) = await PrepareBatchApPaymentAsync(
-                po,
-                pageData,
-                apLineSnapshots,
-                activeRecords,
-                apInvoicesByDocEntry,
-                banks[0],
-                request.WtCode,
-                batch.DocNumber,
-                batch.PurchaseOrderId,
-                cancellationToken);
-            if (!prepared || apPayment is null)
-                return (false, prepareMessage, null);
-
-            linkedStagePayment = apPayment;
-
-            var vendorRequest = new SapVendorPaymentRequests
-            {
-                CardCode = po.CardCode ?? string.Empty,
-                TransferSum = totalTransfer.ToString("F2"),
-                ProjectCode = po.Project,
-                PoNumber = po.DocNum?.ToString(),
-                BPLId = po.BPLId ?? 1,
-                PaymentInvoices = paymentInvoices,
-            };
-            ApplyAdditionalDetailsToVendorPayment(
-                vendorRequest, request, banks[0]!, po.BPLId, po.DocNum?.ToString());
-
-            // Never hold a DB transaction across SAP HTTP — convert SAP failures to tuple errors.
-            SapVendorPaymentsResponse? sapResponse;
-            try
-            {
-                sapResponse = await vendorPaymentService.CreateVendorPayments(
-                    vendorRequest, supportingData: po.DocEntry?.ToString());
-            }
-            catch (ApiErrorException ex)
-            {
-                await stageWisePaymentService.DiscardDraftPaymentRequestAsync(linkedStagePayment.Id, cancellationToken);
-                return (false, $"SAP Error: {ex.Message}", null);
-            }
-
-            if (sapResponse?.Error?.Message?.Value is not null)
-            {
-                await stageWisePaymentService.DiscardDraftPaymentRequestAsync(linkedStagePayment.Id, cancellationToken);
-                return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null);
-            }
-
-            if (sapResponse?.PendingApproval == true)
-            {
-                linkedStagePayment.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
-                linkedStagePayment.Status = StageWisePaymentStatus.PendingApproval;
-                batch.Status = StageWisePaymentBatchStatus.PendingApproval;
-                batchApprovalId = linkedStagePayment.ApprovalRequestId;
-            }
-            else if (sapResponse?.DocEntry.HasValue == true)
-            {
-                linkedStagePayment.ApDownPaymentInvoiceEntryNumber = sapResponse.DocNumber?.ToString();
-                linkedStagePayment.PaymentDocEntry = sapResponse.DocEntry?.ToString();
-                linkedStagePayment.Status = StageWisePaymentStatus.Added;
-                batch.Status = StageWisePaymentBatchStatus.Approved;
-            }
-            else
-            {
-                await stageWisePaymentService.DiscardDraftPaymentRequestAsync(linkedStagePayment.Id, cancellationToken);
-                return (false, "No vendor payment was created in SAP.", null);
-            }
-        }
-
-        var downPaymentSnapshots = lineSnapshots.Where(s => !s.RequiresAp).ToList();
-        if (downPaymentSnapshots.Count > 0)
-        {
-            foreach (var snapshot in downPaymentSnapshots)
-            {
-                var term = StageWisePaymentCalculations.ResolveDownPaymentTerm(
-                    pageData.PaymentTerms, snapshot.Line.PaymentTermsTypes);
-                if (term is null)
-                    return (false, "Payment term not found for down payment row.", null);
-            }
-
-            var downPaymentLines = downPaymentSnapshots.Select(s => s.Line).ToList();
-            var poWithLines = await purchaseOrderService.GetPurchaseOrderForPaymentOperations(
-                po.DocEntry?.ToString() ?? request.PoDocEntry.ToString(), cancellationToken);
-            if (poWithLines?.DocumentLines is not { Count: > 0 })
-                return (false, "Purchase order lines are not available locally. Sync this purchase order from SAP, then retry.", null);
-
-            var (success, message, payment) = await stageWisePaymentService.CreateBatchDownPaymentAsync(
-                poWithLines,
-                downPaymentLines,
-                pageData.PaymentTerms,
-                pageData.TotalBasic,
-                banks[0],
-                request.WtCode,
-                activeRecords,
-                userRemark: request.JournalRemark,
-                postingDate: request.PostingDate,
-                paymentDate: request.PaymentDate,
-                persist: false,
-                cancellationToken);
-
-            if (!success || payment is null)
-                return (false, message, null);
-
-            downPaymentEntity = payment;
-            if (linkedStagePayment is null)
-                linkedStagePayment = payment;
-
-            if (payment.Status == StageWisePaymentStatus.PendingApproval)
-            {
-                batchApprovalId ??= payment.ApprovalRequestId;
-                batch.Status = StageWisePaymentBatchStatus.PendingApproval;
-            }
-            else if (batch.Status == StageWisePaymentBatchStatus.Draft)
-            {
-                batch.Status = StageWisePaymentBatchStatus.Approved;
-            }
-        }
-
-        if (linkedStagePayment is null)
-            return (false, "No payment was created.", null);
-
-        foreach (var snapshot in lineSnapshots.OrderBy(s => s.Index))
-        {
-            var lineReq = snapshot.Line;
-            var line = new StageWisePaymentBatchLine
-            {
-                ApInvoiceDocEntry = snapshot.ApInvoiceDocEntry,
-                Bank = lineReq.Bank ?? banks[0]!,
-                Amount = lineReq.Amount,
-                BalanceDue = snapshot.AdjustedBalanceDue,
-                Payable = snapshot.AdjustedPayable,
-                LineOrder = snapshot.Index,
-                Notes = lineReq.Notes,
-            };
-
-            foreach (var termId in lineReq.PaymentTermsTypes.Distinct())
-            {
-                var term = pageData.PaymentTerms.FirstOrDefault(t => t.Id == termId);
-                line.PaymentTerms.Add(new StageWisePaymentBatchLinePaymentTerm
-                {
-                    PaymentTermsType = termId,
-                    PaymentTermDesc = term?.Desc ?? term?.DropDownValue(),
-                });
-            }
-
-            batch.Lines.Add(line);
-        }
-
+        // Hold one DB transaction across insert → SAP/approval → batch persist so SAP failures
+        // roll back payment/approval drafts (PostgreSQL READ COMMITTED: uncommitted rows stay invisible).
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
-                if (linkedStagePayment is not null)
+                if (paymentInvoices.Count > 0)
                 {
-                    if (linkedStagePayment.Id == 0)
-                        await db.StageWisePayments.AddAsync(linkedStagePayment, ct);
+                    var apLineSnapshots = lineSnapshots.Where(s => s.RequiresAp).ToList();
+                    var (prepared, prepareMessage, apPayment) = await PrepareBatchApPaymentAsync(
+                        po,
+                        pageData,
+                        apLineSnapshots,
+                        activeRecords,
+                        apInvoicesByDocEntry,
+                        banks[0],
+                        request.WtCode,
+                        batch.DocNumber,
+                        batch.PurchaseOrderId,
+                        ct);
+                    if (!prepared || apPayment is null)
+                        throw new StageWisePaymentCreateAbortedException(prepareMessage);
+
+                    linkedStagePayment = apPayment;
+
+                    var vendorRequest = new SapVendorPaymentRequests
+                    {
+                        CardCode = po.CardCode ?? string.Empty,
+                        TransferSum = totalTransfer.ToString("F2"),
+                        ProjectCode = po.Project,
+                        PoNumber = po.DocNum?.ToString(),
+                        BPLId = po.BPLId ?? 1,
+                        PaymentInvoices = paymentInvoices,
+                    };
+                    ApplyAdditionalDetailsToVendorPayment(
+                        vendorRequest, request, banks[0]!, po.BPLId, po.DocNum?.ToString());
+
+                    SapVendorPaymentsResponse? sapResponse;
+                    try
+                    {
+                        sapResponse = await vendorPaymentService.CreateVendorPayments(
+                            vendorRequest, supportingData: po.DocEntry?.ToString());
+                    }
+                    catch (ApiErrorException ex)
+                    {
+                        throw new StageWisePaymentCreateAbortedException($"SAP Error: {ex.Message}");
+                    }
+
+                    if (sapResponse?.Error?.Message?.Value is not null)
+                        throw new StageWisePaymentCreateAbortedException($"SAP Error: {sapResponse.Error.Message.Value}");
+
+                    if (sapResponse?.PendingApproval == true)
+                    {
+                        linkedStagePayment.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
+                        linkedStagePayment.Status = StageWisePaymentStatus.PendingApproval;
+                        batch.Status = StageWisePaymentBatchStatus.PendingApproval;
+                        batchApprovalId = linkedStagePayment.ApprovalRequestId;
+                    }
+                    else if (sapResponse?.DocEntry.HasValue == true)
+                    {
+                        linkedStagePayment.ApDownPaymentInvoiceEntryNumber = sapResponse.DocNumber?.ToString();
+                        linkedStagePayment.PaymentDocEntry = sapResponse.DocEntry?.ToString();
+                        linkedStagePayment.Status = StageWisePaymentStatus.Added;
+                        batch.Status = StageWisePaymentBatchStatus.Approved;
+                    }
                     else
-                        db.StageWisePayments.Update(linkedStagePayment);
+                    {
+                        throw new StageWisePaymentCreateAbortedException("No vendor payment was created in SAP.");
+                    }
+
+                    db.StageWisePayments.Update(linkedStagePayment);
                 }
+
+                var downPaymentSnapshots = lineSnapshots.Where(s => !s.RequiresAp).ToList();
+                if (downPaymentSnapshots.Count > 0)
+                {
+                    foreach (var snapshot in downPaymentSnapshots)
+                    {
+                        var term = StageWisePaymentCalculations.ResolveDownPaymentTerm(
+                            pageData.PaymentTerms, snapshot.Line.PaymentTermsTypes);
+                        if (term is null)
+                            throw new StageWisePaymentCreateAbortedException("Payment term not found for down payment row.");
+                    }
+
+                    var downPaymentLines = downPaymentSnapshots.Select(s => s.Line).ToList();
+                    var poWithLines = await purchaseOrderService.GetPurchaseOrderForPaymentOperations(
+                        po.DocEntry?.ToString() ?? request.PoDocEntry.ToString(), ct);
+                    if (poWithLines?.DocumentLines is not { Count: > 0 })
+                    {
+                        throw new StageWisePaymentCreateAbortedException(
+                            "Purchase order lines are not available locally. Sync this purchase order from SAP, then retry.");
+                    }
+
+                    var (success, message, payment) = await stageWisePaymentService.CreateBatchDownPaymentAsync(
+                        poWithLines,
+                        downPaymentLines,
+                        pageData.PaymentTerms,
+                        pageData.TotalBasic,
+                        banks[0],
+                        request.WtCode,
+                        activeRecords,
+                        userRemark: request.JournalRemark,
+                        postingDate: request.PostingDate,
+                        paymentDate: request.PaymentDate,
+                        persist: false,
+                        ct);
+
+                    if (payment is null)
+                        throw new StageWisePaymentCreateAbortedException(message);
+
+                    // Outgoing payment may fail after DP succeeded — keep DP/batch, surface warning after commit.
+                    if (!success)
+                        postCommitWarning = message;
+
+                    downPaymentEntity = payment;
+                    if (linkedStagePayment is null)
+                        linkedStagePayment = payment;
+
+                    if (payment.Status == StageWisePaymentStatus.PendingApproval)
+                    {
+                        batchApprovalId ??= payment.ApprovalRequestId;
+                        batch.Status = StageWisePaymentBatchStatus.PendingApproval;
+                    }
+                    else if (batch.Status == StageWisePaymentBatchStatus.Draft)
+                    {
+                        batch.Status = StageWisePaymentBatchStatus.Approved;
+                    }
+                }
+
+                if (linkedStagePayment is null)
+                    throw new StageWisePaymentCreateAbortedException("No payment was created.");
+
+                foreach (var snapshot in lineSnapshots.OrderBy(s => s.Index))
+                {
+                    var lineReq = snapshot.Line;
+                    var line = new StageWisePaymentBatchLine
+                    {
+                        ApInvoiceDocEntry = snapshot.ApInvoiceDocEntry,
+                        Bank = lineReq.Bank ?? banks[0]!,
+                        Amount = lineReq.Amount,
+                        BalanceDue = snapshot.AdjustedBalanceDue,
+                        Payable = snapshot.AdjustedPayable,
+                        LineOrder = snapshot.Index,
+                        Notes = lineReq.Notes,
+                    };
+
+                    foreach (var termId in lineReq.PaymentTermsTypes.Distinct())
+                    {
+                        var term = pageData.PaymentTerms.FirstOrDefault(t => t.Id == termId);
+                        line.PaymentTerms.Add(new StageWisePaymentBatchLinePaymentTerm
+                        {
+                            PaymentTermsType = termId,
+                            PaymentTermDesc = term?.Desc ?? term?.DropDownValue(),
+                        });
+                    }
+
+                    batch.Lines.Add(line);
+                }
+
+                if (linkedStagePayment.Id == 0)
+                    await db.StageWisePayments.AddAsync(linkedStagePayment, ct);
+                else
+                    db.StageWisePayments.Update(linkedStagePayment);
 
                 if (downPaymentEntity is not null
                     && !ReferenceEquals(downPaymentEntity, linkedStagePayment))
@@ -375,7 +377,7 @@ public class StageWisePaymentBatchService(
 
                 await db.SaveChangesAsync(ct);
 
-                batch.StageWisePaymentId = linkedStagePayment!.Id;
+                batch.StageWisePaymentId = linkedStagePayment.Id;
                 if (downPaymentEntity is not null && downPaymentEntity.Id != linkedStagePayment.Id)
                     batch.DownPaymentStageWisePaymentId = downPaymentEntity.Id;
                 batch.ApprovalRequestId = batchApprovalId ?? linkedStagePayment.ApprovalRequestId;
@@ -383,12 +385,19 @@ public class StageWisePaymentBatchService(
                 await db.StageWisePaymentBatches.AddAsync(batch, ct);
             }, cancellationToken);
         }
+        catch (StageWisePaymentCreateAbortedException ex)
+        {
+            return (false, ex.Message, null);
+        }
         catch (Exception ex)
         {
             return (false, $"SAP payment succeeded but failed to save batch locally: {ex.Message}", null);
         }
 
-        var response = await MapBatchAsync(batch.Id, readOnly: true, approvalRequestId: null, cancellationToken);
+        response = await MapBatchAsync(batch.Id, readOnly: true, approvalRequestId: null, cancellationToken);
+        if (!string.IsNullOrEmpty(postCommitWarning))
+            return (false, postCommitWarning, response);
+
         return (true, "Batch payment request created.", response);
     }
 
@@ -1304,142 +1313,137 @@ public class StageWisePaymentBatchService(
                 batchStatus);
         }
 
-        if (paymentInvoices.Count > 0)
-        {
-            var apLineSnapshots = lineSnapshots.Where(s => s.RequiresAp).ToList();
-            var purchaseOrderId = await purchaseOrderLinks.EnsureIdFromSapPoAsync(po, cancellationToken);
-            var (prepared, prepareMessage, apPayment) = await PrepareBatchApPaymentAsync(
-                po,
-                pageData,
-                apLineSnapshots,
-                activeRecords,
-                apInvoicesByDocEntry,
-                bank,
-                request.WtCode,
-                batchDocNumber ?? request.DocNumber ?? po.DocNum,
-                purchaseOrderId,
-                cancellationToken);
-            if (!prepared || apPayment is null)
-                return (false, prepareMessage, null, null, null, batchStatus);
-
-            linkedStagePayment = apPayment;
-
-            var vendorRequest = new SapVendorPaymentRequests
-            {
-                CardCode = po.CardCode ?? string.Empty,
-                TransferSum = totalTransfer.ToString("F2"),
-                ProjectCode = po.Project,
-                PoNumber = po.DocNum?.ToString(),
-                BPLId = po.BPLId ?? 1,
-                PaymentInvoices = paymentInvoices,
-            };
-            ApplyAdditionalDetailsToVendorPayment(
-                vendorRequest, request, bank, po.BPLId, po.DocNum?.ToString());
-
-            SapVendorPaymentsResponse? sapResponse;
-            try
-            {
-                sapResponse = await vendorPaymentService.CreateVendorPayments(
-                    vendorRequest, supportingData: po.DocEntry?.ToString());
-            }
-            catch (ApiErrorException ex)
-            {
-                await stageWisePaymentService.DiscardDraftPaymentRequestAsync(linkedStagePayment.Id, cancellationToken);
-                return (false, $"SAP Error: {ex.Message}", null, null, null, batchStatus);
-            }
-
-            if (sapResponse?.Error?.Message?.Value is not null)
-            {
-                await stageWisePaymentService.DiscardDraftPaymentRequestAsync(linkedStagePayment.Id, cancellationToken);
-                return (false, $"SAP Error: {sapResponse.Error.Message.Value}", null, null, null, batchStatus);
-            }
-
-            if (sapResponse?.PendingApproval == true)
-            {
-                linkedStagePayment.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
-                linkedStagePayment.Status = StageWisePaymentStatus.PendingApproval;
-                batchStatus = StageWisePaymentBatchStatus.PendingApproval;
-                batchApprovalId = linkedStagePayment.ApprovalRequestId;
-            }
-            else if (sapResponse?.DocEntry.HasValue == true)
-            {
-                linkedStagePayment.ApDownPaymentInvoiceEntryNumber = sapResponse.DocNumber?.ToString();
-                linkedStagePayment.PaymentDocEntry = sapResponse.DocEntry?.ToString();
-                linkedStagePayment.Status = StageWisePaymentStatus.Added;
-                batchStatus = StageWisePaymentBatchStatus.Approved;
-            }
-            else
-            {
-                await stageWisePaymentService.DiscardDraftPaymentRequestAsync(linkedStagePayment.Id, cancellationToken);
-                return (false, "No vendor payment was created in SAP.", null, null, null, batchStatus);
-            }
-        }
-
         StageWisePayment? downPaymentEntity = null;
-        var downPaymentSnapshots = lineSnapshots.Where(s => !s.RequiresAp).ToList();
-        if (downPaymentSnapshots.Count > 0)
-        {
-            foreach (var snapshot in downPaymentSnapshots)
-            {
-                var term = StageWisePaymentCalculations.ResolveDownPaymentTerm(
-                    pageData.PaymentTerms, snapshot.Line.PaymentTermsTypes);
-                if (term is null)
-                    return (false, "Payment term not found for down payment row.", null, null, null, batchStatus);
-            }
-
-            var downPaymentLines = downPaymentSnapshots.Select(s => s.Line).ToList();
-            var poWithLines = await purchaseOrderService.GetPurchaseOrderForPaymentOperations(
-                po.DocEntry?.ToString() ?? request.PoDocEntry.ToString(), cancellationToken);
-            if (poWithLines?.DocumentLines is not { Count: > 0 })
-            {
-                return (
-                    false,
-                    "Purchase order lines are not available locally. Sync this purchase order from SAP, then retry.",
-                    null,
-                    null,
-                    null,
-                    batchStatus);
-            }
-
-            var (success, message, payment) = await stageWisePaymentService.CreateBatchDownPaymentAsync(
-                poWithLines,
-                downPaymentLines,
-                pageData.PaymentTerms,
-                pageData.TotalBasic,
-                bank,
-                request.WtCode,
-                activeRecords,
-                userRemark: request.JournalRemark,
-                postingDate: request.PostingDate,
-                paymentDate: request.PaymentDate,
-                persist: false,
-                cancellationToken);
-
-            if (!success || payment is null)
-                return (false, message, null, null, null, batchStatus);
-
-            downPaymentEntity = payment;
-            if (linkedStagePayment is null)
-                linkedStagePayment = payment;
-
-            if (payment.Status == StageWisePaymentStatus.PendingApproval)
-            {
-                batchApprovalId ??= payment.ApprovalRequestId;
-                batchStatus = StageWisePaymentBatchStatus.PendingApproval;
-            }
-            else if (batchStatus == StageWisePaymentBatchStatus.Draft)
-            {
-                batchStatus = StageWisePaymentBatchStatus.Approved;
-            }
-        }
-
-        if (linkedStagePayment is null)
-            return (false, "No payment was created.", null, null, null, batchStatus);
 
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
+                if (paymentInvoices.Count > 0)
+                {
+                    var apLineSnapshots = lineSnapshots.Where(s => s.RequiresAp).ToList();
+                    var purchaseOrderId = await purchaseOrderLinks.EnsureIdFromSapPoAsync(po, ct);
+                    var (prepared, prepareMessage, apPayment) = await PrepareBatchApPaymentAsync(
+                        po,
+                        pageData,
+                        apLineSnapshots,
+                        activeRecords,
+                        apInvoicesByDocEntry,
+                        bank,
+                        request.WtCode,
+                        batchDocNumber ?? request.DocNumber ?? po.DocNum,
+                        purchaseOrderId,
+                        ct);
+                    if (!prepared || apPayment is null)
+                        throw new StageWisePaymentCreateAbortedException(prepareMessage);
+
+                    linkedStagePayment = apPayment;
+
+                    var vendorRequest = new SapVendorPaymentRequests
+                    {
+                        CardCode = po.CardCode ?? string.Empty,
+                        TransferSum = totalTransfer.ToString("F2"),
+                        ProjectCode = po.Project,
+                        PoNumber = po.DocNum?.ToString(),
+                        BPLId = po.BPLId ?? 1,
+                        PaymentInvoices = paymentInvoices,
+                    };
+                    ApplyAdditionalDetailsToVendorPayment(
+                        vendorRequest, request, bank, po.BPLId, po.DocNum?.ToString());
+
+                    SapVendorPaymentsResponse? sapResponse;
+                    try
+                    {
+                        sapResponse = await vendorPaymentService.CreateVendorPayments(
+                            vendorRequest, supportingData: po.DocEntry?.ToString());
+                    }
+                    catch (ApiErrorException ex)
+                    {
+                        throw new StageWisePaymentCreateAbortedException($"SAP Error: {ex.Message}");
+                    }
+
+                    if (sapResponse?.Error?.Message?.Value is not null)
+                        throw new StageWisePaymentCreateAbortedException($"SAP Error: {sapResponse.Error.Message.Value}");
+
+                    if (sapResponse?.PendingApproval == true)
+                    {
+                        linkedStagePayment.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
+                        linkedStagePayment.Status = StageWisePaymentStatus.PendingApproval;
+                        batchStatus = StageWisePaymentBatchStatus.PendingApproval;
+                        batchApprovalId = linkedStagePayment.ApprovalRequestId;
+                    }
+                    else if (sapResponse?.DocEntry.HasValue == true)
+                    {
+                        linkedStagePayment.ApDownPaymentInvoiceEntryNumber = sapResponse.DocNumber?.ToString();
+                        linkedStagePayment.PaymentDocEntry = sapResponse.DocEntry?.ToString();
+                        linkedStagePayment.Status = StageWisePaymentStatus.Added;
+                        batchStatus = StageWisePaymentBatchStatus.Approved;
+                    }
+                    else
+                    {
+                        throw new StageWisePaymentCreateAbortedException("No vendor payment was created in SAP.");
+                    }
+
+                    db.StageWisePayments.Update(linkedStagePayment);
+                }
+
+                var downPaymentSnapshots = lineSnapshots.Where(s => !s.RequiresAp).ToList();
+                if (downPaymentSnapshots.Count > 0)
+                {
+                    foreach (var snapshot in downPaymentSnapshots)
+                    {
+                        var term = StageWisePaymentCalculations.ResolveDownPaymentTerm(
+                            pageData.PaymentTerms, snapshot.Line.PaymentTermsTypes);
+                        if (term is null)
+                            throw new StageWisePaymentCreateAbortedException("Payment term not found for down payment row.");
+                    }
+
+                    var downPaymentLines = downPaymentSnapshots.Select(s => s.Line).ToList();
+                    var poWithLines = await purchaseOrderService.GetPurchaseOrderForPaymentOperations(
+                        po.DocEntry?.ToString() ?? request.PoDocEntry.ToString(), ct);
+                    if (poWithLines?.DocumentLines is not { Count: > 0 })
+                    {
+                        throw new StageWisePaymentCreateAbortedException(
+                            "Purchase order lines are not available locally. Sync this purchase order from SAP, then retry.");
+                    }
+
+                    var (success, message, payment) = await stageWisePaymentService.CreateBatchDownPaymentAsync(
+                        poWithLines,
+                        downPaymentLines,
+                        pageData.PaymentTerms,
+                        pageData.TotalBasic,
+                        bank,
+                        request.WtCode,
+                        activeRecords,
+                        userRemark: request.JournalRemark,
+                        postingDate: request.PostingDate,
+                        paymentDate: request.PaymentDate,
+                        persist: false,
+                        ct);
+
+                    if (payment is null)
+                        throw new StageWisePaymentCreateAbortedException(message);
+                    if (!success)
+                        throw new StageWisePaymentCreateAbortedException(message);
+
+                    downPaymentEntity = payment;
+                    if (linkedStagePayment is null)
+                        linkedStagePayment = payment;
+
+                    if (payment.Status == StageWisePaymentStatus.PendingApproval)
+                    {
+                        batchApprovalId ??= payment.ApprovalRequestId;
+                        batchStatus = StageWisePaymentBatchStatus.PendingApproval;
+                    }
+                    else if (batchStatus == StageWisePaymentBatchStatus.Draft)
+                    {
+                        batchStatus = StageWisePaymentBatchStatus.Approved;
+                    }
+                }
+
+                if (linkedStagePayment is null)
+                    throw new StageWisePaymentCreateAbortedException("No payment was created.");
+
                 if (linkedStagePayment.Id == 0)
                     await db.StageWisePayments.AddAsync(linkedStagePayment, ct);
                 else
@@ -1456,7 +1460,6 @@ public class StageWisePaymentBatchService(
 
                 if (batchToLink is not null)
                 {
-                    // Ensure payment Ids exist before linking the batch.
                     await db.SaveChangesAsync(ct);
 
                     batchToLink.StageWisePaymentId = linkedStagePayment.Id;
@@ -1471,6 +1474,10 @@ public class StageWisePaymentBatchService(
                     db.StageWisePaymentBatches.Update(batchToLink);
                 }
             }, cancellationToken);
+        }
+        catch (StageWisePaymentCreateAbortedException ex)
+        {
+            return (false, ex.Message, null, null, null, batchStatus);
         }
         catch (Exception ex)
         {

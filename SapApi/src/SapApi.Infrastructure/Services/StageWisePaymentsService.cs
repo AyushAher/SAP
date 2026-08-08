@@ -65,8 +65,23 @@ public class StageWisePaymentService(
         if (downPaymentAmount > payableAmount)
             return (false, "Down payment amount cannot exceed the payable amount for the stage.", null);
 
-        var apEntries = new List<int>();
-        var approvalRequestIds = new List<int>();
+        if (downPaymentAmount > remainingBasicTotal &&
+            (selectedPaymentTermsUdf.Gst == null || selectedPaymentTermsUdf.Gst == 0)
+            && purchaseOrder.DocumentStatus != "bost_Close"
+            && selectedPaymentTermsUdf.Type is not ("Invoice" or "Retention")
+            && selectedPaymentTermsUdf.Basic != null && selectedPaymentTermsUdf.Basic != 0)
+        {
+            return (false, "Down payment amount cannot exceed remaining basic amount when GST is 0", null);
+        }
+
+        if (selectedPaymentTermsUdf.Basic is null or 0
+            && selectedPaymentTermsUdf.Gst != null && selectedPaymentTermsUdf.Gst != 0
+            && remainingGstTotal < downPaymentAmount
+            && purchaseOrder.DocumentStatus != "bost_Close"
+            && selectedPaymentTermsUdf.Type is not ("Invoice" or "Retention"))
+        {
+            return (false, "GST cannot exceed remaining GST amount", null);
+        }
 
         var entity1 = entity;
         entity1.CompanyDb = CompanyDb;
@@ -78,135 +93,129 @@ public class StageWisePaymentService(
         entity1.DocNumber = purchaseOrder.DocNum;
         entity1.Status = StageWisePaymentStatus.Added;
 
-        var (persisted, persistMessage) = await EnsurePaymentRequestPersistedAsync(entity1);
-        if (!persisted)
-            return (false, persistMessage, null);
-
-        var paymentRequestId = FormatPaymentRequestId(entity1.Id);
-        if (string.IsNullOrEmpty(paymentRequestId))
-            return (false, "Failed to allocate payment request ID.", null);
-
-        SapBaseResponse? sapResponse = null;
-        double tdsAmount = 0;
-        var hadTdsDeducted = false;
-        var tds = existingRecords.FirstOrDefault(x => !string.IsNullOrEmpty(x.ApInvoiceDocEntry) && x.ApInvoiceDocEntry == entity1.ApInvoiceDocEntry)?.Tds;
-        hadTdsDeducted = tds != null && tds != 0;
-
-        if (downPaymentAmount > remainingBasicTotal &&
-                    (selectedPaymentTermsUdf.Gst == null || selectedPaymentTermsUdf.Gst == 0))
-        {
-            return (false, "Down payment amount cannot exceed remaining basic amount when GST is 0", null);
-        }
-        else if (purchaseOrder.DocumentStatus == "bost_Close" || selectedPaymentTermsUdf.Type is "Invoice" or "Retention")
-        {
-            var (gross, gst) = StageWisePaymentCalculations.SplitAmountForPaymentTerm(
-                purchaseOrder, selectedPaymentTermsUdf, downPaymentAmount, totalBasic, existingRecords);
-            entity1.GrossAmount = gross;
-            entity1.GstAmount = gst;
-            (sapResponse, tdsAmount) = await AddToSap(
-                purchaseOrder, selectedPaymentTermsUdf, false, downPaymentAmount, wtCode, paymentTermsLabel,
-                entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted, paymentRequestId);
-            if (sapResponse is not null && sapResponse.PendingApproval)
-            {
-                entity1.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
-                entity1.Tds = tdsAmount;
-            }
-            else if (sapResponse?.Error?.Message?.Value is not null)
-            {
-                return await FailCreatePaymentAsync(entity1, $"SAP Error: {sapResponse.Error.Message.Value}");
-            }
-            else if (sapResponse?.BaseDocEntry.HasValue == true)
-            {
-                entity1.ApDownPaymentInvoiceEntryNumber = sapResponse.BaseDocNum?.ToString();
-                entity1.Tds = tdsAmount;
-                entity1.ApDownPaymentInvoiceDocEntry = sapResponse.BaseDocEntry?.ToString();
-            }
-        }
-        else if (selectedPaymentTermsUdf.Basic != null && selectedPaymentTermsUdf.Basic != 0)
-        {
-            var gstPortion = 0.0;
-            if (downPaymentAmount > remainingBasicTotal &&
-                selectedPaymentTermsUdf.Gst != null &&
-                selectedPaymentTermsUdf.Gst != 0)
-            {
-                gstPortion = Math.Round(downPaymentAmount - remainingBasicTotal, 2);
-                entity1.GrossAmount = remainingBasicTotal;
-                entity1.GstAmount = gstPortion;
-            }
-            else
-            {
-                entity1.GrossAmount = downPaymentAmount;
-                entity1.GstAmount = 0;
-            }
-
-            var (dpOk, dpMessage, dpTds) = await ApplySeparateDownPaymentsAsync(
-                entity1,
-                purchaseOrder,
-                paymentTermsLabel,
-                wtCode,
-                entity1.GrossAmount ?? 0,
-                entity1.GstAmount ?? 0,
-                hadTdsDeducted,
-                paymentRequestId);
-            if (!dpOk)
-                return await FailCreatePaymentAsync(entity1, dpMessage);
-            tdsAmount = dpTds;
-            entity1.Tds = tdsAmount;
-        }
-        else if (selectedPaymentTermsUdf.Gst != null && selectedPaymentTermsUdf.Gst != 0)
-        {
-            if (remainingGstTotal < downPaymentAmount)
-                return (false, "GST cannot exceed remaining GST amount", null);
-            entity1.GstAmount = downPaymentAmount;
-            entity1.GrossAmount = 0;
-
-            var (dpOk, dpMessage, dpTds) = await ApplySeparateDownPaymentsAsync(
-                entity1,
-                purchaseOrder,
-                paymentTermsLabel,
-                wtCode,
-                grossAmount: 0,
-                gstAmount: downPaymentAmount,
-                hadTdsDeducted,
-                paymentRequestId);
-            if (!dpOk)
-                return await FailCreatePaymentAsync(entity1, dpMessage);
-            tdsAmount = dpTds;
-            entity1.Tds = tdsAmount;
-        }
-
-
-        if (string.IsNullOrEmpty(entity1.ApDownPaymentInvoiceEntryNumber)
-             && string.IsNullOrEmpty(entity1.ApprovalRequestId))
-        {
-            return await FailCreatePaymentAsync(entity1, "No records saved in SAP!");
-        }
-
-        if (!string.IsNullOrEmpty(entity1.ApprovalRequestId))
-            entity1.Status = StageWisePaymentStatus.PendingApproval;
-        else entity1.Status = StageWisePaymentStatus.Added;
-
-        entity1.LastModifiedOn = DateTime.UtcNow;
+        var tds = existingRecords.FirstOrDefault(x =>
+            !string.IsNullOrEmpty(x.ApInvoiceDocEntry) && x.ApInvoiceDocEntry == entity1.ApInvoiceDocEntry)?.Tds;
+        var hadTdsDeducted = tds != null && tds != 0;
 
         try
         {
-            await unitOfWork.ExecuteInTransactionAsync(_ =>
+            await unitOfWork.ExecuteInTransactionAsync(async _ =>
             {
+                await PersistPaymentRequestOrAbortAsync(entity1);
+
+                var paymentRequestId = FormatPaymentRequestId(entity1.Id)
+                    ?? throw new StageWisePaymentCreateAbortedException("Failed to allocate payment request ID.");
+
+                SapBaseResponse? sapResponse = null;
+                double tdsAmount = 0;
+
+                if (purchaseOrder.DocumentStatus == "bost_Close" || selectedPaymentTermsUdf.Type is "Invoice" or "Retention")
+                {
+                    var (gross, gst) = StageWisePaymentCalculations.SplitAmountForPaymentTerm(
+                        purchaseOrder, selectedPaymentTermsUdf, downPaymentAmount, totalBasic, existingRecords);
+                    entity1.GrossAmount = gross;
+                    entity1.GstAmount = gst;
+                    (sapResponse, tdsAmount) = await AddToSap(
+                        purchaseOrder, selectedPaymentTermsUdf, false, downPaymentAmount, wtCode, paymentTermsLabel,
+                        entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted, paymentRequestId);
+                    if (sapResponse is not null && sapResponse.PendingApproval)
+                    {
+                        entity1.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
+                        entity1.Tds = tdsAmount;
+                    }
+                    else if (sapResponse?.Error?.Message?.Value is not null)
+                    {
+                        throw new StageWisePaymentCreateAbortedException($"SAP Error: {sapResponse.Error.Message.Value}");
+                    }
+                    else if (sapResponse?.BaseDocEntry.HasValue == true)
+                    {
+                        entity1.ApDownPaymentInvoiceEntryNumber = sapResponse.BaseDocNum?.ToString();
+                        entity1.Tds = tdsAmount;
+                        entity1.ApDownPaymentInvoiceDocEntry = sapResponse.BaseDocEntry?.ToString();
+                    }
+                }
+                else if (selectedPaymentTermsUdf.Basic != null && selectedPaymentTermsUdf.Basic != 0)
+                {
+                    if (downPaymentAmount > remainingBasicTotal &&
+                        selectedPaymentTermsUdf.Gst != null &&
+                        selectedPaymentTermsUdf.Gst != 0)
+                    {
+                        entity1.GrossAmount = remainingBasicTotal;
+                        entity1.GstAmount = Math.Round(downPaymentAmount - remainingBasicTotal, 2);
+                    }
+                    else
+                    {
+                        entity1.GrossAmount = downPaymentAmount;
+                        entity1.GstAmount = 0;
+                    }
+
+                    var (dpOk, dpMessage, dpTds) = await ApplySeparateDownPaymentsAsync(
+                        entity1,
+                        purchaseOrder,
+                        paymentTermsLabel,
+                        wtCode,
+                        entity1.GrossAmount ?? 0,
+                        entity1.GstAmount ?? 0,
+                        hadTdsDeducted,
+                        paymentRequestId);
+                    if (!dpOk)
+                        throw new StageWisePaymentCreateAbortedException(dpMessage);
+                    entity1.Tds = dpTds;
+                }
+                else if (selectedPaymentTermsUdf.Gst != null && selectedPaymentTermsUdf.Gst != 0)
+                {
+                    entity1.GstAmount = downPaymentAmount;
+                    entity1.GrossAmount = 0;
+
+                    var (dpOk, dpMessage, dpTds) = await ApplySeparateDownPaymentsAsync(
+                        entity1,
+                        purchaseOrder,
+                        paymentTermsLabel,
+                        wtCode,
+                        grossAmount: 0,
+                        gstAmount: downPaymentAmount,
+                        hadTdsDeducted,
+                        paymentRequestId);
+                    if (!dpOk)
+                        throw new StageWisePaymentCreateAbortedException(dpMessage);
+                    entity1.Tds = dpTds;
+                }
+
+                if (string.IsNullOrEmpty(entity1.ApDownPaymentInvoiceEntryNumber)
+                    && string.IsNullOrEmpty(entity1.ApprovalRequestId))
+                {
+                    throw new StageWisePaymentCreateAbortedException("No records saved in SAP!");
+                }
+
+                entity1.Status = !string.IsNullOrEmpty(entity1.ApprovalRequestId)
+                    ? StageWisePaymentStatus.PendingApproval
+                    : StageWisePaymentStatus.Added;
+                entity1.LastModifiedOn = DateTime.UtcNow;
                 context.StageWisePayments.Update(entity1);
-                return Task.CompletedTask;
             });
+        }
+        catch (StageWisePaymentCreateAbortedException ex)
+        {
+            return (false, ex.Message, null);
         }
         catch (Exception ex)
         {
-            return (false, $"SAP payment succeeded but failed to save locally: {ex.Message}", null);
+            if (!string.IsNullOrEmpty(entity1.ApDownPaymentInvoiceEntryNumber)
+                || !string.IsNullOrEmpty(entity1.ApprovalRequestId))
+            {
+                return (false, $"SAP payment succeeded but failed to save locally: {ex.Message}", null);
+            }
+
+            return (false, ex.Message, null);
         }
 
+        // Outgoing payment is a follow-on after DP/approval is committed — do not roll back DP on OP failure.
         if (purchaseOrder.DocumentStatus != "bost_Close"
-            && selectedPaymentTermsUdf.Type is not "Invoice" or "Retention"
+            && selectedPaymentTermsUdf.Type is not ("Invoice" or "Retention")
             && HasCompleteDownPaymentDocs(entity1, entity1.GrossAmount ?? 0, entity1.GstAmount ?? 0))
         {
             var paymentInvoices = BuildDownPaymentInvoices(
-                entity1.DownPaymentDocEntry,
+                entity1.DownPaymentDocEntry ?? string.Empty,
                 entity1.GrossAmount ?? 0,
                 entity1.GstAmount ?? 0,
                 entity1.Tds ?? 0);
@@ -324,14 +333,76 @@ public class StageWisePaymentService(
             LastModifiedOn = DateTime.UtcNow,
         };
 
-        // Separate SAP AP Down Payments for Basic and GST; one Outgoing Payment covers both.
-        var (persisted, persistMessage) = await EnsurePaymentRequestPersistedAsync(entity);
-        if (!persisted)
-            return (false, persistMessage, null);
+        string? outgoingError = null;
+        var nestInAmbient = !persist && unitOfWork.HasActiveTransaction;
+        try
+        {
+            // When called under an ambient batch transaction (persist:false), nest and leave commit to caller.
+            // Otherwise own a transaction: insert → SAP/approval → update → commit (or rollback on SAP fail).
+            if (nestInAmbient)
+            {
+                outgoingError = await ExecuteBatchDownPaymentCoreAsync(
+                    entity, purchaseOrder, paymentTermsLabel, batchDesc, wtCode, bank,
+                    totalGross, totalGst, hadTdsDeducted, userRemark, postingDate, paymentDate, cancellationToken);
+            }
+            else
+            {
+                await unitOfWork.ExecuteInTransactionAsync(
+                    async ct =>
+                    {
+                        outgoingError = await ExecuteBatchDownPaymentCoreAsync(
+                            entity, purchaseOrder, paymentTermsLabel, batchDesc, wtCode, bank,
+                            totalGross, totalGst, hadTdsDeducted, userRemark, postingDate, paymentDate, ct);
+                    },
+                    cancellationToken);
+            }
+        }
+        catch (StageWisePaymentCreateAbortedException) when (nestInAmbient)
+        {
+            // Let the outer batch transaction roll back payment/approval drafts.
+            throw;
+        }
+        catch (StageWisePaymentCreateAbortedException ex)
+        {
+            return (false, ex.Message, null);
+        }
+        catch (Exception ex)
+        {
+            if (!string.IsNullOrEmpty(entity.ApDownPaymentInvoiceEntryNumber)
+                || !string.IsNullOrEmpty(entity.ApprovalRequestId))
+            {
+                return (false, $"SAP payment succeeded but failed to save locally: {ex.Message}", null);
+            }
 
-        var paymentRequestId = FormatPaymentRequestId(entity.Id);
-        if (string.IsNullOrEmpty(paymentRequestId))
-            return (false, "Failed to allocate payment request ID.", null);
+            return (false, ex.Message, null);
+        }
+
+        if (!string.IsNullOrEmpty(outgoingError))
+            return (false, outgoingError, entity);
+
+        return (true, persist ? "Payment created successfully" : "Payment prepared successfully", entity);
+    }
+
+    /// <returns>Outgoing-payment error after DP succeeded (caller should keep the DP row); null on full success.</returns>
+    private async Task<string?> ExecuteBatchDownPaymentCoreAsync(
+        StageWisePayment entity,
+        SapPurchaseOrdersResponse purchaseOrder,
+        string? paymentTermsLabel,
+        string batchDesc,
+        string? wtCode,
+        string? bank,
+        double totalGross,
+        double totalGst,
+        bool hadTdsDeducted,
+        string? userRemark,
+        DateTime? postingDate,
+        DateTime? paymentDate,
+        CancellationToken cancellationToken)
+    {
+        await PersistPaymentRequestOrAbortAsync(entity, cancellationToken);
+
+        var paymentRequestId = FormatPaymentRequestId(entity.Id)
+            ?? throw new StageWisePaymentCreateAbortedException("Failed to allocate payment request ID.");
 
         var (dpOk, dpMessage, tdsAmount) = await ApplySeparateDownPaymentsAsync(
             entity,
@@ -346,7 +417,7 @@ public class StageWisePaymentService(
             paymentDate,
             userRemark);
         if (!dpOk)
-            return (false, dpMessage, null);
+            throw new StageWisePaymentCreateAbortedException(dpMessage);
 
         entity.Tds = tdsAmount;
         if (!string.IsNullOrEmpty(entity.ApprovalRequestId))
@@ -354,13 +425,14 @@ public class StageWisePaymentService(
         else if (!string.IsNullOrWhiteSpace(entity.ApDownPaymentInvoiceEntryNumber))
             entity.Status = StageWisePaymentStatus.Added;
         else
-            return (false, "No records saved in SAP!", null);
+            throw new StageWisePaymentCreateAbortedException("No records saved in SAP!");
 
+        string? outgoingError = null;
         if (purchaseOrder.DocumentStatus != "bost_Close"
             && HasCompleteDownPaymentDocs(entity, totalGross, totalGst))
         {
             var paymentInvoices = BuildDownPaymentInvoices(
-                entity.DownPaymentDocEntry,
+                entity.DownPaymentDocEntry ?? string.Empty,
                 totalGross,
                 totalGst,
                 entity.Tds ?? 0);
@@ -383,7 +455,8 @@ public class StageWisePaymentService(
             }
             else if (outgoingResponse?.Error?.Message?.Value is not null)
             {
-                return (false, $"SAP Error: {outgoingResponse.Error.Message.Value}", null);
+                // DP already in SAP — keep local DP row; report OP failure after commit.
+                outgoingError = $"SAP Error: {outgoingResponse.Error.Message.Value}";
             }
             else if (outgoingResponse?.BaseDocNum is not null)
             {
@@ -391,23 +464,9 @@ public class StageWisePaymentService(
             }
         }
 
-        if (!persist)
-            return (true, "Payment prepared successfully", entity);
-
-        try
-        {
-            await unitOfWork.ExecuteInTransactionAsync(_ =>
-            {
-                context.StageWisePayments.Update(entity);
-                return Task.CompletedTask;
-            }, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            return (false, $"SAP payment succeeded but failed to save locally: {ex.Message}", null);
-        }
-
-        return (true, "Payment created successfully", entity);
+        entity.LastModifiedOn = DateTime.UtcNow;
+        context.StageWisePayments.Update(entity);
+        return outgoingError;
     }
 
     private async Task<(bool Ok, string Message, double TdsAmount)> ApplySeparateDownPaymentsAsync(
@@ -575,6 +634,10 @@ public class StageWisePaymentService(
     public static string? FormatPaymentRequestId(int? id) =>
         id is null or <= 0 ? null : id.Value.ToString();
 
+    /// <summary>
+    /// Inserts the payment request to allocate an identity Id. When an ambient transaction is open,
+    /// the insert is not committed until the outer transaction commits (rollback removes orphans).
+    /// </summary>
     public async Task<(bool Success, string Message)> EnsurePaymentRequestPersistedAsync(
         StageWisePayment entity,
         CancellationToken cancellationToken = default)
@@ -590,10 +653,19 @@ public class StageWisePaymentService(
 
         try
         {
-            await unitOfWork.ExecuteInTransactionAsync(async ct =>
+            if (unitOfWork.HasActiveTransaction)
             {
-                await context.StageWisePayments.AddAsync(entity, ct);
-            }, cancellationToken);
+                await context.StageWisePayments.AddAsync(entity, cancellationToken);
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                await unitOfWork.ExecuteInTransactionAsync(async ct =>
+                {
+                    await context.StageWisePayments.AddAsync(entity, ct);
+                }, cancellationToken);
+            }
+
             return (true, string.Empty);
         }
         catch (Exception ex)
@@ -602,11 +674,24 @@ public class StageWisePaymentService(
         }
     }
 
+    private async Task PersistPaymentRequestOrAbortAsync(
+        StageWisePayment entity,
+        CancellationToken cancellationToken = default)
+    {
+        var (persisted, persistMessage) = await EnsurePaymentRequestPersistedAsync(entity, cancellationToken);
+        if (!persisted)
+            throw new StageWisePaymentCreateAbortedException(persistMessage);
+    }
+
     public Task DiscardDraftPaymentRequestAsync(int paymentRequestId, CancellationToken cancellationToken = default) =>
         RemoveDraftPaymentRequestAsync(paymentRequestId, cancellationToken);
 
     private async Task RemoveDraftPaymentRequestAsync(int paymentRequestId, CancellationToken cancellationToken = default)
     {
+        // Prefer rolling back an ambient create transaction instead of soft-deleting drafts.
+        if (unitOfWork.HasActiveTransaction)
+            return;
+
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(async ct =>
@@ -619,22 +704,8 @@ public class StageWisePaymentService(
         }
         catch
         {
-            // Best-effort cleanup when SAP posting fails after pre-allocation.
+            // Best-effort cleanup when SAP posting fails after a committed pre-allocation.
         }
-    }
-
-    private async Task<(bool IsSuccess, string Message, int? PaymentId)> FailCreatePaymentAsync(
-        StageWisePayment entity,
-        string message)
-    {
-        if (entity.Id > 0
-            && string.IsNullOrEmpty(entity.ApDownPaymentInvoiceEntryNumber)
-            && string.IsNullOrEmpty(entity.ApprovalRequestId))
-        {
-            await RemoveDraftPaymentRequestAsync(entity.Id);
-        }
-
-        return (false, message, null);
     }
 
     private async Task<(SapBaseResponse? response, double tdsAmount)> AddToSap(

@@ -9,8 +9,17 @@ public interface IUnitOfWork : IAsyncDisposable
     Task RollbackTransactionAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// True when an ambient transaction is open (via <see cref="ExecuteInTransactionAsync"/> nesting
+    /// or an explicit begin). Uncommitted inserts are not visible to other readers under PostgreSQL
+    /// READ COMMITTED and are removed on rollback.
+    /// </summary>
+    bool HasActiveTransaction { get; }
+
+    /// <summary>
     /// Runs database work inside a transaction. Nesting is supported: only the outermost call commits/rolls back.
-    /// Do not perform external SAP HTTP calls inside <paramref name="action"/> — call SAP first, then persist.
+    /// Prefer keeping SAP HTTP outside when possible. Payment/DP create flows may intentionally hold the
+    /// transaction across SAP so local rows (and approval drafts) roll back on SAP failure — see
+    /// stage-wise payment create. Do not rely on automatic DB retries duplicating SAP posts.
     /// </summary>
     Task ExecuteInTransactionAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken = default);
 }

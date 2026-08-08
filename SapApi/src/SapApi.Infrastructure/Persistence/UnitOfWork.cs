@@ -10,6 +10,8 @@ public class UnitOfWork(AppDbContext context) : IUnitOfWork
     private IDbContextTransaction? _transaction;
     private int _transactionDepth;
 
+    public bool HasActiveTransaction => _transaction != null;
+
     public IRepository<T> Repository<T>() where T : class
     {
         var type = typeof(T);
