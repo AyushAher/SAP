@@ -383,6 +383,63 @@ public class SapMasterDataService(
         return response?.Value?.FirstOrDefault();
     }
 
+    /// <summary>
+    /// Price Basis (U_PRI_BAS) and Mode of Transport (U_TransMode) ValidValues for PO Logistics dropdowns.
+    /// </summary>
+    public async Task<PurchaseOrderLogisticsOptions> GetPurchaseOrderLogisticsOptionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+        var companyDb = companyDbAccessor.GetCompanyDbName();
+        var cacheKey = $"masterdata:{companyDb}:po-logistics-options";
+
+        var cached = await cache.GetOrCreateAsync(
+            cacheKey,
+            async () => new PurchaseOrderLogisticsOptions
+            {
+                PriceBasis = await FetchUdfValidValuesAsync("PRI_BAS", cancellationToken)
+                    ?? PurchaseOrderLogisticsOptionDefaults.PriceBasis.ToList(),
+                ModeOfTransport = await FetchUdfValidValuesAsync("TransMode", cancellationToken)
+                    ?? PurchaseOrderLogisticsOptionDefaults.ModeOfTransport.ToList(),
+            },
+            PaymentTermTypeCacheTtl,
+            cancellationToken);
+
+        return cached ?? new PurchaseOrderLogisticsOptions
+        {
+            PriceBasis = PurchaseOrderLogisticsOptionDefaults.PriceBasis.ToList(),
+            ModeOfTransport = PurchaseOrderLogisticsOptionDefaults.ModeOfTransport.ToList(),
+        };
+    }
+
+    private async Task<List<SapUdfValidValueOption>?> FetchUdfValidValuesAsync(
+        string fieldName,
+        CancellationToken cancellationToken)
+    {
+        // Prefer OPOR, then ADOC (marketing-document UDFs are often defined once on ADOC).
+        foreach (var table in new[] { "OPOR", "ADOC" })
+        {
+            var filter =
+                $"TableName eq '{table}' and Name eq '{SapPaginationBuilder.EscapeODataString(fieldName)}'";
+            var url = $"{Constants.SapApiUrls.UserFieldsMdCollection}?$filter={Uri.EscapeDataString(filter)}";
+            var response = await http.GetAsync<GetAllSapUserFieldsMdResponse>(url, cancellationToken: cancellationToken);
+            var field = response?.Value?.FirstOrDefault();
+            if (field?.ValidValuesMD is null || field.ValidValuesMD.Count == 0)
+                continue;
+
+            return field.ValidValuesMD
+                .Where(v => !string.IsNullOrWhiteSpace(v.Value))
+                .Select(v => new SapUdfValidValueOption
+                {
+                    Value = v.Value!.Trim(),
+                    Description = string.IsNullOrWhiteSpace(v.Description) ? v.Value.Trim() : v.Description.Trim(),
+                })
+                .ToList();
+        }
+
+        return null;
+    }
+
     public Task<PaginationResponse<List<SapBusinessPartner>>> SearchCustomersAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>
         SearchAsync<SapBusinessPartnerResponse, SapBusinessPartner>(
             Constants.SapApiUrls.BusinessPartnersCollection,

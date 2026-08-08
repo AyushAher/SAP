@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Banknote, ClipboardList, Truck } from 'lucide-react'
+import { Banknote, ClipboardList, Package, Truck } from 'lucide-react'
 import { PurchaseOrderLinesEditor } from '@/Components/forms/PurchaseOrderLinesEditor'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
@@ -39,6 +39,7 @@ import { getBranchesApi } from '@/Requests/auth'
 import {
   fetchBusinessPartnerLogistics,
   fetchPaymentTermTypes,
+  fetchPurchaseOrderLogisticsOptions,
   searchBusinessPartners,
   searchEmployees,
   searchProjects,
@@ -82,9 +83,10 @@ import {
 } from '@/types/purchaseOrder'
 import { useQuery } from '@tanstack/react-query'
 
-type FormTab = 'logistics' | 'payment' | 'other'
+type FormTab = 'items' | 'logistics' | 'payment' | 'other'
 
 const FORM_TABS: Array<{ id: FormTab; label: string; description: string }> = [
+  { id: 'items', label: 'Items', description: 'Add and manage purchase order line items.' },
   { id: 'logistics', label: 'Logistics', description: 'Dispatch, shipping, and transport details.' },
   { id: 'payment', label: 'Payment Terms', description: 'Define stage-wise payment terms for this order.' },
   { id: 'other', label: 'Other Terms', description: 'Commercial terms, warranty, and additional conditions.' },
@@ -124,9 +126,29 @@ export function PurchaseOrderFormPage() {
     staleTime: 20 * 60 * 1000,
   })
 
+  const { data: logisticsUdfOptions } = useQuery({
+    queryKey: ['masters', 'purchase-order-logistics-options'],
+    queryFn: fetchPurchaseOrderLogisticsOptions,
+    staleTime: 20 * 60 * 1000,
+  })
+
   const paymentTypeSelectOptions = useMemo(
     () => paymentTermTypeOptionsFromApi(paymentTermTypeOptions),
     [paymentTermTypeOptions],
+  )
+
+  const priceBasisSelectOptions = useMemo(
+    () => (logisticsUdfOptions?.priceBasis?.length
+      ? logisticsUdfOptions.priceBasis.map((o) => ({ value: o.value, label: o.description || o.value }))
+      : PRICE_BASIS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
+    [logisticsUdfOptions],
+  )
+
+  const modeOfTransportSelectOptions = useMemo(
+    () => (logisticsUdfOptions?.modeOfTransport?.length
+      ? logisticsUdfOptions.modeOfTransport.map((o) => ({ value: o.value, label: o.description || o.value }))
+      : MODE_OF_TRANSPORT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
+    [logisticsUdfOptions],
   )
 
   const paymentTypeLabelMap = useMemo(() => {
@@ -138,7 +160,7 @@ export function PurchaseOrderFormPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hydratedId, setHydratedId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<FormTab>('logistics')
+  const [activeTab, setActiveTab] = useState<FormTab>('items')
   const [form, setForm] = useState<Record<string, unknown>>({
     CardCode: '',
     CardName: '',
@@ -737,30 +759,14 @@ export function PurchaseOrderFormPage() {
                   </p>
                 ) : null}
               </div>
-
-              <div className="space-y-3 border-t border-slate-200 pt-4">
-                <h4 className="text-sm font-semibold text-slate-700">
-                  {isServiceDoc ? 'Service Details' : 'Item Details'}
-                </h4>
-                <p className="text-sm text-slate-500">
-                  {isServiceDoc
-                    ? 'Add and manage G/L service lines for this purchase order.'
-                    : 'Add and manage purchase order line items.'}
-                </p>
-                <PurchaseOrderLinesEditor
-                  lines={lines}
-                  onChange={setLines}
-                  defaultWarehouse={defaultWarehouse}
-                  defaultProject={String(form.Project ?? '')}
-                  docType={docType}
-                  requireProdNo={isJobPo}
-                />
-              </div>
             </section>
 
             <section>
               <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FormTab)}>
                 <TabsList aria-label="Purchase order sections" className="-mx-1 px-1">
+                  <TabsTrigger value="items" icon={<Package className="h-4 w-4" />} badge={lines.length || undefined}>
+                    {isServiceDoc ? 'Services' : 'Items'}
+                  </TabsTrigger>
                   <TabsTrigger value="logistics" icon={<Truck className="h-4 w-4" />}>
                     Logistics
                   </TabsTrigger>
@@ -773,17 +779,36 @@ export function PurchaseOrderFormPage() {
                 </TabsList>
 
                 <TabsContent
+                  value="items"
+                  title={isServiceDoc ? 'Service Details' : FORM_TABS[0].label}
+                  description={
+                    isServiceDoc
+                      ? 'Add and manage G/L service lines for this purchase order.'
+                      : FORM_TABS[0].description
+                  }
+                >
+                  <PurchaseOrderLinesEditor
+                    lines={lines}
+                    onChange={setLines}
+                    defaultWarehouse={defaultWarehouse}
+                    defaultProject={String(form.Project ?? '')}
+                    docType={docType}
+                    requireProdNo={isJobPo}
+                  />
+                </TabsContent>
+
+                <TabsContent
                   value="logistics"
-                  title={FORM_TABS[0].label}
-                  description={FORM_TABS[0].description}
+                  title={FORM_TABS[1].label}
+                  description={FORM_TABS[1].description}
                 >
                   <div className="grid gap-4 md:grid-cols-2">
                   <SearchableSelect
-                    label="Dispatch To / Ship To"
+                    label="Dispatch To / Ship To (BP Code & Name)"
                     lookupKind="businessPartner"
                     value={logistics.dispatchTo ?? ''}
                     selectedLabel={dispatchToLabel}
-                    placeholder="Search business partner..."
+                    placeholder="Search BP code or name..."
                     onSearch={searchBusinessPartnerOptions}
                     onChange={(cardCode, option) => {
                       setDispatchToLabel(option?.label ?? cardCode)
@@ -848,25 +873,29 @@ export function PurchaseOrderFormPage() {
                   />
                   <Select
                     label="Price Basis"
-                    options={PRICE_BASIS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                    options={priceBasisSelectOptions}
                     value={logistics.priceBasis ?? ''}
                     onChange={(value) => setLogistics({ ...logistics, priceBasis: value || undefined })}
                     placeholder="Select price basis"
+                    clearable
+                    hint="From SAP UDF U_PRI_BAS."
                   />
                   <Select
                     label="Mode of Transport"
-                    options={MODE_OF_TRANSPORT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                    options={modeOfTransportSelectOptions}
                     value={logistics.modeOfTransport ?? ''}
                     onChange={(value) => setLogistics({ ...logistics, modeOfTransport: value || undefined })}
                     placeholder="Select mode of transport"
+                    clearable
+                    hint="From SAP UDF U_TransMode."
                   />
                 </div>
                 </TabsContent>
 
                 <TabsContent
                   value="payment"
-                  title={FORM_TABS[1].label}
-                  description={FORM_TABS[1].description}
+                  title={FORM_TABS[2].label}
+                  description={FORM_TABS[2].description}
                 >
                 <div className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -945,8 +974,8 @@ export function PurchaseOrderFormPage() {
 
                 <TabsContent
                   value="other"
-                  title={FORM_TABS[2].label}
-                  description={FORM_TABS[2].description}
+                  title={FORM_TABS[3].label}
+                  description={FORM_TABS[3].description}
                 >
                 <div className="grid gap-4 md:grid-cols-2">
                   <Input label="Delivery Terms" value={otherTerms.deliveryTerms ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, deliveryTerms: e.target.value })} />

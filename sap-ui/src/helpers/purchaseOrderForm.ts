@@ -125,8 +125,9 @@ export function readLogisticsFromPo(po: PoRecord): PurchaseOrderLogistics {
     dispatchTo: readString(po, 'U_CardCode', 'U_DispatchTo'),
     dispatchAddress: readString(po, 'U_DispachAdd'),
     contactPerson: readString(po, 'U_ContactPerson'),
-    priceBasis: readString(po, 'U_PriceBasis'),
-    modeOfTransport: readString(po, 'U_ModeOfTransport'),
+    // Real SAP UDFs: U_PRI_BAS / U_TransMode (legacy invented names kept as read fallbacks only).
+    priceBasis: readString(po, 'U_PRI_BAS', 'U_PriceBasis'),
+    modeOfTransport: readString(po, 'U_TransMode', 'U_ModeOfTransport'),
   }
 }
 
@@ -136,10 +137,12 @@ export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogisti
     U_CardCode: logistics.dispatchTo || undefined,
     U_DispachAdd: logistics.dispatchAddress || undefined,
     U_ContactPerson: logistics.contactPerson || undefined,
-    U_PriceBasis: logistics.priceBasis || undefined,
-    U_ModeOfTransport: logistics.modeOfTransport || undefined,
+    U_PRI_BAS: logistics.priceBasis || undefined,
+    U_TransMode: logistics.modeOfTransport || undefined,
     // Do not map BP CardCode onto ShipToCode (ShipToCode is an address name on the vendor).
     U_DispatchTo: undefined,
+    U_PriceBasis: undefined,
+    U_ModeOfTransport: undefined,
   }
 }
 

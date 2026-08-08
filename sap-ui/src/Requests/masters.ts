@@ -498,3 +498,40 @@ export async function fetchPaymentTermTypes(): Promise<PaymentTermTypeOption[]> 
     return fallback
   }
 }
+
+export interface PurchaseOrderLogisticsUdfOptions {
+  priceBasis: PaymentTermTypeOption[]
+  modeOfTransport: PaymentTermTypeOption[]
+}
+
+function mapUdfOptions(raw: unknown): PaymentTermTypeOption[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((row) => {
+    const source = row as Record<string, unknown>
+    const value = String(source.value ?? source.Value ?? '').trim()
+    const description = String(source.description ?? source.Description ?? value).trim()
+    if (!value) return undefined
+    return { value, description: description || value } satisfies PaymentTermTypeOption
+  }).filter(Boolean) as PaymentTermTypeOption[]
+}
+
+/** SAP U_PRI_BAS + U_TransMode ValidValues for PO Logistics dropdowns. */
+export async function fetchPurchaseOrderLogisticsOptions(): Promise<PurchaseOrderLogisticsUdfOptions> {
+  const { apiGet } = await import('@/helpers/api/client')
+  const { PRICE_BASIS_OPTIONS, MODE_OF_TRANSPORT_OPTIONS } = await import('@/types/purchaseOrder')
+  const fallback: PurchaseOrderLogisticsUdfOptions = {
+    priceBasis: PRICE_BASIS_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+    modeOfTransport: MODE_OF_TRANSPORT_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+  }
+  try {
+    const raw = await apiGet<Record<string, unknown>>('/masters/purchase-order-logistics-options')
+    const priceBasis = mapUdfOptions(raw.priceBasis ?? raw.PriceBasis)
+    const modeOfTransport = mapUdfOptions(raw.modeOfTransport ?? raw.ModeOfTransport)
+    return {
+      priceBasis: priceBasis.length > 0 ? priceBasis : fallback.priceBasis,
+      modeOfTransport: modeOfTransport.length > 0 ? modeOfTransport : fallback.modeOfTransport,
+    }
+  } catch {
+    return fallback
+  }
+}

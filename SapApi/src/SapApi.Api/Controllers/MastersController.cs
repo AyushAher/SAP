@@ -90,6 +90,11 @@ public class MastersController(SapMasterDataService masterDataService) : Control
     public async Task<IActionResult> GetPaymentTermTypes(CancellationToken cancellationToken) =>
         Ok(ApiResponse<List<PaymentTermTypeOption>>.Ok(await masterDataService.GetPaymentTermTypesAsync(cancellationToken)));
 
+    [HttpGet("purchase-order-logistics-options")]
+    public async Task<IActionResult> GetPurchaseOrderLogisticsOptions(CancellationToken cancellationToken) =>
+        Ok(ApiResponse<PurchaseOrderLogisticsOptions>.Ok(
+            await masterDataService.GetPurchaseOrderLogisticsOptionsAsync(cancellationToken)));
+
     [HttpPost("business-places/list")]
     public async Task<IActionResult> ListBusinessPlaces([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchBusinessPlacesAsync(PaginationRequest.Normalize(request), cancellationToken));

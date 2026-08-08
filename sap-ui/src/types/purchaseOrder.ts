@@ -86,31 +86,26 @@ export interface PurchaseOrderLogistics {
   dispatchAddress?: string
   /** SAP UDF U_ContactPerson — contact name from the Dispatch To BP. */
   contactPerson?: string
+  /** SAP UDF U_PRI_BAS ValidValues. */
   priceBasis?: string
+  /** SAP UDF U_TransMode ValidValues (-,1,2,3,4). */
   modeOfTransport?: string
 }
 
-/** SAP U_PriceBasis UDF — no master list in codebase; common incoterms-style values. */
+/** Fallback when GET /masters/purchase-order-logistics-options fails — match SAP U_PRI_BAS. */
 export const PRICE_BASIS_OPTIONS = [
-  { value: 'EXW', label: 'EXW — Ex Works' },
-  { value: 'FOB', label: 'FOB — Free On Board' },
-  { value: 'CIF', label: 'CIF — Cost, Insurance and Freight' },
-  { value: 'CFR', label: 'CFR — Cost and Freight' },
-  { value: 'FOR', label: 'FOR — Free On Rail' },
-  { value: 'FAS', label: 'FAS — Free Alongside Ship' },
-  { value: 'DDP', label: 'DDP — Delivered Duty Paid' },
-  { value: 'DAP', label: 'DAP — Delivered At Place' },
+  { value: 'ex works(incoterms)', label: 'ex works(incoterms)' },
+  { value: 'F.O.R.', label: 'F.O.R.' },
+  { value: 'NOT APPLIC', label: 'NOT APPLICABLE' },
 ] as const
 
-/** SAP U_ModeOfTransport UDF — no master list in codebase; common transport modes. */
+/** Fallback when logistics options API fails — match SAP U_TransMode. */
 export const MODE_OF_TRANSPORT_OPTIONS = [
-  { value: 'Road', label: 'Road' },
-  { value: 'Rail', label: 'Rail' },
-  { value: 'Sea', label: 'Sea' },
-  { value: 'Air', label: 'Air' },
-  { value: 'Courier', label: 'Courier' },
-  { value: 'Pipeline', label: 'Pipeline' },
-  { value: 'Multimodal', label: 'Multimodal' },
+  { value: '-', label: 'Not Applicable' },
+  { value: '1', label: 'Road' },
+  { value: '2', label: 'Rail' },
+  { value: '3', label: 'Air' },
+  { value: '4', label: 'Ship' },
 ] as const
 
 /** Types that store Payment% in U_Gn (GST) rather than U_Bn (Basic). */

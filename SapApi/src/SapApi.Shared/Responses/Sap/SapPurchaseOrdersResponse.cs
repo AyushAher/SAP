@@ -145,10 +145,12 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_ContactPerson"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UContactPerson { get; set; }
 
-        [JsonPropertyName("U_PriceBasis"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Price Basis — ADOC/OPOR UDF U_PRI_BAS.</summary>
+        [JsonPropertyName("U_PRI_BAS"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UPriceBasis { get; set; }
 
-        [JsonPropertyName("U_ModeOfTransport"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        /// <summary>Mode of Transport — ADOC/OPOR UDF U_TransMode (values -,1,2,3,4).</summary>
+        [JsonPropertyName("U_TransMode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UModeOfTransport { get; set; }
 
         [JsonPropertyName("U_MatOutDoc"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

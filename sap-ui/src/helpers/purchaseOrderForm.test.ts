@@ -164,14 +164,28 @@ describe('logistics SAP field mapping', () => {
     expect(payload.U_DispatchTo).toBeUndefined()
     expect(payload.ShipToCode).toBeUndefined()
 
+    const withLogistics = applyLogisticsToPo({}, {
+      dispatchTo: 'C000001',
+      priceBasis: 'F.O.R.',
+      modeOfTransport: '1',
+    })
+    expect(withLogistics.U_PRI_BAS).toBe('F.O.R.')
+    expect(withLogistics.U_TransMode).toBe('1')
+    expect(withLogistics.U_PriceBasis).toBeUndefined()
+    expect(withLogistics.U_ModeOfTransport).toBeUndefined()
+
     const read = readLogisticsFromPo({
       U_CardCode: 'C000001',
       U_DispachAdd: 'Pune plant',
       U_ContactPerson: 'Ravi',
+      U_PRI_BAS: 'F.O.R.',
+      U_TransMode: '1',
       ShipToCode: 'SHOULD-NOT-USE',
     })
     expect(read.dispatchTo).toBe('C000001')
     expect(read.dispatchAddress).toBe('Pune plant')
     expect(read.contactPerson).toBe('Ravi')
+    expect(read.priceBasis).toBe('F.O.R.')
+    expect(read.modeOfTransport).toBe('1')
   })
 })
