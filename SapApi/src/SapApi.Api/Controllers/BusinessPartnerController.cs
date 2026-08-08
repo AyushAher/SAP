@@ -35,6 +35,15 @@ public class BusinessPartnerController(
             : Ok(ApiResponse<object>.Ok(partner));
     }
 
+    [HttpGet("{cardCode}/logistics")]
+    public async Task<IActionResult> GetLogistics(string cardCode, CancellationToken cancellationToken)
+    {
+        var details = await masterDataService.GetBusinessPartnerLogisticsAsync(cardCode, cancellationToken);
+        return details is null
+            ? NotFound(ApiResponse<object>.Fail("SYS-02", "Business partner not found"))
+            : Ok(ApiResponse<BusinessPartnerLogisticsDetails>.Ok(details));
+    }
+
     [HttpPost]
     public async Task<IActionResult> Save([FromBody] SapBusinessPartnerRequest request, CancellationToken cancellationToken)
     {

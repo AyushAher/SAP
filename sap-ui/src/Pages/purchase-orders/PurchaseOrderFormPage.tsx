@@ -37,6 +37,7 @@ import {
 import { useAppSelector } from '@/store/hooks'
 import { getBranchesApi } from '@/Requests/auth'
 import {
+  fetchBusinessPartnerLogistics,
   fetchPaymentTermTypes,
   searchBusinessPartners,
   searchEmployees,
@@ -48,6 +49,8 @@ import {
   lookupBusinessPartner,
   lookupEmployee,
   lookupSalesPerson,
+  type BusinessPartnerAddressOption,
+  type BusinessPartnerContactOption,
   type MasterBusinessPartner,
   type PaymentTermTypeOption,
 } from '@/Requests/masters'
@@ -173,6 +176,8 @@ export function PurchaseOrderFormPage() {
   const [buyerLabel, setBuyerLabel] = useState('')
   const [approverLabel, setApproverLabel] = useState('')
   const [dispatchToLabel, setDispatchToLabel] = useState('')
+  const [dispatchAddressOptions, setDispatchAddressOptions] = useState<BusinessPartnerAddressOption[]>([])
+  const [dispatchContactOptions, setDispatchContactOptions] = useState<BusinessPartnerContactOption[]>([])
   const [branchOptions, setBranchOptions] = useState<SelectOption[]>([])
 
   const loading = Boolean(id) && (queryLoading || hydratedId !== String(id))
@@ -210,6 +215,41 @@ export function PurchaseOrderFormPage() {
       label: `${bp.CardCode ?? ''} - ${bp.CardName ?? ''}`.trim(),
       meta: bp,
     })).filter((o) => o.value)
+  }, [])
+
+  const loadDispatchLogisticsOptions = useCallback(async (cardCode: string, preferDefaults: boolean) => {
+    if (!cardCode.trim()) {
+      setDispatchAddressOptions([])
+      setDispatchContactOptions([])
+      return
+    }
+    const details = await fetchBusinessPartnerLogistics(cardCode)
+    const addresses = details?.addresses ?? []
+    const contacts = details?.contacts ?? []
+    setDispatchAddressOptions(addresses)
+    setDispatchContactOptions(contacts)
+
+    if (!preferDefaults) return
+
+    setLogistics((prev) => {
+      const next = { ...prev, dispatchTo: cardCode }
+      if (!prev.dispatchAddress) {
+        const shipName = (details?.defaultShipTo ?? '').trim()
+        const shipAddr = shipName
+          ? addresses.find((a) => a.addressName === shipName)
+          : undefined
+        const fallback = shipAddr ?? addresses.find((a) => /ship/i.test(a.addressType)) ?? addresses[0]
+        if (fallback?.formattedAddress) next.dispatchAddress = fallback.formattedAddress
+      }
+      if (!prev.contactPerson) {
+        const defaultName = (details?.defaultContactPerson ?? '').trim()
+        const match = defaultName
+          ? contacts.find((c) => c.name === defaultName)
+          : contacts[0]
+        if (match?.name) next.contactPerson = match.name
+      }
+      return next
+    })
   }, [])
 
   const searchBuyerOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
@@ -287,6 +327,8 @@ export function PurchaseOrderFormPage() {
       setLogistics(loadedLogistics)
       setOtherTerms(readOtherTermsFromPo(record))
       setDispatchToLabel('')
+      setDispatchAddressOptions([])
+      setDispatchContactOptions([])
       const buyerCode = record.SalesPersonCode != null ? Number(record.SalesPersonCode) : null
       const approverId = record.DocumentsOwner != null ? Number(record.DocumentsOwner) : null
       // Do not set raw codes as labels — wait for master lookups so dropdowns show names.
@@ -334,6 +376,7 @@ export function PurchaseOrderFormPage() {
               ? formatCodeWithName(dispatchBp.CardCode, dispatchBp.CardName)
               : formatCodeWithName(loadedLogistics.dispatchTo),
           )
+          void loadDispatchLogisticsOptions(loadedLogistics.dispatchTo, false)
         }
       } catch {
         // labels are optional enrichments
@@ -349,7 +392,7 @@ export function PurchaseOrderFormPage() {
     return () => {
       cancelled = true
     }
-  }, [id, purchaseOrder, queryLoading, authBranchId])
+  }, [id, purchaseOrder, queryLoading, authBranchId, loadDispatchLogisticsOptions])
 
   const handleAddPaymentTerm = () => {
     const slot = nextPaymentTermSlot(paymentTerms)
@@ -744,19 +787,64 @@ export function PurchaseOrderFormPage() {
                     onSearch={searchBusinessPartnerOptions}
                     onChange={(cardCode, option) => {
                       setDispatchToLabel(option?.label ?? cardCode)
-                      setLogistics({ ...logistics, dispatchTo: cardCode || undefined })
+                      setLogistics({
+                        ...logistics,
+                        dispatchTo: cardCode || undefined,
+                        dispatchAddress: undefined,
+                        contactPerson: undefined,
+                      })
+                      void loadDispatchLogisticsOptions(cardCode, true)
                     }}
+                  />
+                  <Select
+                    label="Address from BP"
+                    options={dispatchAddressOptions.map((a) => ({
+                      value: a.formattedAddress,
+                      label: a.addressName
+                        ? `${a.addressName}${a.addressType ? ` (${a.addressType.replace(/^bo_/, '')})` : ''} — ${a.formattedAddress}`
+                        : a.formattedAddress,
+                    }))}
+                    value={
+                      dispatchAddressOptions.some((a) => a.formattedAddress === (logistics.dispatchAddress ?? ''))
+                        ? (logistics.dispatchAddress ?? '')
+                        : ''
+                    }
+                    onChange={(value) => setLogistics({ ...logistics, dispatchAddress: value || undefined })}
+                    placeholder={dispatchAddressOptions.length ? 'Select address...' : 'Select Dispatch To first'}
+                    clearable
+                    disabled={!logistics.dispatchTo || dispatchAddressOptions.length === 0}
                   />
                   <Input
                     label="Dispatch Address"
                     value={logistics.dispatchAddress ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, dispatchAddress: e.target.value })}
-                    hint={usesDrpWarehouse ? 'Required when any line uses DRP / DRP2 warehouse.' : undefined}
+                    onChange={(e) => setLogistics({ ...logistics, dispatchAddress: e.target.value.slice(0, 120) })}
+                    hint={usesDrpWarehouse
+                      ? 'Required for DRP / DRP2. Saved to SAP U_DispachAdd (max 120).'
+                      : 'Saved to SAP U_DispachAdd (max 120 characters).'}
+                  />
+                  <Select
+                    label="Contact from BP"
+                    options={dispatchContactOptions.map((c) => ({
+                      value: c.name,
+                      label: c.position || c.phone
+                        ? `${c.name}${c.position ? ` — ${c.position}` : ''}${c.phone ? ` (${c.phone})` : ''}`
+                        : c.name,
+                    }))}
+                    value={
+                      dispatchContactOptions.some((c) => c.name === (logistics.contactPerson ?? ''))
+                        ? (logistics.contactPerson ?? '')
+                        : ''
+                    }
+                    onChange={(value) => setLogistics({ ...logistics, contactPerson: value || undefined })}
+                    placeholder={dispatchContactOptions.length ? 'Select contact...' : 'Select Dispatch To first'}
+                    clearable
+                    disabled={!logistics.dispatchTo || dispatchContactOptions.length === 0}
                   />
                   <Input
                     label="Contact Person"
                     value={logistics.contactPerson ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, contactPerson: e.target.value })}
+                    onChange={(e) => setLogistics({ ...logistics, contactPerson: e.target.value.slice(0, 100) })}
+                    hint="Saved to SAP U_ContactPerson."
                   />
                   <Select
                     label="Price Basis"

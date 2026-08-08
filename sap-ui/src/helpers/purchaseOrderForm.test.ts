@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyLogisticsToPo,
   applyOtherTermsToPo,
   applyPaymentPercentToTerm,
   applyPaymentTermsToPo,
   isGstPaymentTermType,
   normalizePaymentTermType,
   parsePaymentTermsFromPo,
+  readLogisticsFromPo,
   readOtherTermsFromPo,
   resolveLineUoms,
   resolvePaymentTermPercent,
@@ -146,5 +148,30 @@ describe('payment term type → basic/gst mapping', () => {
       U_B2: 40,
       U_G2: 0,
     })
+  })
+})
+
+describe('logistics SAP field mapping', () => {
+  it('maps to U_CardCode / U_DispachAdd / U_ContactPerson (not ShipToCode)', () => {
+    const payload = applyLogisticsToPo({}, {
+      dispatchTo: 'C000001',
+      dispatchAddress: 'Pune plant',
+      contactPerson: 'Ravi',
+    })
+    expect(payload.U_CardCode).toBe('C000001')
+    expect(payload.U_DispachAdd).toBe('Pune plant')
+    expect(payload.U_ContactPerson).toBe('Ravi')
+    expect(payload.U_DispatchTo).toBeUndefined()
+    expect(payload.ShipToCode).toBeUndefined()
+
+    const read = readLogisticsFromPo({
+      U_CardCode: 'C000001',
+      U_DispachAdd: 'Pune plant',
+      U_ContactPerson: 'Ravi',
+      ShipToCode: 'SHOULD-NOT-USE',
+    })
+    expect(read.dispatchTo).toBe('C000001')
+    expect(read.dispatchAddress).toBe('Pune plant')
+    expect(read.contactPerson).toBe('Ravi')
   })
 })

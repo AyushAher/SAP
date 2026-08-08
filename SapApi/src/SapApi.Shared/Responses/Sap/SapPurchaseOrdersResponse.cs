@@ -1,4 +1,4 @@
-﻿using SapApi.Shared.Requests;
+using SapApi.Shared.Requests;
 
 namespace SapApi.Shared.Responses.Sap
 {
@@ -131,6 +131,14 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_REMARK"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? URemark { get; set; }
 
+        /// <summary>
+        /// Dispatch To / Ship To BP (ADOC U_CardCode, linked to BusinessPartners).
+        /// Prefer this over the legacy non-existent U_DispatchTo name.
+        /// </summary>
+        [JsonPropertyName("U_CardCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UCardCode { get; set; }
+
+        /// <summary>Legacy alias — not a valid Service Layer property on this company DB.</summary>
         [JsonPropertyName("U_DispatchTo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UDispatchTo { get; set; }
 

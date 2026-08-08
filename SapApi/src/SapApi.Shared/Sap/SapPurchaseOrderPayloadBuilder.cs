@@ -47,7 +47,8 @@ public static class SapPurchaseOrderPayloadBuilder
             UDisId = NullIfWhiteSpace(source.UDisId),
             UDispachAdd = NullIfWhiteSpace(source.UDispachAdd),
             URemark = NullIfWhiteSpace(source.URemark),
-            UDispatchTo = NullIfWhiteSpace(source.UDispatchTo),
+            // ADOC U_CardCode stores Dispatch To BP; never send invalid U_DispatchTo.
+            UCardCode = NullIfWhiteSpace(source.UCardCode ?? source.UDispatchTo),
             UContactPerson = NullIfWhiteSpace(source.UContactPerson),
             UPriceBasis = NullIfWhiteSpace(source.UPriceBasis),
             UModeOfTransport = NullIfWhiteSpace(source.UModeOfTransport),

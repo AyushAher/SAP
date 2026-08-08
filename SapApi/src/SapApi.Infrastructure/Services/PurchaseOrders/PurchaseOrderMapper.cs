@@ -42,7 +42,7 @@ public static class PurchaseOrderMapper
         entity.UDisId = sap.UDisId;
         entity.UDispachAdd = sap.UDispachAdd;
         entity.URemark = sap.URemark;
-        entity.UDispatchTo = sap.UDispatchTo;
+        entity.UDispatchTo = sap.UCardCode ?? sap.UDispatchTo;
         entity.UContactPerson = sap.UContactPerson;
         entity.UPriceBasis = sap.UPriceBasis;
         entity.UModeOfTransport = sap.UModeOfTransport;
@@ -169,6 +169,7 @@ public static class PurchaseOrderMapper
             UDisId = entity.UDisId,
             UDispachAdd = entity.UDispachAdd,
             URemark = entity.URemark,
+            UCardCode = entity.UDispatchTo,
             UDispatchTo = entity.UDispatchTo,
             UContactPerson = entity.UContactPerson,
             UPriceBasis = entity.UPriceBasis,

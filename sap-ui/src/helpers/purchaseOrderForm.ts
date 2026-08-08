@@ -121,9 +121,10 @@ export function nextPaymentTermSlot(existing: PaymentTermRow[]): number | null {
 
 export function readLogisticsFromPo(po: PoRecord): PurchaseOrderLogistics {
   return {
-    dispatchTo: readString(po, 'U_DispatchTo', 'ShipToCode'),
+    // ADOC U_CardCode is the real Dispatch To BP field; U_DispatchTo is not valid on this DB.
+    dispatchTo: readString(po, 'U_CardCode', 'U_DispatchTo'),
     dispatchAddress: readString(po, 'U_DispachAdd'),
-    contactPerson: readString(po, 'U_ContactPerson', 'ContactPersonCode'),
+    contactPerson: readString(po, 'U_ContactPerson'),
     priceBasis: readString(po, 'U_PriceBasis'),
     modeOfTransport: readString(po, 'U_ModeOfTransport'),
   }
@@ -132,13 +133,47 @@ export function readLogisticsFromPo(po: PoRecord): PurchaseOrderLogistics {
 export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogistics): PoRecord {
   return {
     ...po,
-    U_DispatchTo: logistics.dispatchTo || undefined,
-    ShipToCode: logistics.dispatchTo || undefined,
+    U_CardCode: logistics.dispatchTo || undefined,
     U_DispachAdd: logistics.dispatchAddress || undefined,
     U_ContactPerson: logistics.contactPerson || undefined,
     U_PriceBasis: logistics.priceBasis || undefined,
     U_ModeOfTransport: logistics.modeOfTransport || undefined,
+    // Do not map BP CardCode onto ShipToCode (ShipToCode is an address name on the vendor).
+    U_DispatchTo: undefined,
   }
+}
+
+/** Format a SAP BPAddresses row for U_DispachAdd (max 120 chars). */
+export function formatBpDispatchAddress(address: {
+  AddressName?: string | null
+  AddressName2?: string | null
+  AddressName3?: string | null
+  Street?: string | null
+  StreetNo?: string | null
+  BuildingFloorRoom?: string | null
+  Block?: string | null
+  City?: string | null
+  State?: string | null
+  ZipCode?: string | null
+  Country?: string | null
+}): string {
+  const parts = [
+    address.AddressName2,
+    address.AddressName3,
+    address.Street,
+    address.StreetNo,
+    address.BuildingFloorRoom,
+    address.Block,
+    address.City,
+    address.State,
+    address.ZipCode,
+    address.Country,
+  ]
+    .map((p) => (p ?? '').trim())
+    .filter(Boolean)
+  const formatted = parts.join(', ')
+  if (formatted) return formatted.slice(0, 120)
+  return (address.AddressName ?? '').trim().slice(0, 120)
 }
 
 /** OPOR Other Terms UDFs (Service Layer names from UserFieldsMD). */

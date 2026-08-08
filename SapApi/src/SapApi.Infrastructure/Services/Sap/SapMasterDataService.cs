@@ -424,6 +424,97 @@ public class SapMasterDataService(
         return response?.Value?.FirstOrDefault();
     }
 
+    /// <summary>
+    /// Addresses + contact employees for PO Logistics (Dispatch Address / Contact Person).
+    /// </summary>
+    public async Task<BusinessPartnerLogisticsDetails?> GetBusinessPartnerLogisticsAsync(
+        string cardCode,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(cardCode))
+            return null;
+
+        await sapLogin.SapLoginAsync(cancellationToken);
+        var safeCode = SapPaginationBuilder.EscapeODataString(cardCode.Trim());
+        // Key lookup returns BPAddresses + ContactEmployees without $expand on this SL version.
+        var url = $"{Constants.SapApiUrls.BusinessPartnersCollection}('{safeCode}')";
+        var bp = await http.GetAsync<SapBusinessPartner>(url, cancellationToken: cancellationToken);
+        if (bp?.CardCode is null)
+            return null;
+
+        var addresses = (bp.BPAddresses ?? [])
+            .Select(a =>
+            {
+                var name = (a.AddressName ?? string.Empty).Trim();
+                var formatted = FormatBpAddress(a);
+                if (string.IsNullOrWhiteSpace(formatted) && string.IsNullOrWhiteSpace(name))
+                    return null;
+                return new BusinessPartnerAddressOption
+                {
+                    AddressName = name,
+                    AddressType = (a.AddressType ?? string.Empty).Trim(),
+                    FormattedAddress = string.IsNullOrWhiteSpace(formatted) ? name : formatted,
+                };
+            })
+            .Where(a => a is not null)
+            .Cast<BusinessPartnerAddressOption>()
+            .ToList();
+
+        var contacts = (bp.ContactEmployees ?? [])
+            .Where(c => !string.Equals(c.Active, Constants.SapBoolean.SapFalse, StringComparison.OrdinalIgnoreCase))
+            .Select(c =>
+            {
+                var name = (c.Name ?? $"{c.FirstName} {c.LastName}".Trim()).Trim();
+                if (string.IsNullOrWhiteSpace(name))
+                    return null;
+                return new BusinessPartnerContactOption
+                {
+                    InternalCode = c.InternalCode,
+                    Name = name,
+                    Position = c.Position,
+                    Phone = string.IsNullOrWhiteSpace(c.MobilePhone) ? c.Phone1 : c.MobilePhone,
+                };
+            })
+            .Where(c => c is not null)
+            .Cast<BusinessPartnerContactOption>()
+            .ToList();
+
+        return new BusinessPartnerLogisticsDetails
+        {
+            CardCode = bp.CardCode,
+            CardName = bp.CardName,
+            DefaultShipTo = bp.ShipToDefault,
+            DefaultContactPerson = bp.ContactPerson,
+            Addresses = addresses,
+            Contacts = contacts,
+        };
+    }
+
+    private static string FormatBpAddress(SapBusinessPartnerAddress address)
+    {
+        var parts = new[]
+        {
+            address.AddressName2,
+            address.AddressName3,
+            address.Street,
+            address.StreetNo,
+            address.BuildingFloorRoom,
+            address.Block,
+            address.City,
+            address.State,
+            address.ZipCode,
+            address.Country,
+        };
+
+        var formatted = string.Join(", ",
+            parts
+                .Select(p => (p ?? string.Empty).Trim())
+                .Where(p => p.Length > 0));
+
+        // ADOC U_DispachAdd Size = 120
+        return formatted.Length <= 120 ? formatted : formatted[..120];
+    }
+
     public async Task<ItemsResponse?> GetItemByCodeAsync(
         string itemCode,
         IReadOnlyList<string>? fields = null,

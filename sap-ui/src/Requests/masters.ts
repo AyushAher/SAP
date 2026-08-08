@@ -404,6 +404,63 @@ export async function lookupBusinessPartner(cardCode: string): Promise<MasterBus
   }
 }
 
+export interface BusinessPartnerAddressOption {
+  addressName: string
+  addressType: string
+  formattedAddress: string
+}
+
+export interface BusinessPartnerContactOption {
+  internalCode?: number
+  name: string
+  position?: string
+  phone?: string
+}
+
+export interface BusinessPartnerLogisticsDetails {
+  cardCode?: string
+  cardName?: string
+  defaultShipTo?: string
+  defaultContactPerson?: string
+  addresses: BusinessPartnerAddressOption[]
+  contacts: BusinessPartnerContactOption[]
+}
+
+/** Addresses + contacts for PO Logistics Dispatch Address / Contact Person. */
+export async function fetchBusinessPartnerLogistics(cardCode: string): Promise<BusinessPartnerLogisticsDetails | undefined> {
+  const { apiGet } = await import('@/helpers/api/client')
+  try {
+    const raw = await apiGet<Record<string, unknown>>(`/business-partner/${encodeURIComponent(cardCode.trim())}/logistics`)
+    const addressesRaw = (raw.addresses ?? raw.Addresses ?? []) as Array<Record<string, unknown>>
+    const contactsRaw = (raw.contacts ?? raw.Contacts ?? []) as Array<Record<string, unknown>>
+    return {
+      cardCode: raw.cardCode != null ? String(raw.cardCode) : raw.CardCode != null ? String(raw.CardCode) : undefined,
+      cardName: raw.cardName != null ? String(raw.cardName) : raw.CardName != null ? String(raw.CardName) : undefined,
+      defaultShipTo: raw.defaultShipTo != null ? String(raw.defaultShipTo) : raw.DefaultShipTo != null ? String(raw.DefaultShipTo) : undefined,
+      defaultContactPerson: raw.defaultContactPerson != null
+        ? String(raw.defaultContactPerson)
+        : raw.DefaultContactPerson != null
+          ? String(raw.DefaultContactPerson)
+          : undefined,
+      addresses: addressesRaw.map((a) => ({
+        addressName: String(a.addressName ?? a.AddressName ?? ''),
+        addressType: String(a.addressType ?? a.AddressType ?? ''),
+        formattedAddress: String(a.formattedAddress ?? a.FormattedAddress ?? ''),
+      })).filter((a) => a.formattedAddress || a.addressName),
+      contacts: contactsRaw.map((c) => ({
+        internalCode: c.internalCode != null || c.InternalCode != null
+          ? Number(c.internalCode ?? c.InternalCode)
+          : undefined,
+        name: String(c.name ?? c.Name ?? '').trim(),
+        position: c.position != null || c.Position != null ? String(c.position ?? c.Position) : undefined,
+        phone: c.phone != null || c.Phone != null ? String(c.phone ?? c.Phone) : undefined,
+      })).filter((c) => c.name),
+    }
+  } catch {
+    return undefined
+  }
+}
+
 export async function batchMasterLookup(payload: MasterLookupPayload): Promise<MasterLookupResult> {
   const { apiPost } = await import('@/helpers/api/client')
   const raw = await apiPost<Record<string, unknown>>('/masters/lookup', {

@@ -80,10 +80,11 @@ export interface PurchaseOrderOtherTerms {
 }
 
 export interface PurchaseOrderLogistics {
-  /** Business partner CardCode — maps to U_DispatchTo and ShipToCode. */
+  /** Business partner CardCode — maps to ADOC U_CardCode (Dispatch To / Ship To). */
   dispatchTo?: string
-  /** SAP UDF U_DispachAdd (note SAP spelling). */
+  /** SAP UDF U_DispachAdd (note SAP spelling). Max 120 chars. */
   dispatchAddress?: string
+  /** SAP UDF U_ContactPerson — contact name from the Dispatch To BP. */
   contactPerson?: string
   priceBasis?: string
   modeOfTransport?: string
