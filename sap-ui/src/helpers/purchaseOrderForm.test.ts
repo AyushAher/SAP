@@ -4,6 +4,8 @@ import {
   applyOtherTermsToPo,
   applyPaymentPercentToTerm,
   applyPaymentTermsToPo,
+  buildPaymentTermDescription,
+  dispatchLocationForWarehouse,
   hasGstPaymentTerm,
   isGstPaymentTermType,
   nextPaymentTermSlot,
@@ -13,6 +15,8 @@ import {
   readOtherTermsFromPo,
   resolveLineUoms,
   resolvePaymentTermPercent,
+  usesPbbplDispatchLocationMapping,
+  warehouseForDispatchLocation,
 } from './purchaseOrderForm'
 
 describe('resolveLineUoms', () => {
@@ -209,18 +213,35 @@ describe('payment term type → basic/gst mapping', () => {
     expect(payload.U_G3).toBe(0)
     expect(payload.U_T11).toBe('Invoice')
   })
+
+  it('sends payment term description as %Value Basic|GST Type Stage', () => {
+    expect(buildPaymentTermDescription({ id: 1, type: 'Advance', basic: 20, stage: 'Stage1' }))
+      .toBe('%20 Basic Advance Stage1')
+    expect(buildPaymentTermDescription({ id: 11, type: 'Invoice', gst: 100 }))
+      .toBe('%100 GST Invoice')
+
+    const payload = applyPaymentTermsToPo({}, [
+      { id: 1, type: 'Advance', basic: 20, stage: 'Stage1' },
+      { id: 11, type: 'TaxInvoice', gst: 18 },
+    ])
+    expect(payload.U_D1).toBe('%20 Basic Advance Stage1')
+    expect(payload.U_D11).toBe('%18 GST TaxInvoice')
+  })
 })
 
 describe('logistics SAP field mapping', () => {
-  it('maps to U_CardCode / U_DispachAdd / U_ContactPerson (not ShipToCode)', () => {
+  it('maps to U_CardCode / U_DisID / U_DispachAdd / U_SHIPTO (not ShipToCode)', () => {
     const payload = applyLogisticsToPo({}, {
       dispatchTo: 'C000001',
+      dispatchId: 'DISP-99',
       dispatchAddress: 'Pune plant',
-      contactPerson: 'Ravi',
+      contactPerson: 'Ravi Kumar (9876543210)',
     })
     expect(payload.U_CardCode).toBe('C000001')
+    expect(payload.U_DisID).toBe('DISP-99')
     expect(payload.U_DispachAdd).toBe('Pune plant')
-    expect(payload.U_ContactPerson).toBe('Ravi')
+    expect(payload.U_SHIPTO).toBe('Ravi Kumar (9876543210)')
+    expect(payload.U_ContactPerson).toBeUndefined()
     expect(payload.U_DispatchTo).toBeUndefined()
     expect(payload.ShipToCode).toBeUndefined()
 
@@ -245,16 +266,40 @@ describe('logistics SAP field mapping', () => {
 
     const read = readLogisticsFromPo({
       U_CardCode: 'C000001',
+      U_DisID: 'DISP-99',
       U_DispachAdd: 'Pune plant',
-      U_ContactPerson: 'Ravi',
+      U_SHIPTO: 'Ravi Kumar (9876543210)',
       U_PRI_BAS: 'F.O.R.',
       U_TransMode: '1',
       ShipToCode: 'SHOULD-NOT-USE',
     })
     expect(read.dispatchTo).toBe('C000001')
+    expect(read.dispatchId).toBe('DISP-99')
     expect(read.dispatchAddress).toBe('Pune plant')
-    expect(read.contactPerson).toBe('Ravi')
+    expect(read.contactPerson).toBe('Ravi Kumar (9876543210)')
     expect(read.priceBasis).toBe('F.O.R.')
     expect(read.modeOfTransport).toBe('1')
+  })
+})
+
+describe('PBBPL dispatch location ↔ warehouse', () => {
+  it('maps Factory / Office / BP Loc to Store1 / Store5 / PBPL(S)', () => {
+    expect(warehouseForDispatchLocation('Factory')).toBe('Store1')
+    expect(warehouseForDispatchLocation('Office')).toBe('Store5')
+    expect(warehouseForDispatchLocation('BP Loc')).toBe('PBPL(S)')
+    expect(warehouseForDispatchLocation('Other')).toBeUndefined()
+  })
+
+  it('reverse-maps warehouses back to location type', () => {
+    expect(dispatchLocationForWarehouse('Store1')).toBe('Factory')
+    expect(dispatchLocationForWarehouse('Store5')).toBe('Office')
+    expect(dispatchLocationForWarehouse('PBPL(S)')).toBe('BP Loc')
+    expect(dispatchLocationForWarehouse('DRP')).toBeUndefined()
+  })
+
+  it('applies only for PBBPL company databases', () => {
+    expect(usesPbbplDispatchLocationMapping('PBBPL_UAT')).toBe(true)
+    expect(usesPbbplDispatchLocationMapping('PBBPL_LIVE')).toBe(true)
+    expect(usesPbbplDispatchLocationMapping('OTHER_DB')).toBe(false)
   })
 })

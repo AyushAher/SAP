@@ -34,14 +34,6 @@ describe('validatePurchaseOrderAgainstTn', () => {
     })).toBe('You can not select DRP warehouse in Purchase Order.')
   })
 
-  it('requires prod no for JOB type', () => {
-    expect(validatePurchaseOrderAgainstTn({
-      ...base,
-      poType: 'JOB',
-      lines: [{ ItemCode: 'A1', WarehouseCode: '01', Quantity: 1, UnitPrice: 1 }],
-    })).toBe('Either Production Order No OR Open Order Field is mandatory at row level.')
-  })
-
   it('requires transporter item for series 124', () => {
     expect(validatePurchaseOrderAgainstTn({
       ...base,
@@ -105,7 +97,6 @@ describe('validatePurchaseOrderAgainstTn', () => {
         UnitPrice: 1,
         TaxCode: 'IGST18',
         HSNEntry: 42,
-        U_ProdNo: 'PO-1',
       }],
     })).toBeNull()
   })

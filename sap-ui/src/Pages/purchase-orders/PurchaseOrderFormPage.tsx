@@ -25,16 +25,21 @@ import {
   applyOtherTermsToPo,
   applyPaymentPercentToTerm,
   applyPaymentTermsToPo,
+  buildPaymentTermDescription,
   calculatePurchaseOrderTotals,
+  dispatchLocationForWarehouse,
   formatPoAmount,
   hasGstPaymentTerm,
   isGstPaymentTermType,
   nextPaymentTermSlot,
   parsePaymentTermsFromPo,
   paymentTermDisplayLabel,
+  PO_DISPATCH_LOCATION_OPTIONS,
   readLogisticsFromPo,
   readOtherTermsFromPo,
   resolvePaymentTermPercent,
+  usesPbbplDispatchLocationMapping,
+  warehouseForDispatchLocation,
   type PaymentPercentBasis,
 } from '@/helpers/purchaseOrderForm'
 import { useAppSelector } from '@/store/hooks'
@@ -50,11 +55,11 @@ import {
   searchVendors,
   searchWarehouses,
   formatWarehouseOptionLabel,
+  formatEmployeeShipToLabel,
   lookupBusinessPartner,
   lookupEmployee,
   lookupSalesPerson,
   type BusinessPartnerAddressOption,
-  type BusinessPartnerContactOption,
   type MasterBusinessPartner,
   type PaymentTermTypeOption,
 } from '@/Requests/masters'
@@ -121,6 +126,8 @@ export function PurchaseOrderFormPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const authBranchId = useAppSelector((state) => state.auth.branchId)
+  const companyDb = useAppSelector((state) => state.auth.companyDb)
+  const usesDispatchLocationMapping = usesPbbplDispatchLocationMapping(companyDb)
   const invalidatePurchaseOrders = useInvalidatePurchaseOrders()
   const {
     data: purchaseOrder,
@@ -180,7 +187,6 @@ export function PurchaseOrderFormPage() {
     DocumentsOwner: undefined,
     U_PO_Type: '',
     U_TRN: '',
-    U_DisID: '',
     U_Owner: '',
     U_Stage: '',
     U_Warehouse: '',
@@ -204,11 +210,12 @@ export function PurchaseOrderFormPage() {
   const [vendorSeries, setVendorSeries] = useState<number | null>(null)
   const [projectLabel, setProjectLabel] = useState('')
   const [warehouseLabel, setWarehouseLabel] = useState('')
+  const [dispatchLocation, setDispatchLocation] = useState('')
   const [buyerLabel, setBuyerLabel] = useState('')
   const [approverLabel, setApproverLabel] = useState('')
   const [dispatchToLabel, setDispatchToLabel] = useState('')
   const [dispatchAddressOptions, setDispatchAddressOptions] = useState<BusinessPartnerAddressOption[]>([])
-  const [dispatchContactOptions, setDispatchContactOptions] = useState<BusinessPartnerContactOption[]>([])
+  const [contactPersonLabel, setContactPersonLabel] = useState('')
   const [branchOptions, setBranchOptions] = useState<SelectOption[]>([])
 
   const loading = Boolean(id) && (queryLoading || hydratedId !== String(id))
@@ -218,7 +225,6 @@ export function PurchaseOrderFormPage() {
   const defaultWarehouse = String(form.U_Warehouse ?? '')
   const docType = String(form.DocType ?? PO_DOC_TYPE.items)
   const isServiceDoc = isServicePoDocType(docType)
-  const isJobPo = String(form.U_PO_Type ?? '').trim().toUpperCase() === PO_TN.jobPoType
   const isTransporterVendor = !isServiceDoc && vendorSeries === PO_TN.transporterBpSeries
   const usesDrpWarehouse = !isServiceDoc && lines.some((line) => {
     const wh = (line.WarehouseCode ?? '').trim().toUpperCase()
@@ -251,14 +257,11 @@ export function PurchaseOrderFormPage() {
   const loadDispatchLogisticsOptions = useCallback(async (cardCode: string, preferDefaults: boolean) => {
     if (!cardCode.trim()) {
       setDispatchAddressOptions([])
-      setDispatchContactOptions([])
       return
     }
     const details = await fetchBusinessPartnerLogistics(cardCode)
     const addresses = details?.addresses ?? []
-    const contacts = details?.contacts ?? []
     setDispatchAddressOptions(addresses)
-    setDispatchContactOptions(contacts)
 
     if (!preferDefaults) return
 
@@ -272,15 +275,16 @@ export function PurchaseOrderFormPage() {
         const fallback = shipAddr ?? addresses.find((a) => /ship/i.test(a.addressType)) ?? addresses[0]
         if (fallback?.formattedAddress) next.dispatchAddress = fallback.formattedAddress
       }
-      if (!prev.contactPerson) {
-        const defaultName = (details?.defaultContactPerson ?? '').trim()
-        const match = defaultName
-          ? contacts.find((c) => c.name === defaultName)
-          : contacts[0]
-        if (match?.name) next.contactPerson = match.name
-      }
       return next
     })
+  }, [])
+
+  const searchContactPersonOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
+    const response = await searchEmployees(search)
+    return (response.data ?? []).map((emp) => {
+      const label = formatEmployeeShipToLabel(emp)
+      return { value: label, label }
+    }).filter((o) => o.value)
   }, [])
 
   const searchBuyerOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
@@ -317,6 +321,16 @@ export function PurchaseOrderFormPage() {
     })).filter((o) => o.value)
   }, [])
 
+  const applyDispatchLocation = useCallback((location: string) => {
+    setDispatchLocation(location)
+    const warehouse = warehouseForDispatchLocation(location)
+    if (!warehouse) return
+    setWarehouseLabel(warehouse)
+    setForm((prev) => ({ ...prev, U_Warehouse: warehouse }))
+    if (isServicePoDocType(String(form.DocType ?? PO_DOC_TYPE.items))) return
+    setLines((prev) => prev.map((line) => ({ ...line, WarehouseCode: warehouse })))
+  }, [form.DocType])
+
   useEffect(() => {
     getBranchesApi()
       .then((items) => setBranchOptions(items.map((b) => ({ value: String(b.id), label: b.name }))))
@@ -327,6 +341,7 @@ export function PurchaseOrderFormPage() {
     if (!id) {
       if (authBranchId) setForm((prev) => ({ ...prev, BPLId: authBranchId }))
       setHydratedId(null)
+      setDispatchLocation('')
       return
     }
     if (!purchaseOrder || queryLoading)
@@ -359,7 +374,7 @@ export function PurchaseOrderFormPage() {
       setOtherTerms(readOtherTermsFromPo(record))
       setDispatchToLabel('')
       setDispatchAddressOptions([])
-      setDispatchContactOptions([])
+      setContactPersonLabel(loadedLogistics.contactPerson ?? '')
       const buyerCode = record.SalesPersonCode != null ? Number(record.SalesPersonCode) : null
       const approverId = record.DocumentsOwner != null ? Number(record.DocumentsOwner) : null
       // Do not set raw codes as labels — wait for master lookups so dropdowns show names.
@@ -417,6 +432,10 @@ export function PurchaseOrderFormPage() {
       if (cancelled) return
       const wh = String(record.U_Warehouse ?? '')
       if (wh) setWarehouseLabel(wh)
+      const lineWh = ((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? [])
+        .map((line) => (line.WarehouseCode ?? '').trim())
+        .find(Boolean)
+      setDispatchLocation(dispatchLocationForWarehouse(wh || lineWh) ?? '')
       setHydratedId(String(id))
     })()
 
@@ -453,17 +472,21 @@ export function PurchaseOrderFormPage() {
         basic: undefined,
         gst: undefined,
         stage: paymentDraft.stage || undefined,
-        desc: paymentDraft.desc || undefined,
+        desc: undefined,
       },
       percent,
       paymentDraft.type,
       basis,
     )
+    const row = {
+      id: slot,
+      ...mapped,
+    }
     setPaymentTerms([
       ...paymentTerms,
       {
-        id: slot,
-        ...mapped,
+        ...row,
+        desc: buildPaymentTermDescription(row),
       },
     ])
     setPaymentDraft(emptyPaymentTermDraft())
@@ -493,13 +516,13 @@ export function PurchaseOrderFormPage() {
               TaxCode: line.TaxCode,
               SACEntry: line.SACEntry,
               ProjectCode: line.ProjectCode || form.Project || undefined,
-              CostingCode: line.CostingCode,
-              U_ProdNo: line.U_ProdNo || undefined,
+              FreeText: line.FreeText || undefined,
               LineNum: line.LineNum,
             }
           : {
               ItemCode: line.ItemCode,
               ItemDescription: line.ItemDescription,
+              FreeText: line.FreeText || undefined,
               Quantity: line.Quantity,
               UnitPrice: line.UnitPrice,
               DiscountPercent: line.DiscountPercent,
@@ -523,8 +546,6 @@ export function PurchaseOrderFormPage() {
                   return Math.abs(factor - 1) < 1e-9 ? 'tYES' : 'tNO'
                 })(),
               ProjectCode: line.ProjectCode || form.Project || undefined,
-              CostingCode: line.CostingCode,
-              U_ProdNo: line.U_ProdNo || undefined,
               LineNum: line.LineNum,
             }
       )),
@@ -538,7 +559,6 @@ export function PurchaseOrderFormPage() {
       DocumentsOwner: form.DocumentsOwner != null ? Number(form.DocumentsOwner) : undefined,
       U_PO_Type: form.U_PO_Type || undefined,
       U_TRN: form.U_TRN || undefined,
-      U_DisID: form.U_DisID || undefined,
       NumAtCard: form.NumAtCard || undefined,
       Comments: form.Comments,
       U_Owner: form.U_Owner,
@@ -583,7 +603,7 @@ export function PurchaseOrderFormPage() {
       poType: String(form.U_PO_Type ?? ''),
       docType,
       trn: String(form.U_TRN ?? ''),
-      disId: String(form.U_DisID ?? ''),
+      disId: String(logistics.dispatchId ?? ''),
       dispachAdd: String(logistics.dispatchAddress ?? ''),
       vendorSeries,
       lines,
@@ -715,7 +735,6 @@ export function PurchaseOrderFormPage() {
                   value={String(form.U_PO_Type ?? '')}
                   onChange={(value) => updateForm({ U_PO_Type: value })}
                   placeholder="Select PO type"
-                  hint={isJobPo ? 'JOB: Production Order No is required on every line.' : undefined}
                 />
                 <Input
                   label="Posting Date"
@@ -732,7 +751,7 @@ export function PurchaseOrderFormPage() {
                   lookupKind="project"
                   value={String(form.Project ?? '')}
                   selectedLabel={projectLabel}
-                  placeholder="Search project..."
+                  placeholder="Search project by code or name..."
                   onSearch={searchProjectOptions}
                   onChange={(projectCode, option) => {
                     setProjectLabel(option?.label ?? projectCode)
@@ -751,6 +770,16 @@ export function PurchaseOrderFormPage() {
                   value={String(form.NumAtCard ?? '')}
                   onChange={(e) => updateForm({ NumAtCard: e.target.value })}
                 />
+                {usesDispatchLocationMapping ? (
+                  <Select
+                    label="Dispatch Location"
+                    options={[...PO_DISPATCH_LOCATION_OPTIONS]}
+                    value={dispatchLocation}
+                    onChange={(value) => applyDispatchLocation(value)}
+                    placeholder="Factory / Office / BP Loc"
+                    hint="Maps warehouse: Factory→Store1, Office→Store5, BP Loc→PBPL(S)."
+                  />
+                ) : null}
                 <SearchableSelect
                   label="Warehouse"
                   value={String(form.U_Warehouse ?? '')}
@@ -760,6 +789,9 @@ export function PurchaseOrderFormPage() {
                   onChange={(code, option) => {
                     setWarehouseLabel(option?.label ?? code)
                     updateForm({ U_Warehouse: code })
+                    if (usesDispatchLocationMapping) {
+                      setDispatchLocation(dispatchLocationForWarehouse(code) ?? '')
+                    }
                   }}
                 />
                 <Select
@@ -769,14 +801,6 @@ export function PurchaseOrderFormPage() {
                   onChange={(value) => updateForm({ BPLId: Number(value) })}
                   placeholder="Select branch"
                 />
-                {usesDrpWarehouse ? (
-                  <Input
-                    label="Dispatch ID (U_DisID) *"
-                    value={String(form.U_DisID ?? '')}
-                    onChange={(e) => updateForm({ U_DisID: e.target.value })}
-                    hint="Required when any line uses DRP / DRP2 warehouse. Dispatch address is on the Logistics tab."
-                  />
-                ) : null}
                 {isTransporterVendor ? (
                   <p className="md:col-span-2 xl:col-span-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                     Transporter vendor (series 124): add item <strong>{PO_TN.transporterMandatoryItem}</strong>.
@@ -817,7 +841,6 @@ export function PurchaseOrderFormPage() {
                     defaultWarehouse={defaultWarehouse}
                     defaultProject={String(form.Project ?? '')}
                     docType={docType}
-                    requireProdNo={isJobPo}
                   />
                 </TabsContent>
 
@@ -840,10 +863,17 @@ export function PurchaseOrderFormPage() {
                         ...logistics,
                         dispatchTo: cardCode || undefined,
                         dispatchAddress: undefined,
-                        contactPerson: undefined,
                       })
                       void loadDispatchLogisticsOptions(cardCode, true)
                     }}
+                  />
+                  <Input
+                    label={usesDrpWarehouse ? 'Dispatch ID *' : 'Dispatch ID'}
+                    value={logistics.dispatchId ?? ''}
+                    onChange={(e) => setLogistics({ ...logistics, dispatchId: e.target.value || undefined })}
+                    hint={usesDrpWarehouse
+                      ? 'Required for DRP / DRP2. Saved to SAP U_DisID.'
+                      : 'Saved to SAP U_DisID.'}
                   />
                   <Select
                     label="Address from BP"
@@ -871,29 +901,18 @@ export function PurchaseOrderFormPage() {
                       ? 'Required for DRP / DRP2. Saved to SAP U_DispachAdd (max 120).'
                       : 'Saved to SAP U_DispachAdd (max 120 characters).'}
                   />
-                  <Select
-                    label="Contact from BP"
-                    options={dispatchContactOptions.map((c) => ({
-                      value: c.name,
-                      label: c.position || c.phone
-                        ? `${c.name}${c.position ? ` — ${c.position}` : ''}${c.phone ? ` (${c.phone})` : ''}`
-                        : c.name,
-                    }))}
-                    value={
-                      dispatchContactOptions.some((c) => c.name === (logistics.contactPerson ?? ''))
-                        ? (logistics.contactPerson ?? '')
-                        : ''
-                    }
-                    onChange={(value) => setLogistics({ ...logistics, contactPerson: value || undefined })}
-                    placeholder={dispatchContactOptions.length ? 'Select contact...' : 'Select Dispatch To first'}
-                    clearable
-                    disabled={!logistics.dispatchTo || dispatchContactOptions.length === 0}
-                  />
-                  <Input
+                  <SearchableSelect
                     label="Contact Person"
                     value={logistics.contactPerson ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, contactPerson: e.target.value.slice(0, 100) })}
-                    hint="Saved to SAP U_ContactPerson."
+                    selectedLabel={contactPersonLabel}
+                    placeholder="Search employee name or phone..."
+                    onSearch={searchContactPersonOptions}
+                    onChange={(value, option) => {
+                      const label = option?.label ?? value
+                      setContactPersonLabel(label)
+                      setLogistics({ ...logistics, contactPerson: value || undefined })
+                    }}
+                    hint="Employees with contact no. Saved to SAP U_SHIPTO."
                   />
                   <Select
                     label="Price Basis"
@@ -990,11 +1009,11 @@ export function PurchaseOrderFormPage() {
                       <Button type="button" onClick={handleAddPaymentTerm}>Add</Button>
                     </div>
                   </div>
-                  <Input
-                    label="Description"
-                    value={paymentDraft.desc ?? ''}
-                    onChange={(e) => setPaymentDraft({ ...paymentDraft, desc: e.target.value })}
-                  />
+                  <p className="text-xs text-slate-500">
+                    Description sent to SAP as{' '}
+                    <span className="font-mono">%Value Basic|GST Type Stage</span>
+                    {' '}(e.g. <span className="font-mono">%20 Basic Advance Stage1</span>).
+                  </p>
 
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
                     <table className="min-w-full text-sm">

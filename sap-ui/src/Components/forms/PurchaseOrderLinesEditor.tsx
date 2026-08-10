@@ -6,7 +6,7 @@ import {
   RowActions,
   rowActionIconClassName,
 } from '@/Components/shared/RowActions'
-import { Button, Input, Modal, SearchableSelect } from '@/Components/ui'
+import { Button, Input, Modal, SearchableSelect, Select, Textarea } from '@/Components/ui'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { applyStockPurchaseQty, calculateLineTotals, calcItemsPerUnit, calcUseBaseUnits, resolveLineUoms, withPurchaseQty, withStockQty } from '@/helpers/purchaseOrderForm'
 import { pickHsnFromChapterId } from '@/helpers/hsnResolve'
@@ -35,8 +35,6 @@ interface PurchaseOrderLinesEditorProps {
   defaultProject?: string
   /** SAP DocType: dDocument_Items | dDocument_Service */
   docType?: string
-  /** When JOB, Production Order No is required on each line (TN). */
-  requireProdNo?: boolean
   title?: string
   readOnly?: boolean
 }
@@ -46,6 +44,7 @@ type LineRow = PurchaseOrderLineItem & { __rowIndex: number }
 const emptyLine = (): PurchaseOrderLineItem => ({
   ItemCode: '',
   ItemDescription: '',
+  FreeText: '',
   Quantity: 0,
   StockQty: 0,
   StockUom: '',
@@ -56,12 +55,32 @@ const emptyLine = (): PurchaseOrderLineItem => ({
   TaxCode: '',
   WarehouseCode: '',
   ProjectCode: '',
-  CostingCode: '',
   AccountCode: '',
   HSNEntry: undefined,
   SACEntry: undefined,
-  U_ProdNo: '',
 })
+
+function purchaseUomOptionsFromItem(meta?: Pick<MasterItem, 'PurchaseUnit' | 'InventoryUom'> | null): SelectOption[] {
+  const purchase = (meta?.PurchaseUnit ?? '').trim()
+  const inventory = (meta?.InventoryUom ?? '').trim()
+  const options: SelectOption[] = []
+  const seen = new Set<string>()
+
+  const push = (code: string, label: string) => {
+    const key = code.toUpperCase()
+    if (!code || seen.has(key)) return
+    seen.add(key)
+    options.push({ value: code, label })
+  }
+
+  if (purchase && inventory && purchase.toUpperCase() === inventory.toUpperCase()) {
+    push(purchase, `${purchase} (Purchase / Inventory)`)
+  } else {
+    push(purchase, `${purchase} (Purchase)`)
+    push(inventory, `${inventory} (Inventory)`)
+  }
+  return options
+}
 
 async function resolveHsnFromChapterId(chapterId: string | undefined): Promise<{
   HSNEntry?: number
@@ -84,7 +103,6 @@ export function PurchaseOrderLinesEditor({
   defaultWarehouse = '',
   defaultProject = '',
   docType,
-  requireProdNo = false,
   title,
   readOnly = false,
 }: PurchaseOrderLinesEditorProps) {
@@ -101,6 +119,7 @@ export function PurchaseOrderLinesEditor({
   const [hsnLabel, setHsnLabel] = useState('')
   const [sacLabel, setSacLabel] = useState('')
   const [projectLabel, setProjectLabel] = useState('')
+  const [purchaseUomOptions, setPurchaseUomOptions] = useState<SelectOption[]>([])
   const taxRatesRef = useRef<Record<string, number>>({})
 
   const itemCodes = useMemo(() => lines.map((line) => line.ItemCode), [lines])
@@ -206,6 +225,7 @@ export function PurchaseOrderLinesEditor({
     setHsnLabel('')
     setSacLabel('')
     setProjectLabel('')
+    setPurchaseUomOptions([])
   }
 
   const closeDialog = () => {
@@ -238,9 +258,25 @@ export function PurchaseOrderLinesEditor({
       void (async () => {
         const meta = await lookupItem(itemCode)
         const stockUom = meta?.InventoryUom || meta?.PurchaseUnit
-        if (!stockUom) return
-        setDraft((prev) => (prev.ItemCode === itemCode ? { ...prev, StockUom: stockUom } : prev))
+        const uomOptions = purchaseUomOptionsFromItem(meta)
+        setPurchaseUomOptions(uomOptions)
+        setDraft((prev) => {
+          if (prev.ItemCode !== itemCode) return prev
+          const purchaseUom = prev.UoMCode || meta?.PurchaseUnit || uomOptions[0]?.value || prev.UomName
+          return {
+            ...prev,
+            StockUom: stockUom || prev.StockUom,
+            UoMCode: purchaseUom,
+            UomName: purchaseUom,
+          }
+        })
       })()
+    } else {
+      setPurchaseUomOptions(
+        line.UoMCode || line.UomName
+          ? [{ value: line.UoMCode || line.UomName || '', label: line.UoMCode || line.UomName || '' }]
+          : [],
+      )
     }
     setItemLabel(formatCodeWithName(line.ItemCode, line.ItemDescription))
     setAccountLabel(line.AccountLabel ?? line.AccountCode ?? '')
@@ -279,12 +315,11 @@ export function PurchaseOrderLinesEditor({
     } else if (!(draft.StockQty != null && draft.StockQty > 0)) {
       toast.error('Stock Qty must be greater than zero.')
       return
-    }
-
-    if (requireProdNo && !draft.U_ProdNo?.trim()) {
-      toast.error('Production Order No is required for JOB purchase orders.')
+    } else if (!(draft.UoMCode ?? draft.UomName)?.trim()) {
+      toast.error('Select Purchase UoM from the item master.')
       return
     }
+
     if (hsnRequired && (draft.HSNEntry == null || !Number.isFinite(draft.HSNEntry))) {
       toast.error('You must select HSN, since GST tax code is selected')
       return
@@ -302,6 +337,7 @@ export function PurchaseOrderLinesEditor({
       HSNEntry: isService ? undefined : draft.HSNEntry,
       AccountCode: isService ? draft.AccountCode : undefined,
       ProjectCode: draft.ProjectCode || defaultProject || undefined,
+      FreeText: draft.FreeText?.trim() || undefined,
     }))
 
     if (editingIndex != null) {
@@ -324,6 +360,7 @@ export function PurchaseOrderLinesEditor({
       header: 'Item',
       accessor: (r) => formatCodeWithName(r.ItemCode, r.ItemDescription ?? itemMap[r.ItemCode ?? '']?.name),
     },
+    { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
     { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
     { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => r.Quantity },
     { key: 'UoMCode', header: 'Purchase UoM', accessor: (r) => r.UoMCode ?? r.UomName ?? '—' },
@@ -353,8 +390,6 @@ export function PurchaseOrderLinesEditor({
     { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
     { key: 'HSNEntry', header: 'HSN', accessor: (r) => r.HsnLabel ?? (r.HSNEntry != null ? String(r.HSNEntry) : '—') },
     { key: 'ProjectCode', header: 'Project', accessor: (r) => r.ProjectCode ?? '—' },
-    { key: 'U_ProdNo', header: 'Prod Order No', accessor: (r) => r.U_ProdNo ?? '—' },
-    { key: 'CostingCode', header: 'Cost Ctr', accessor: (r) => r.CostingCode ?? '—' },
     { key: 'TaxableAmount', header: 'Taxable', accessor: (r) => formatPoCell(r.TaxableAmount ?? r.LineTotal) },
     { key: 'GrossTotal', header: 'Gross', accessor: (r) => formatPoCell(r.GrossTotal) },
   ]
@@ -366,14 +401,13 @@ export function PurchaseOrderLinesEditor({
       accessor: (r) => r.AccountLabel ?? r.AccountCode ?? '—',
     },
     { key: 'ItemDescription', header: 'Description', accessor: (r) => r.ItemDescription ?? '—' },
+    { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
     { key: 'Quantity', header: 'Qty', accessor: (r) => r.Quantity },
     { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice) },
     { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => r.DiscountPercent ?? '—' },
     { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
     { key: 'SACEntry', header: 'SAC', accessor: (r) => r.SacLabel ?? (r.SACEntry != null ? String(r.SACEntry) : '—') },
     { key: 'ProjectCode', header: 'Project', accessor: (r) => r.ProjectCode ?? '—' },
-    { key: 'U_ProdNo', header: 'Prod Order No', accessor: (r) => r.U_ProdNo ?? '—' },
-    { key: 'CostingCode', header: 'Cost Ctr', accessor: (r) => r.CostingCode ?? '—' },
     { key: 'TaxableAmount', header: 'Taxable', accessor: (r) => formatPoCell(r.TaxableAmount ?? r.LineTotal) },
     { key: 'GrossTotal', header: 'Gross', accessor: (r) => formatPoCell(r.GrossTotal) },
   ]
@@ -483,11 +517,14 @@ export function PurchaseOrderLinesEditor({
                     WarehouseCode: draft.WarehouseCode || defaultWarehouse,
                     ProjectCode: draft.ProjectCode || defaultProject,
                   })
+                  setPurchaseUomOptions([])
                   void (async () => {
                     const meta = (await lookupItem(code)) ?? (option?.meta as MasterItem | undefined)
                     if (!meta) return
                     const purchaseUom = meta.PurchaseUnit || meta.InventoryUom || ''
                     const stockUom = meta.InventoryUom || meta.PurchaseUnit || ''
+                    const uomOptions = purchaseUomOptionsFromItem(meta)
+                    setPurchaseUomOptions(uomOptions)
                     const itemsPerUnit = meta.PurchaseItemsPerUnit != null && meta.PurchaseItemsPerUnit > 0
                       ? meta.PurchaseItemsPerUnit
                       : 1
@@ -501,8 +538,8 @@ export function PurchaseOrderLinesEditor({
                         ? applyStockPurchaseQty({
                             ...prev,
                             ItemDescription: prev.ItemDescription || meta.ItemName || description,
-                            UoMCode: purchaseUom || prev.UoMCode,
-                            UomName: purchaseUom || prev.UomName,
+                            UoMCode: purchaseUom || uomOptions[0]?.value || prev.UoMCode,
+                            UomName: purchaseUom || uomOptions[0]?.value || prev.UomName,
                             StockUom: stockUom || prev.StockUom,
                             Quantity: purchaseQty,
                             StockQty: stockQty,
@@ -533,6 +570,14 @@ export function PurchaseOrderLinesEditor({
                 value={draft.ItemDescription ?? ''}
                 onChange={(e) => setDraft({ ...draft, ItemDescription: e.target.value })}
               />
+              <div className="md:col-span-2">
+                <Textarea
+                  label="Free Text"
+                  value={draft.FreeText ?? ''}
+                  onChange={(e) => setDraft({ ...draft, FreeText: e.target.value })}
+                  hint="Saved to SAP DocumentLines.FreeText."
+                />
+              </div>
               <SearchableSelect
                 label="Warehouse"
                 value={draft.WarehouseCode ?? ''}
@@ -553,11 +598,14 @@ export function PurchaseOrderLinesEditor({
                 onChange={(e) => setDraft(withPurchaseQty(draft, Number(e.target.value)))}
                 required
               />
-              <Input
-                label="Purchase UoM"
+              <Select
+                label="Purchase UoM *"
+                options={purchaseUomOptions}
                 value={draft.UoMCode ?? draft.UomName ?? ''}
-                onChange={(e) => setDraft({ ...draft, UoMCode: e.target.value, UomName: e.target.value })}
-                hint="Defaults from item master Purchase UoM."
+                onChange={(value) => setDraft({ ...draft, UoMCode: value, UomName: value })}
+                placeholder={draft.ItemCode ? 'Select purchase UoM' : 'Select an item first'}
+                disabled={!draft.ItemCode || purchaseUomOptions.length === 0}
+                hint="From item master PurchaseUnit (and Inventory UoM when different)."
               />
               <Input
                 label="Stock Qty *"
@@ -599,15 +647,25 @@ export function PurchaseOrderLinesEditor({
             </>
           )}
           {isService ? (
-            <Input
-              label="Quantity"
-              type="number"
-              min="0"
-              nonNegative
-              value={String(draft.Quantity ?? 0)}
-              onChange={(e) => setDraft({ ...draft, Quantity: Number(e.target.value) })}
-              required
-            />
+            <>
+              <div className="md:col-span-2">
+                <Textarea
+                  label="Free Text"
+                  value={draft.FreeText ?? ''}
+                  onChange={(e) => setDraft({ ...draft, FreeText: e.target.value })}
+                  hint="Saved to SAP DocumentLines.FreeText."
+                />
+              </div>
+              <Input
+                label="Quantity"
+                type="number"
+                min="0"
+                nonNegative
+                value={String(draft.Quantity ?? 0)}
+                onChange={(e) => setDraft({ ...draft, Quantity: Number(e.target.value) })}
+                required
+              />
+            </>
           ) : null}
           <Input
             label="Unit Price"
@@ -683,23 +741,12 @@ export function PurchaseOrderLinesEditor({
             lookupKind="project"
             value={draft.ProjectCode ?? ''}
             selectedLabel={projectLabel}
-            placeholder="Search project..."
+            placeholder="Search project by code or name..."
             onSearch={searchProjectOptions}
             onChange={(code, option) => {
               setProjectLabel(option?.label ?? code)
               setDraft({ ...draft, ProjectCode: code })
             }}
-          />
-          <Input
-            label={requireProdNo ? 'Prod Order No *' : 'Prod Order No'}
-            value={draft.U_ProdNo ?? ''}
-            onChange={(e) => setDraft({ ...draft, U_ProdNo: e.target.value })}
-            required={requireProdNo}
-          />
-          <Input
-            label="Cost Center"
-            value={draft.CostingCode ?? ''}
-            onChange={(e) => setDraft({ ...draft, CostingCode: e.target.value })}
           />
         </div>
       </Modal>

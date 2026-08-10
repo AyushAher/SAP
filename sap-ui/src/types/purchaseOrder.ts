@@ -2,7 +2,7 @@ import type { DocumentLineItem } from '@/types/production'
 
 export interface PurchaseOrderLineItem extends DocumentLineItem {
   UomName?: string
-  /** Purchase UoM (sent to SAP as UoMCode). */
+  /** Purchase UoM (sent to SAP as UoMCode). Defaults from item master PurchaseUnit. */
   UoMCode?: string
   UoMEntry?: number
   /** Stock / inventory UoM (from item master; display). */
@@ -33,13 +33,8 @@ export interface PurchaseOrderLineItem extends DocumentLineItem {
   AccountCode?: string
   AccountLabel?: string
   ProjectCode?: string
-  CostingCode?: string
-  CostingCode2?: string
-  CostingCode3?: string
-  CostingCode4?: string
-  CostingCode5?: string
-  /** Production order no. — required when header U_PO_Type = JOB. */
-  U_ProdNo?: string
+  /** SAP DocumentLines.FreeText. */
+  FreeText?: string
 }
 
 export interface PaymentTermRow {
@@ -82,9 +77,11 @@ export interface PurchaseOrderOtherTerms {
 export interface PurchaseOrderLogistics {
   /** Business partner CardCode — maps to ADOC U_CardCode (Dispatch To / Ship To). */
   dispatchTo?: string
+  /** SAP UDF U_DisID — required with dispatch address when any line warehouse is DRP/DRP2. */
+  dispatchId?: string
   /** SAP UDF U_DispachAdd (note SAP spelling). Max 120 chars. */
   dispatchAddress?: string
-  /** SAP UDF U_ContactPerson — contact name from the Dispatch To BP. */
+  /** SAP UDF U_SHIPTO — employee name + contact number. */
   contactPerson?: string
   /** SAP UDF U_PRI_BAS ValidValues. */
   priceBasis?: string

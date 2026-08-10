@@ -65,14 +65,6 @@ export function validatePurchaseOrderAgainstTn(input: PoTnValidationInput): stri
     }
   }
 
-  const poType = (input.poType ?? '').trim().toUpperCase()
-  if (poType === PO_TN.jobPoType) {
-    const missingProd = input.lines.some((line) => !line.U_ProdNo?.trim())
-    if (missingProd) {
-      return 'Either Production Order No OR Open Order Field is mandatory at row level.'
-    }
-  }
-
   if (!isService && input.vendorSeries === PO_TN.transporterBpSeries) {
     const hasMandatoryItem = input.lines.some(
       (line) => (line.ItemCode ?? '').trim() === PO_TN.transporterMandatoryItem,

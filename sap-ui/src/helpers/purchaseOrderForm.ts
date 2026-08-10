@@ -185,10 +185,11 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
   for (const term of basicTerms.slice(0, MAX_BASIC_PAYMENT_TERMS)) {
     const slot = Math.min(Math.max(term.id, 1), MAX_BASIC_PAYMENT_TERMS)
     const percent = resolvePaymentTermPercent(term) ?? term.basic
-    if (term.type || percent != null || term.stage || term.desc) {
+    const desc = buildPaymentTermDescription({ ...term, id: slot })
+    if (term.type || percent != null || term.stage || desc) {
       next[`U_B${slot}`] = percent ?? 0
       next[`U_G${slot}`] = 0
-      if (term.desc) next[`U_D${slot}`] = term.desc
+      if (desc) next[`U_D${slot}`] = desc
       if (term.stage) next[`U_S${slot}`] = term.stage
       if (term.type) next[`U_T${slot}`] = normalizePaymentTermType(term.type) || term.type
     }
@@ -200,7 +201,8 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
     // Always write GST% to U_G11 — even when type is Invoice / Retention (legacy habit).
     next[`U_G${slot}`] = percent
     // U_B11 does not exist on this company DB — never write it.
-    if (gstTerm.desc) next[`U_D${slot}`] = gstTerm.desc
+    const desc = buildPaymentTermDescription({ ...gstTerm, id: slot })
+    if (desc) next[`U_D${slot}`] = desc
     if (gstTerm.stage) next[`U_S${slot}`] = gstTerm.stage
     if (gstTerm.type) next[`U_T${slot}`] = normalizePaymentTermType(gstTerm.type) || gstTerm.type
   } else {
@@ -237,8 +239,10 @@ export function readLogisticsFromPo(po: PoRecord): PurchaseOrderLogistics {
   return {
     // ADOC U_CardCode is the real Dispatch To BP field; U_DispatchTo is not valid on this DB.
     dispatchTo: readString(po, 'U_CardCode', 'U_DispatchTo'),
+    dispatchId: readString(po, 'U_DisID'),
     dispatchAddress: readString(po, 'U_DispachAdd'),
-    contactPerson: readString(po, 'U_ContactPerson'),
+    // Contact Person is an employee (+ phone) stored in U_SHIPTO.
+    contactPerson: readString(po, 'U_SHIPTO', 'U_ContactPerson'),
     // Real SAP UDFs: U_PRI_BAS / U_TransMode (legacy invented names kept as read fallbacks only).
     priceBasis: readString(po, 'U_PRI_BAS', 'U_PriceBasis'),
     modeOfTransport: readString(po, 'U_TransMode', 'U_ModeOfTransport'),
@@ -249,12 +253,14 @@ export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogisti
   const next: PoRecord = {
     ...po,
     U_CardCode: logistics.dispatchTo || undefined,
+    U_DisID: logistics.dispatchId || undefined,
     U_DispachAdd: logistics.dispatchAddress || undefined,
-    U_ContactPerson: logistics.contactPerson || undefined,
+    U_SHIPTO: logistics.contactPerson || undefined,
     U_PRI_BAS: logistics.priceBasis || undefined,
     U_TransMode: logistics.modeOfTransport || undefined,
     // Do not map BP CardCode onto ShipToCode (ShipToCode is an address name on the vendor).
     U_DispatchTo: undefined,
+    U_ContactPerson: undefined,
     U_PriceBasis: undefined,
     U_ModeOfTransport: undefined,
     ShipToCode: undefined,
@@ -436,18 +442,81 @@ export function formatPoAmount(value: number | undefined | null): string {
   return Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/**
+ * PBBPL branch: Dispatch Location (type of location) → warehouse.
+ * Factory → Store1, Office → Store5, BP Loc → PBPL(S).
+ */
+export const PO_DISPATCH_LOCATION_OPTIONS = [
+  { value: 'Factory', label: 'Factory' },
+  { value: 'Office', label: 'Office' },
+  { value: 'BP Loc', label: 'BP Loc' },
+] as const
+
+export type PoDispatchLocation = (typeof PO_DISPATCH_LOCATION_OPTIONS)[number]['value']
+
+const PO_DISPATCH_LOCATION_TO_WAREHOUSE: Record<PoDispatchLocation, string> = {
+  Factory: 'Store1',
+  Office: 'Store5',
+  'BP Loc': 'PBPL(S)',
+}
+
+const PO_WAREHOUSE_TO_DISPATCH_LOCATION: Record<string, PoDispatchLocation> = {
+  Store1: 'Factory',
+  STORE1: 'Factory',
+  Store5: 'Office',
+  STORE5: 'Office',
+  'PBPL(S)': 'BP Loc',
+}
+
+/** True for PBBPL company DBs (UAT/LIVE) — warehouse↔location mapping applies. */
+export function usesPbbplDispatchLocationMapping(companyDb?: string | null): boolean {
+  const db = (companyDb ?? '').trim().toUpperCase()
+  return db.startsWith('PBBPL')
+}
+
+export function warehouseForDispatchLocation(location?: string | null): string | undefined {
+  const key = (location ?? '').trim() as PoDispatchLocation
+  return PO_DISPATCH_LOCATION_TO_WAREHOUSE[key]
+}
+
+export function dispatchLocationForWarehouse(warehouse?: string | null): PoDispatchLocation | undefined {
+  const code = (warehouse ?? '').trim()
+  if (!code) return undefined
+  return PO_WAREHOUSE_TO_DISPATCH_LOCATION[code]
+    ?? PO_WAREHOUSE_TO_DISPATCH_LOCATION[code.toUpperCase()]
+}
+
+/**
+ * SAP U_Dn payment-term description:
+ * `%{Value} {Basic|GST} {Type} {Stage}`
+ * e.g. `%20 Basic Advance Stage1`, `%100 GST Invoice`
+ */
+export function buildPaymentTermDescription(
+  term: Pick<PaymentTermRow, 'id' | 'type' | 'basic' | 'gst' | 'stage'>,
+): string {
+  const percent = resolvePaymentTermPercent(term)
+  const basis = isGstPaymentTermRow(term) ? 'GST' : 'Basic'
+  const type = normalizePaymentTermType(term.type)
+  const stage = (term.stage ?? '').trim()
+  return [
+    percent != null && Number.isFinite(percent) ? `%${percent}` : '',
+    basis,
+    type,
+    stage,
+  ].filter(Boolean).join(' ')
+}
+
 export function paymentTermDisplayLabel(
   term: PaymentTermRow,
   typeLabels?: Record<string, string>,
 ): string {
+  const built = buildPaymentTermDescription(term)
+  if (built) {
+    // Prefer live structure over a stale stored desc when type/percent/stage are present.
+    if (term.type || resolvePaymentTermPercent(term) != null || term.stage) return built
+  }
   if (term.desc) return term.desc
   const typeKey = normalizePaymentTermType(term.type)
   const typeLabel = (typeKey && typeLabels?.[typeKey]) || term.type
-  const percent = resolvePaymentTermPercent(term)
-  const parts = [
-    typeLabel,
-    percent != null ? `${percent}%` : '',
-    term.stage,
-  ].filter(Boolean)
-  return parts.join(' · ') || `Term ${term.id}`
+  return typeLabel || `Term ${term.id}`
 }
