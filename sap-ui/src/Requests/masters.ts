@@ -72,6 +72,40 @@ export interface MasterEmployee {
   FirstName?: string
   LastName?: string
   DisplayName?: string
+  MobilePhone?: string
+  OfficePhone?: string
+  HomePhone?: string
+  /** Prefer mobile, then office, then home. */
+  ContactPhone?: string
+}
+
+/** Label/value for PO Contact Person → U_SHIPTO (name + phone). */
+export function formatEmployeeShipToLabel(emp: Pick<MasterEmployee, 'DisplayName' | 'EmployeeID' | 'ContactPhone' | 'MobilePhone' | 'OfficePhone' | 'HomePhone'>): string {
+  const name = (emp.DisplayName ?? '').trim() || String(emp.EmployeeID ?? '')
+  const phone = (emp.ContactPhone ?? emp.MobilePhone ?? emp.OfficePhone ?? emp.HomePhone ?? '').trim()
+  return phone ? `${name} (${phone})` : name
+}
+
+function normalizeEmployee(raw: Record<string, unknown>): MasterEmployee | undefined {
+  const id = Number(raw.EmployeeID ?? raw.employeeID)
+  if (!Number.isFinite(id)) return undefined
+  const first = String(raw.FirstName ?? raw.firstName ?? '')
+  const last = String(raw.LastName ?? raw.lastName ?? '')
+  const name = [first, last].filter(Boolean).join(' ')
+  const mobile = String(raw.MobilePhone ?? raw.mobilePhone ?? '').trim() || undefined
+  const office = String(raw.OfficePhone ?? raw.officePhone ?? '').trim() || undefined
+  const home = String(raw.HomePhone ?? raw.homePhone ?? '').trim() || undefined
+  const contact = mobile || office || home
+  return {
+    EmployeeID: id,
+    FirstName: first || undefined,
+    LastName: last || undefined,
+    DisplayName: name || String(id),
+    MobilePhone: mobile,
+    OfficePhone: office,
+    HomePhone: home,
+    ContactPhone: contact,
+  }
 }
 
 export interface MasterLookupPayload {
@@ -283,20 +317,7 @@ export function searchSalesPersons(search: string, pageSize = 20) {
 export function searchEmployees(search: string, pageSize = 20) {
   return searchMaster<MasterEmployee>('/masters/employees/list', search, pageSize).then((res) => ({
     ...res,
-    data: (res.data ?? []).map((row) => {
-      const source = row as Record<string, unknown>
-      const id = Number(source.EmployeeID ?? source.employeeID)
-      if (!Number.isFinite(id)) return undefined
-      const first = String(source.FirstName ?? source.firstName ?? '')
-      const last = String(source.LastName ?? source.lastName ?? '')
-      const name = [first, last].filter(Boolean).join(' ')
-      return {
-        EmployeeID: id,
-        FirstName: first || undefined,
-        LastName: last || undefined,
-        DisplayName: name || String(id),
-      } satisfies MasterEmployee
-    }).filter(Boolean) as MasterEmployee[],
+    data: (res.data ?? []).map((row) => normalizeEmployee(row as Record<string, unknown>)).filter(Boolean) as MasterEmployee[],
   }))
 }
 
@@ -323,17 +344,7 @@ export async function lookupEmployee(employeeId: number | string): Promise<Maste
   const { apiGet } = await import('@/helpers/api/client')
   try {
     const raw = await apiGet<Record<string, unknown>>(`/masters/employees/${id}`)
-    const resolved = Number(raw.EmployeeID ?? raw.employeeID)
-    if (!Number.isFinite(resolved)) return undefined
-    const first = String(raw.FirstName ?? raw.firstName ?? '')
-    const last = String(raw.LastName ?? raw.lastName ?? '')
-    const name = [first, last].filter(Boolean).join(' ')
-    return {
-      EmployeeID: resolved,
-      FirstName: first || undefined,
-      LastName: last || undefined,
-      DisplayName: name || String(resolved),
-    }
+    return normalizeEmployee(raw)
   } catch {
     return undefined
   }

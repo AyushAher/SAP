@@ -20,6 +20,7 @@ export interface SearchableSelectProps {
   placeholder?: string
   searchPlaceholder?: string
   error?: string
+  hint?: string
   disabled?: boolean
   required?: boolean
   className?: string
@@ -50,6 +51,7 @@ export function SearchableSelect({
   placeholder = 'Select an option',
   searchPlaceholder = 'Type to search...',
   error,
+  hint,
   disabled = false,
   required = false,
   className,
@@ -276,6 +278,7 @@ export function SearchableSelect({
           : menuContent)}
       </div>
       {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
+      {hint && !error && <p className="mt-1.5 text-sm text-slate-500">{hint}</p>}
     </div>
   )
 }
