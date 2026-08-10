@@ -120,6 +120,7 @@ public static class DependencyInjection
         services.AddScoped<StageWisePaymentPageService>();
         services.AddScoped<StageWisePaymentBatchService>();
         services.AddScoped<StageWisePaymentPdfBuilder>();
+        services.AddScoped<PurchaseOrderPdfBuilder>();
         services.AddScoped<IssueForProductionService>();
         services.AddScoped<ReceiptFromProductionService>();
         services.AddScoped<ProductionOrderSelectionService>();

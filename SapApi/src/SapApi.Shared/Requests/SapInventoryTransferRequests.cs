@@ -55,6 +55,10 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("ItemDescription"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ItemDescription { get; set; }
 
+        /// <summary>SAP DocumentLines.FreeText — free-text remarks on the line.</summary>
+        [JsonPropertyName("FreeText"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? FreeText { get; set; }
+
         [JsonPropertyName("AccountCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? AccountCode { get; set; }
 

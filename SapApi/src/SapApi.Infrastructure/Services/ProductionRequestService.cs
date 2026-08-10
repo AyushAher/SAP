@@ -14,6 +14,41 @@ public static class ProductionRequestMapper
             : JsonSerializer.Deserialize<SapInventoryGenExitRequestOrderLines>(requestBody);
 
     /// <summary>
+    /// Backfills blank production-order header fields from the persisted draft row
+    /// (older RequestBody payloads may omit ProjectName / CustomerName).
+    /// </summary>
+    public static SapInventoryGenExitRequestOrderLines? EnrichOrderLinesFromDraft(
+        SapInventoryGenExitRequestOrderLines? orderLines,
+        string? project,
+        string? projectName,
+        string? cardCode,
+        string? cardName,
+        string? status,
+        string? itemNo,
+        string? itemName)
+    {
+        if (orderLines?.ProductionOrder is null) return orderLines;
+
+        var po = orderLines.ProductionOrder;
+        if (string.IsNullOrWhiteSpace(po.Project) && !string.IsNullOrWhiteSpace(project))
+            po.Project = project;
+        if (string.IsNullOrWhiteSpace(po.ProjectName) && !string.IsNullOrWhiteSpace(projectName))
+            po.ProjectName = projectName;
+        if (string.IsNullOrWhiteSpace(po.CustomerCode) && !string.IsNullOrWhiteSpace(cardCode))
+            po.CustomerCode = cardCode;
+        if (string.IsNullOrWhiteSpace(po.CustomerName) && !string.IsNullOrWhiteSpace(cardName))
+            po.CustomerName = cardName;
+        if (string.IsNullOrWhiteSpace(po.Status) && !string.IsNullOrWhiteSpace(status))
+            po.Status = status;
+        if (string.IsNullOrWhiteSpace(po.ItemNumber) && !string.IsNullOrWhiteSpace(itemNo))
+            po.ItemNumber = itemNo;
+        if (string.IsNullOrWhiteSpace(po.ProductDescription) && !string.IsNullOrWhiteSpace(itemName))
+            po.ProductDescription = itemName;
+
+        return orderLines;
+    }
+
+    /// <summary>
     /// Same rules as SapForms IssueForProduction / ReceiptFromProduction save:
     /// production order required, at least one line, IssuedQuantity ≤ PlannedQuantity.
     /// </summary>

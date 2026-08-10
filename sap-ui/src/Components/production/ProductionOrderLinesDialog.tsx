@@ -108,7 +108,9 @@ export function ProductionOrderLinesDialog({ isOpen, order, onClose, onConfirm }
       footer={(
         <div className="flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onConfirm(selected)}>Select Lines</Button>
+          <Button onClick={() => onConfirm(selected)}>
+            {selected.length ? 'Select Lines' : 'Confirm Order'}
+          </Button>
         </div>
       )}
     >

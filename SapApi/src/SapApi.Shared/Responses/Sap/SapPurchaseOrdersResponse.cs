@@ -142,6 +142,10 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_DispatchTo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UDispatchTo { get; set; }
 
+        /// <summary>Ship-to contact (employee name + phone) — OPOR UDF U_SHIPTO.</summary>
+        [JsonPropertyName("U_SHIPTO"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UShipTo { get; set; }
+
         [JsonPropertyName("U_ContactPerson"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UContactPerson { get; set; }
 

@@ -36,6 +36,7 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             paymentTypeLabel,
             isBatchDown,
             paymentTermText,
+            po.BPLId,
             po.DocNum?.ToString(),
             userRemark);
 
@@ -99,13 +100,14 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
     }
 
     /// <summary>
-    /// Downpayment Request remark: "{Payment Terms}. Based on Purchase Order no. {DocNum}".
+    /// Downpayment Request remark: "{Payment Terms}. Based on Purchase Order no. {Branch}/PO/{DocNum}".
     /// Outgoing keeps free-text user remark when provided.
     /// </summary>
     public static string ResolveJournalRemarks(
         string paymentTypeLabel,
         bool isBatchDown,
         string paymentTermText,
+        int? bplId,
         string? poDocNum,
         string? userRemark)
     {
@@ -113,13 +115,22 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             || string.Equals(paymentTypeLabel, "Downpayment Request", StringComparison.OrdinalIgnoreCase);
 
         if (isDownPayment)
-            return Constants.PaymentRemarks.BuildDownPayment(paymentTermText, poDocNum);
+            return Constants.PaymentRemarks.BuildDownPayment(paymentTermText, bplId, poDocNum);
 
         if (!string.IsNullOrWhiteSpace(userRemark))
             return userRemark.Trim();
 
         return "Auto generated from system";
     }
+
+    /// <summary>Backward-compatible overload without BPL (uses PO/{DocNum}).</summary>
+    public static string ResolveJournalRemarks(
+        string paymentTypeLabel,
+        bool isBatchDown,
+        string paymentTermText,
+        string? poDocNum,
+        string? userRemark) =>
+        ResolveJournalRemarks(paymentTypeLabel, isBatchDown, paymentTermText, bplId: null, poDocNum, userRemark);
 
     public static string ResolvePaymentTermText(
         StageWisePayment record,

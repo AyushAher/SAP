@@ -23,6 +23,8 @@ namespace SapApi.Api.Controllers;
 public class PurchaseOrderController(
     SapPurchaseOrderService service,
     PurchaseOrderLocalStore localStore,
+    PurchaseOrderPdfBuilder pdfBuilder,
+    IPdfService pdfService,
     ICurrentCompanyDbAccessor companyDbAccessor,
     IHttpContextAccessor httpContextAccessor,
     IOptions<HangfireOptions> hangfireOptions,
@@ -133,6 +135,25 @@ public class PurchaseOrderController(
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id, [FromQuery] SapQueries? query, CancellationToken cancellationToken) =>
         Ok(ApiResponse<object>.Ok(await service.GetPurchaseOrders(id, query, cancellationToken)));
+
+    [HttpGet("{docEntry:int}/pdf")]
+    public async Task<IActionResult> DownloadPdf(int docEntry, CancellationToken cancellationToken)
+    {
+        var order = await service.GetPurchaseOrders(docEntry.ToString(), null, cancellationToken);
+        if (order is null)
+            return NotFound(ApiResponse<object>.Fail("SYS-02", "Purchase order not found"));
+
+        var placeholders = await pdfBuilder.BuildPlaceholdersAsync(
+            order,
+            User.Identity?.Name,
+            cancellationToken);
+
+        var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
+            "purchase-order-template.html", placeholders, cancellationToken);
+
+        var fileName = $"PurchaseOrder({order.DocNum ?? docEntry}).pdf";
+        return File(pdfBytes, "application/pdf", fileName);
+    }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] SapPurchaseOrdersResponse data, [FromQuery] int? policyRequestId) =>

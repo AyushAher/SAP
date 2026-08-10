@@ -56,27 +56,40 @@ namespace SapApi.Shared
                     [5] = "PE", // Privilege Energex
                 };
 
-            public static string Build(string? userRemark, int? bplId, string? poNumber)
+            /// <summary>Formats PO reference as {BranchCode}/PO/{DocNum} (e.g. PB/PO/262711177).</summary>
+            public static string FormatPoNumber(int? bplId, string? poNumber)
             {
+                var doc = string.IsNullOrWhiteSpace(poNumber) ? "____" : poNumber.Trim();
                 var branchCode = bplId.HasValue
                     ? BranchCodes.GetValueOrDefault(bplId.Value, bplId.Value.ToString())
                     : string.Empty;
-                var poReference = string.IsNullOrWhiteSpace(branchCode)
-                    ? $"Based on Purchase Order PO/{poNumber}"
-                    : $"Based on Purchase Order {branchCode}/PO/{poNumber}";
+                return string.IsNullOrWhiteSpace(branchCode)
+                    ? $"PO/{doc}"
+                    : $"{branchCode}/PO/{doc}";
+            }
+
+            public static string Build(string? userRemark, int? bplId, string? poNumber)
+            {
+                var poReference = $"Based on Purchase Order {FormatPoNumber(bplId, poNumber)}";
 
                 return string.IsNullOrWhiteSpace(userRemark)
                     ? poReference
                     : $"{userRemark.Trim()}{Environment.NewLine}{poReference}";
             }
 
-            /// <summary>AP Down Payment Request (ODPO) remarks: "{Payment Terms}. Based on Purchase Order no. {DocNum}".</summary>
-            public static string BuildDownPayment(string? paymentTerms, string? poNumber)
+            /// <summary>
+            /// AP Down Payment Request (ODPO) remarks:
+            /// "{Payment Terms}. Based on Purchase Order no. {BranchCode}/PO/{DocNum}".
+            /// </summary>
+            public static string BuildDownPayment(string? paymentTerms, int? bplId, string? poNumber)
             {
                 var terms = string.IsNullOrWhiteSpace(paymentTerms) ? "Down Payment" : paymentTerms.Trim();
-                var po = string.IsNullOrWhiteSpace(poNumber) ? "____" : poNumber.Trim();
-                return $"{terms}. Based on Purchase Order no. {po}";
+                return $"{terms}. Based on Purchase Order no. {FormatPoNumber(bplId, poNumber)}";
             }
+
+            /// <summary>Backward-compatible overload without branch prefix (uses PO/{DocNum}).</summary>
+            public static string BuildDownPayment(string? paymentTerms, string? poNumber) =>
+                BuildDownPayment(paymentTerms, bplId: null, poNumber);
         }
 
         public static class Roles

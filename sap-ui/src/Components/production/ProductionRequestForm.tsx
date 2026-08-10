@@ -11,6 +11,10 @@ import { searchItems, searchWarehouses, formatWarehouseOptionLabel } from '@/Req
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import { addProductionOrderLine, selectProductionOrder } from '@/Requests/productionOrders'
+import {
+  validateManualProductionLineQuantities,
+  validateProductionRequestForSave,
+} from '@/helpers/productionRequestValidation'
 import type { SelectOption } from '@/types'
 import type { ProductionOrder, ProductionOrderLine, ProductionOrderSelection } from '@/types/production'
 
@@ -158,8 +162,12 @@ export function ProductionRequestForm({
       setError('Warehouse is required.')
       return
     }
-    if ((manualLine.IssuedQuantity ?? 0) > (manualLine.PlannedQuantity ?? 0)) {
-      setError('Issue quantity cannot exceed planned quantity.')
+    const qtyError = validateManualProductionLineQuantities(
+      manualLine.IssuedQuantity,
+      manualLine.PlannedQuantity,
+    )
+    if (qtyError) {
+      setError(qtyError)
       return
     }
     setAddingLine(true)
@@ -199,23 +207,15 @@ export function ProductionRequestForm({
   }
 
   const handleSubmit = async () => {
-    if (!selection?.ProductionOrder) {
-      setError('Please select a production order.')
-      return
-    }
-    const lines = selection.ProductionOrderLinesEntryNumber ?? []
-    if (lines.length === 0) {
-      setError('At least one production order line is required.')
-      return
-    }
-    if (lines.some((line) => (line.IssuedQuantity ?? 0) > (line.PlannedQuantity ?? 0))) {
-      setError('Issued quantity cannot exceed planned quantity for any line item.')
+    const validationError = validateProductionRequestForSave(selection)
+    if (validationError) {
+      setError(validationError)
       return
     }
     setSaving(true)
     setError(null)
     try {
-      await saveOrderLines(selection, id ? Number(id) : undefined)
+      await saveOrderLines(selection!, id ? Number(id) : undefined)
       navigate(listRoute)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')

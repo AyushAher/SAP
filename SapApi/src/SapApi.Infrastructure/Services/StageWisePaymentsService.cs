@@ -86,7 +86,9 @@ public class StageWisePaymentService(
         var entity1 = entity;
         entity1.CompanyDb = CompanyDb;
         entity1.PurchaseOrderId ??= await purchaseOrderLinks.EnsureIdFromSapPoAsync(purchaseOrder);
-        var paymentTermsLabel = StageWisePaymentCalculations.FormatDownPaymentRemarkLabel(selectedPaymentTermsUdf);
+        var termForRemark = StageWisePaymentCalculations.ResolvePaymentTermForRemark(
+            purchaseOrder, selectedPaymentTermsUdf);
+        var paymentTermsLabel = StageWisePaymentCalculations.FormatDownPaymentRemarkLabel(termForRemark);
         entity1.StageDesc = desc;
         entity1.WtCode = wtCode;
         entity1.PaymentTermsType = selectedPaymentTermsUdf.Id;
@@ -929,7 +931,8 @@ public class StageWisePaymentService(
             }, 0);
         }
 
-        var comments = Constants.PaymentRemarks.BuildDownPayment(desc, purchaseOrder.DocNum?.ToString());
+        var comments = Constants.PaymentRemarks.BuildDownPayment(
+            desc, purchaseOrder.BPLId, purchaseOrder.DocNum?.ToString());
         var req = new SapPurchaseDownPaymentRequest
         {
             DocumentLines = documentLines,

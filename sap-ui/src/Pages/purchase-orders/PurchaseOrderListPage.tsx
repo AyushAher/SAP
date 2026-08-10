@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Banknote, Pencil, RefreshCw } from 'lucide-react'
+import { Banknote, FileDown, Pencil, RefreshCw } from 'lucide-react'
 import { toast } from '@/helpers/toast'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionsMenu } from '@/Components/shared/RowActionsMenu'
@@ -17,6 +17,7 @@ import {
   getPurchaseOrderSyncStatus,
   getPurchaseOrderBranchId,
   syncPurchaseOrderFromSap,
+  downloadPurchaseOrderPdf,
   type PurchaseOrder,
 } from '@/Requests/purchaseOrders'
 
@@ -263,6 +264,13 @@ export function PurchaseOrderListPage() {
                 label: 'Edit',
                 to: `${ROUTES.PURCHASE_ORDER_FORM}/${row.DocEntry}`,
                 icon: <Pencil className={rowActionIconClassName} />,
+              },
+              {
+                key: 'pdf',
+                label: 'Download PDF',
+                disabled: docEntry == null,
+                icon: <FileDown className={rowActionIconClassName} />,
+                onClick: () => docEntry != null && void downloadPurchaseOrderPdf(docEntry),
               },
               {
                 key: 'payments',

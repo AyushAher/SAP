@@ -63,7 +63,7 @@ import {
   type MasterBusinessPartner,
   type PaymentTermTypeOption,
 } from '@/Requests/masters'
-import { createPurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '@/Requests/purchaseOrders'
+import { createPurchaseOrder, updatePurchaseOrder, downloadPurchaseOrderPdf, type PurchaseOrder } from '@/Requests/purchaseOrders'
 import {
   useInvalidatePurchaseOrders,
   usePurchaseOrder,
@@ -678,7 +678,18 @@ export function PurchaseOrderFormPage() {
 
   return (
     <div className="min-w-0 space-y-6">
-      <PageHeader title={id ? 'Edit Purchase Order' : 'New Purchase Order'} />
+      <PageHeader
+        title={id ? 'Edit Purchase Order' : 'New Purchase Order'}
+        action={id ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void downloadPurchaseOrderPdf(Number(id))}
+          >
+            Download PDF
+          </Button>
+        ) : undefined}
+      />
       <BlockingLoader
         visible={loading || saving}
         label={loading ? 'Loading purchase order...' : 'Saving purchase order...'}

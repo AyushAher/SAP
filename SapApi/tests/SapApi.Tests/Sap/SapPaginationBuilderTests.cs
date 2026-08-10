@@ -64,9 +64,9 @@ public class SapPaginationBuilderTests
     }
 
     [Test]
-    public void BuildSearchFilter_ProjectName_UsesContainsForCodeLikeMidStringKeyword()
+    public void BuildSearchFilter_Project_UsesContainsOnCodeAndNameForAnyKeyword()
     {
-        // "SOMESHWAR" looks like a master code (no spaces) but is a mid-word in the project name.
+        // Any keyword should mid-string match both Code and Name (not code-prefix / exact only).
         var request = new PaginationRequest
         {
             Filters = [new FilterModel { Field = "__search", Operator = "contains", Value = "SOMESHWAR" }],
@@ -74,8 +74,9 @@ public class SapPaginationBuilderTests
 
         var query = SapPaginationBuilder.ToSapQueries(request, SapPaginationProfiles.Projects);
         query.Filter.Should().Contain("contains(Name,'SOMESHWAR')");
+        query.Filter.Should().Contain("contains(Code,'SOMESHWAR')");
         query.Filter.Should().NotContain("startswith(Name,'SOMESHWAR')");
-        query.Filter.Should().Contain("Code eq 'SOMESHWAR'");
+        query.Filter.Should().NotContain("Code eq 'SOMESHWAR'");
     }
 
     [Test]

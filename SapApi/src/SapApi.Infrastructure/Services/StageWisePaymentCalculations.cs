@@ -1,3 +1,4 @@
+using System.Globalization;
 using SapApi.Domain.Entities;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses;
@@ -326,8 +327,8 @@ public static class StageWisePaymentCalculations
         ?? selectedTermIds.Select(id => paymentTerms.FirstOrDefault(t => t.Id == id)).FirstOrDefault(t => t is not null);
 
     /// <summary>
-    /// Single payment-term text for ODPO Comments — Desc, then Stage, then Type.
-    /// Avoids DropDownValue's "Basic X% &amp; GST Y%" fallback, which reads as two stages.
+    /// Single payment-term text for ODPO Comments — Desc, then synthesized
+    /// "{n}% Basic|GST Against {Type}", then Stage / Type.
     /// </summary>
     public static string FormatDownPaymentRemarkLabel(PaymentTermsUdf? term)
     {
@@ -337,13 +338,58 @@ public static class StageWisePaymentCalculations
         if (!string.IsNullOrWhiteSpace(term.Desc))
             return term.Desc.Trim();
 
+        var typePhrase = FormatPaymentTermTypePhrase(term.Type);
+        var parts = new List<string>();
+        if (term.Basic is > 0)
+            parts.Add($"{FormatPercent(term.Basic.Value)}% Basic Against {typePhrase}");
+        if (term.Gst is > 0)
+            parts.Add($"{FormatPercent(term.Gst.Value)}% GST Against {typePhrase}");
+        if (parts.Count > 0)
+            return string.Join(", ", parts);
+
         if (!string.IsNullOrWhiteSpace(term.Stage))
             return term.Stage.Trim();
 
         if (!string.IsNullOrWhiteSpace(term.Type))
-            return term.Type.Trim();
+            return typePhrase;
 
         return "Down Payment";
+    }
+
+    /// <summary>
+    /// Prefer the PO-stored UDF slot (includes U_Dn) over a thin client payload when building remarks.
+    /// </summary>
+    public static PaymentTermsUdf ResolvePaymentTermForRemark(
+        SapPurchaseOrdersResponse purchaseOrder,
+        PaymentTermsUdf? selected) =>
+        (selected?.Id is int id
+            ? purchaseOrder.CreateUdfList().FirstOrDefault(t => t.Id == id)
+            : null)
+        ?? selected
+        ?? new PaymentTermsUdf();
+
+    private static string FormatPercent(double value) =>
+        value % 1 == 0
+            ? ((int)value).ToString(CultureInfo.InvariantCulture)
+            : value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string FormatPaymentTermTypePhrase(string? type)
+    {
+        var key = (type ?? string.Empty).Trim();
+        if (key.Length == 0)
+            return "Proforma";
+
+        return key switch
+        {
+            "GstProforma" => "Proforma",
+            "TaxInvoice" => "Tax Invoice",
+            "Running" => "Proforma",
+            "Advance" => "Advance",
+            "Proforma" => "Proforma",
+            "Invoice" => "Invoice",
+            "Retention" => "Retention",
+            _ => key,
+        };
     }
 
     /// <summary>
@@ -374,14 +420,14 @@ public static class StageWisePaymentCalculations
             return FormatDownPaymentRemarkLabel(term);
         }
 
-        // Multiple terms (e.g. Basic + GST rows): keep each Desc for ODPO/PDF remark, separated.
+        // Multiple terms (e.g. Basic + GST rows): keep each label for ODPO/PDF remark, separated.
         var labels = distinctTermIds
             .Select(id => FormatDownPaymentRemarkLabel(paymentTerms.FirstOrDefault(t => t.Id == id)))
             .Where(label => !string.IsNullOrWhiteSpace(label) && label != "Down Payment")
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return labels.Count > 0 ? string.Join(" / ", labels) : "Batch down payment";
+        return labels.Count > 0 ? string.Join(", ", labels) : "Batch down payment";
     }
 
     public static (double BalanceDue, double Payable) ResolveBatchRowAmounts(

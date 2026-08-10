@@ -43,7 +43,8 @@ public static class PurchaseOrderMapper
         entity.UDispachAdd = sap.UDispachAdd;
         entity.URemark = sap.URemark;
         entity.UDispatchTo = sap.UCardCode ?? sap.UDispatchTo;
-        entity.UContactPerson = sap.UContactPerson;
+        // Local UContactPerson column stores the U_SHIPTO (employee + phone) value.
+        entity.UContactPerson = sap.UShipTo ?? sap.UContactPerson;
         entity.UPriceBasis = sap.UPriceBasis;
         entity.UModeOfTransport = sap.UModeOfTransport;
         entity.UMatOutDoc = sap.UMatOutDoc;
@@ -171,7 +172,8 @@ public static class PurchaseOrderMapper
             URemark = entity.URemark,
             UCardCode = entity.UDispatchTo,
             UDispatchTo = entity.UDispatchTo,
-            UContactPerson = entity.UContactPerson,
+            UShipTo = entity.UContactPerson,
+            UContactPerson = null,
             UPriceBasis = entity.UPriceBasis,
             UModeOfTransport = entity.UModeOfTransport,
             UMatOutDoc = entity.UMatOutDoc,

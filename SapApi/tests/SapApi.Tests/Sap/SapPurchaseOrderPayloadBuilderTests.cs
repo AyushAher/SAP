@@ -37,6 +37,7 @@ public class SapPurchaseOrderPayloadBuilderTests
                     UoMCode = "NOS",
                     ProjectCode = "P1",
                     CostingCode = "CC1",
+                    FreeText = "Rush delivery",
                     LineTotal = 19,
                     TaxTotal = 3,
                     GrossTotal = 22,
@@ -61,7 +62,9 @@ public class SapPurchaseOrderPayloadBuilderTests
         line.HSNEntry.Should().Be(42);
         line.UoMCode.Should().Be("NOS");
         line.ProjectCode.Should().Be("P1");
-        line.CostingCode.Should().Be("CC1");
+        line.FreeText.Should().Be("Rush delivery");
+        line.CostingCode.Should().BeNull();
+        line.UProdNo.Should().BeNull();
         line.DiscountPercent.Should().Be(5);
         line.LineTotal.Should().BeNull();
         line.TaxTotal.Should().BeNull();
@@ -172,6 +175,28 @@ public class SapPurchaseOrderPayloadBuilderTests
         line.ItemCode.Should().BeNull();
         line.WarehouseCode.Should().BeNull();
         line.HSNEntry.Should().BeNull();
+    }
+
+    [Test]
+    public void Prepare_Create_IncludesDispatchIdAndAddress()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "S000744",
+            UDisId = "DISP-42",
+            UDispachAdd = "Pune plant",
+            UCardCode = "C000030",
+            UShipTo = "Ravi Kumar (9876543210)",
+            UContactPerson = "legacy-should-not-send",
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.UDisId.Should().Be("DISP-42");
+        payload.UDispachAdd.Should().Be("Pune plant");
+        payload.UCardCode.Should().Be("C000030");
+        payload.UShipTo.Should().Be("Ravi Kumar (9876543210)");
+        payload.UContactPerson.Should().BeNull();
     }
 
     [Test]

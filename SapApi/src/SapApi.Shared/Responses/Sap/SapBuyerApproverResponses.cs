@@ -32,9 +32,25 @@ public record SapEmployeeInfoResponse
     [JsonPropertyName("Active"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Active { get; set; }
 
+    [JsonPropertyName("MobilePhone"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MobilePhone { get; set; }
+
+    [JsonPropertyName("OfficePhone"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OfficePhone { get; set; }
+
+    [JsonPropertyName("HomePhone"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? HomePhone { get; set; }
+
     [JsonIgnore]
     public string DisplayName =>
         string.Join(' ', new[] { FirstName, LastName }.Where(s => !string.IsNullOrWhiteSpace(s))).Trim();
+
+    [JsonIgnore]
+    public string? ContactPhone =>
+        FirstNonEmpty(MobilePhone, OfficePhone, HomePhone);
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.Select(v => v?.Trim()).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 }
 
 public record GetAllSapEmployeesInfoResponse : SapBaseResponse

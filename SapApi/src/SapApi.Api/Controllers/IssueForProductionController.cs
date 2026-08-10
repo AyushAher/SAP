@@ -41,7 +41,15 @@ public class IssueForProductionController(
     {
         var item = await service.GetByIdAsync(id, cancellationToken);
         if (item is null) return NotFound(ApiResponse<object>.Fail("SYS-02", "Not found"));
-        var orderLines = ProductionRequestMapper.ParseOrderLines(item.RequestBody);
+        var orderLines = ProductionRequestMapper.EnrichOrderLinesFromDraft(
+            ProductionRequestMapper.ParseOrderLines(item.RequestBody),
+            item.Project,
+            item.ProjectName,
+            item.CardCode,
+            item.CardName,
+            item.Status,
+            item.ItemNo,
+            item.ItemName);
         return Ok(ApiResponse<object>.Ok(orderLines));
     }
 

@@ -120,9 +120,13 @@ public static class SapPaginationBuilder
     {
         var escaped = EscapeODataString(search);
         var clauses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Explicit empty SearchCodeFields + populated SearchTextFields = keyword/contains-only mode
+        // (used by Projects any-keyword search). Otherwise keep legacy code-field fallback.
         var codeFields = options.SearchCodeFields.Count > 0
             ? options.SearchCodeFields
-            : options.SearchOrFields.Take(1).ToList();
+            : options.SearchTextFields.Count > 0
+                ? Array.Empty<string>()
+                : options.SearchOrFields.Take(1).ToList();
         var textFields = options.SearchTextFields.Count > 0
             ? options.SearchTextFields
             : options.SearchOrFields.Skip(codeFields.Count).ToList();

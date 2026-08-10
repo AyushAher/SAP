@@ -15,7 +15,8 @@ public class PdfController(IPdfService pdfService) : ControllerBase
         "issue-for-production-template.html",
         "production-order-template.html",
         "receipt-from-production-template.html",
-        "outgoing-payment-template.html"
+        "outgoing-payment-template.html",
+        "purchase-order-template.html"
     ];
 
     [HttpPost("generate")]

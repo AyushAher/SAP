@@ -182,3 +182,14 @@ export async function getPurchaseOrderSyncStatus() {
   const { apiGet } = await import('@/helpers/api/client')
   return apiGet<PurchaseOrderSyncResult | null>('/purchase-orders/sync-status')
 }
+
+export async function downloadPurchaseOrderPdf(docEntry: number): Promise<void> {
+  const { apiDownloadGet } = await import('@/helpers/api/client')
+  const blob = await apiDownloadGet(`/purchase-orders/${docEntry}/pdf`)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `PurchaseOrder(${docEntry}).pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}
