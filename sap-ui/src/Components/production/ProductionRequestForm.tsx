@@ -10,7 +10,7 @@ import { Button, Card, CardContent, Input, SearchableSelect } from '@/Components
 import { searchItems, searchWarehouses, formatWarehouseOptionLabel } from '@/Requests/masters'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
-import { addProductionOrderLine, getProductionOrderLines, selectProductionOrder } from '@/Requests/productionOrders'
+import { addProductionOrderLine, selectProductionOrder } from '@/Requests/productionOrders'
 import type { SelectOption } from '@/types'
 import type { ProductionOrder, ProductionOrderLine, ProductionOrderSelection } from '@/types/production'
 
@@ -150,6 +150,14 @@ export function ProductionRequestForm({
       setError('Please select a production order first.')
       return
     }
+    if (!manualLine.ItemNo) {
+      setError('Item is required.')
+      return
+    }
+    if (!manualLine.Warehouse) {
+      setError('Warehouse is required.')
+      return
+    }
     if ((manualLine.IssuedQuantity ?? 0) > (manualLine.PlannedQuantity ?? 0)) {
       setError('Issue quantity cannot exceed planned quantity.')
       return
@@ -157,13 +165,29 @@ export function ProductionRequestForm({
     setAddingLine(true)
     setError(null)
     try {
-      await addProductionOrderLine(String(selection.ProductionOrder.AbsoluteEntry), manualLine)
-      const refreshed = await getProductionOrderLines(String(selection.ProductionOrder.AbsoluteEntry))
-      const lines = refreshed?.Value ?? refreshed?.value ?? []
-      setSelection((prev) => prev ? {
-        ...prev,
-        ProductionOrder: { ...prev.ProductionOrder, ProductionOrderLines: lines },
-      } : prev)
+      const result = await addProductionOrderLine(String(selection.ProductionOrder.AbsoluteEntry), manualLine)
+      setSelection((prev) => {
+        if (!prev) return prev
+        const updatedOrder = result.ProductionOrder
+          ? { ...result.ProductionOrder }
+          : { ...prev.ProductionOrder }
+        const existingPoLines = updatedOrder.ProductionOrderLines ?? prev.ProductionOrder.ProductionOrderLines ?? []
+        const alreadyOnPo = existingPoLines.some(
+          (line) => line.LineNumber === result.AddedLine.LineNumber && line.ItemNo === result.AddedLine.ItemNo,
+        )
+        updatedOrder.ProductionOrderLines = alreadyOnPo
+          ? existingPoLines
+          : [...existingPoLines, result.AddedLine]
+
+        return {
+          ...prev,
+          ProductionOrder: updatedOrder,
+          ProductionOrderLinesEntryNumber: [
+            ...prev.ProductionOrderLinesEntryNumber,
+            result.AddedLine,
+          ],
+        }
+      })
       setManualLine(emptyLine())
       setItemLabel('')
       setWarehouseLabel('')
@@ -177,6 +201,15 @@ export function ProductionRequestForm({
   const handleSubmit = async () => {
     if (!selection?.ProductionOrder) {
       setError('Please select a production order.')
+      return
+    }
+    const lines = selection.ProductionOrderLinesEntryNumber ?? []
+    if (lines.length === 0) {
+      setError('At least one production order line is required.')
+      return
+    }
+    if (lines.some((line) => (line.IssuedQuantity ?? 0) > (line.PlannedQuantity ?? 0))) {
+      setError('Issued quantity cannot exceed planned quantity for any line item.')
       return
     }
     setSaving(true)

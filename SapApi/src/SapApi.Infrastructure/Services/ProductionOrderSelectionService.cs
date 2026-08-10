@@ -31,7 +31,7 @@ public class ProductionOrderSelectionService(
         };
     }
 
-    public async Task<SapProductionOrdersResponse?> AddManualLineAsync(
+    public async Task<ProductionOrderAddLineResult> AddManualLineAsync(
         string absoluteEntry,
         SapProductionOrderLines line,
         CancellationToken cancellationToken = default)
@@ -46,7 +46,10 @@ public class ProductionOrderSelectionService(
         order.ProductionOrderLines ??= [];
         selection.ProductionOrderLinesEntryNumber ??= [];
 
-        var maxLine = order.ProductionOrderLines.Max(x => x.LineNumber);
+        var maxLine = order.ProductionOrderLines
+            .Select(x => x.LineNumber ?? 0)
+            .DefaultIfEmpty(0)
+            .Max();
         line.LineNumber = maxLine + 1;
         line.ProductionOrderIssueType = "im_Manual";
         line.Project = order.Project;
@@ -72,6 +75,15 @@ public class ProductionOrderSelectionService(
             throw new InvalidOperationException($"{response.Error.Code}: {response.Error.Message.Value}");
         }
 
-        return response;
+        // Prefer the SAP-returned order when present so line lists stay in sync with Service Layer.
+        var updatedOrder = response ?? order;
+        if (updatedOrder.ProductionOrderLines is null || updatedOrder.ProductionOrderLines.Count == 0)
+            updatedOrder.ProductionOrderLines = order.ProductionOrderLines;
+
+        return new ProductionOrderAddLineResult
+        {
+            AddedLine = line,
+            ProductionOrder = updatedOrder,
+        };
     }
 }

@@ -43,6 +43,11 @@ export interface ProductionOrderSelection {
   ProductionOrderLinesEntryNumber: ProductionOrderLine[]
 }
 
+export interface ProductionOrderAddLineResult {
+  AddedLine: ProductionOrderLine
+  ProductionOrder?: ProductionOrder
+}
+
 export interface DocumentLineItem {
   ItemCode?: string
   ItemDescription?: string

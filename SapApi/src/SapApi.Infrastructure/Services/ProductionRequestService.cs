@@ -13,10 +13,27 @@ public static class ProductionRequestMapper
             ? null
             : JsonSerializer.Deserialize<SapInventoryGenExitRequestOrderLines>(requestBody);
 
+    /// <summary>
+    /// Same rules as SapForms IssueForProduction / ReceiptFromProduction save:
+    /// production order required, at least one line, IssuedQuantity ≤ PlannedQuantity.
+    /// </summary>
+    public static void ValidateForSave(SapInventoryGenExitRequestOrderLines orderLines)
+    {
+        if (orderLines.ProductionOrder is null)
+            throw new ArgumentException("Production order is required.");
+
+        var lines = orderLines.ProductionOrderLinesEntryNumber;
+        if (lines is null || lines.Count == 0)
+            throw new ArgumentException("At least one production order line is required.");
+
+        if (lines.Any(x => x.IssuedQuantity > x.PlannedQuantity))
+            throw new ArgumentException("Issued quantity cannot exceed planned quantity for any line item.");
+    }
+
     public static IssueForProductionRequests ToIssueEntity(SapInventoryGenExitRequestOrderLines orderLines, string companyDb)
     {
-        var po = orderLines.ProductionOrder
-            ?? throw new ArgumentException("Production order is required.");
+        ValidateForSave(orderLines);
+        var po = orderLines.ProductionOrder!;
 
         return new IssueForProductionRequests
         {
@@ -34,8 +51,8 @@ public static class ProductionRequestMapper
 
     public static ReceiptFromProductionRequests ToReceiptEntity(SapInventoryGenExitRequestOrderLines orderLines, string companyDb)
     {
-        var po = orderLines.ProductionOrder
-            ?? throw new ArgumentException("Production order is required.");
+        ValidateForSave(orderLines);
+        var po = orderLines.ProductionOrder!;
 
         return new ReceiptFromProductionRequests
         {

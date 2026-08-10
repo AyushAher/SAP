@@ -1,7 +1,12 @@
 import { apiListPost } from '@/helpers/api/list'
 import { normalizeProductionOrder, normalizeProductionOrderSelection, normalizeProductionOrders } from '@/helpers/productionOrderMapper'
 import type { PaginationRequest, PaginationResponse } from '@/types/api'
-import type { ProductionOrder, ProductionOrderLine, ProductionOrderSelection } from '@/types/production'
+import type {
+  ProductionOrder,
+  ProductionOrderAddLineResult,
+  ProductionOrderLine,
+  ProductionOrderSelection,
+} from '@/types/production'
 
 export type { ProductionOrder }
 
@@ -32,9 +37,26 @@ export async function selectProductionOrder(absoluteEntry: string) {
   return normalizeProductionOrderSelection(result)
 }
 
-export async function addProductionOrderLine(absoluteEntry: string, line: ProductionOrderLine) {
+export async function addProductionOrderLine(
+  absoluteEntry: string,
+  line: ProductionOrderLine,
+): Promise<ProductionOrderAddLineResult> {
   const { apiPost } = await import('@/helpers/api/client')
-  return apiPost(`/production-orders/${absoluteEntry}/add-line`, line)
+  const { normalizeProductionOrder, normalizeProductionOrderLine } = await import('@/helpers/productionOrderMapper')
+  const result = await apiPost<{
+    AddedLine?: ProductionOrderLine
+    addedLine?: ProductionOrderLine
+    ProductionOrder?: ProductionOrder
+    productionOrder?: ProductionOrder
+  }>(`/production-orders/${absoluteEntry}/add-line`, line)
+
+  const addedRaw = result?.AddedLine ?? result?.addedLine
+  const orderRaw = result?.ProductionOrder ?? result?.productionOrder
+
+  return {
+    AddedLine: normalizeProductionOrderLine((addedRaw ?? line) as ProductionOrderLine),
+    ProductionOrder: orderRaw ? normalizeProductionOrder(orderRaw) : undefined,
+  }
 }
 
 export async function createProductionOrder(data: ProductionOrder, policyRequestId?: number) {
