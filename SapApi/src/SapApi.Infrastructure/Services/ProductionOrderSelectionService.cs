@@ -15,8 +15,9 @@ public class ProductionOrderSelectionService(
         var order = await productionOrdersService.GetProductionOrders(absoluteEntry);
         if (order is null) return null;
 
-        var linesResponse = await productionOrdersService.GetProductionOrderLines(absoluteEntry);
-        order.ProductionOrderLines = linesResponse?.Value ?? [];
+        // Keep Service Layer ProductionOrderLines — do not replace with SQL GetProductionOrderLines.
+        // The SQL query may expose inventory UoM names (e.g. "KG") as UoMCode; SAP ProductionOrders PUT
+        // requires UoMCode to be a whole number (UoM entry). Matches SapForms selection behavior.
 
         if (string.IsNullOrEmpty(order.ProjectName) && !string.IsNullOrEmpty(order.Project))
         {
@@ -60,6 +61,9 @@ public class ProductionOrderSelectionService(
 
         var item = await masterDataService.GetItemByCodeAsync(line.ItemNo ?? string.Empty, cancellationToken: cancellationToken);
         line.ItemName = item?.ItemName;
+        // Omit UoM fields on manual lines — SAP defaults from item master. Never send InventoryUOM names as UoMCode.
+        line.UoMCode = null;
+        line.UoMEntry = null;
 
         var warehouse = await masterDataService.GetWarehouseByCodeAsync(line.Warehouse, cancellationToken: cancellationToken);
         line.LocationCode = warehouse?.Location ?? 0;

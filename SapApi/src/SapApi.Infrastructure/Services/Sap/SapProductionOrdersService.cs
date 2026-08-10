@@ -84,6 +84,8 @@ namespace SapApi.Infrastructure.Services.Sap
                     line.DocumentAbsoluteEntry = order.AbsoluteEntry;
                     line.SerialNumbers = null;
                     line.BatchNumbers = null;
+                    // ProductionOrderLine.UoMCode must be a whole number (UoM entry). Drop inventory UoM names like "KG".
+                    line.UoMCode = SapProductionOrderUoMNormalizer.NormalizeUoMCode(line.UoMCode);
                     return line;
                 })
                 .ToList() ?? [];
