@@ -4,13 +4,58 @@ import { Button, Modal } from '@/Components/ui'
 import { listProductionOrders } from '@/Requests/productionOrders'
 import { createDefaultPaginationRequest } from '@/helpers/api/pagination'
 import { formatCodeWithName } from '@/helpers/masterLookup'
-import { isReleasedProductionOrder } from '@/helpers/productionOrderMapper'
 import type { ProductionOrder } from '@/types/production'
 
 interface ProductionOrderSelectionDialogProps {
   isOpen: boolean
   onClose: () => void
   onSelected: (order: ProductionOrder) => void | Promise<void>
+}
+
+const RELEASED_STATUS = 'boposReleased'
+const PAGE_SIZE = 100
+
+/**
+ * Load every Released production order from SAP (server-side status filter), paging until complete.
+ * Previously only the first page was fetched and then filtered client-side — so Released POs outside
+ * that page never appeared (often looking like "only a handful" on UAT).
+ */
+async function loadAllReleasedProductionOrders(): Promise<ProductionOrder[]> {
+  const all: ProductionOrder[] = []
+  let pageNumber = 1
+  let totalCount = Number.POSITIVE_INFINITY
+
+  while (all.length < totalCount) {
+    const res = await listProductionOrders(
+      createDefaultPaginationRequest({
+        pageNumber,
+        pageSize: PAGE_SIZE,
+        includeTotalCount: true,
+        filters: [{ field: 'Status', operator: 'eq', value: RELEASED_STATUS }],
+        sorts: [{ field: 'AbsoluteEntry', direction: 'desc' }],
+      }),
+    )
+
+    const page = res.data ?? []
+    all.push(...page)
+
+    if (typeof res.totalCount === 'number' && res.totalCount >= 0)
+      totalCount = res.totalCount
+    else if (page.length < PAGE_SIZE)
+      totalCount = all.length
+    else
+      totalCount = all.length + 1 // keep going until a short page
+
+    if (page.length === 0)
+      break
+
+    pageNumber += 1
+    // Safety cap — avoid unbounded loops if SAP count is wrong.
+    if (pageNumber > 50)
+      break
+  }
+
+  return all
 }
 
 export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: ProductionOrderSelectionDialogProps) {
@@ -25,8 +70,8 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     setLoading(true)
     setError(null)
     setSelected(null)
-    listProductionOrders(createDefaultPaginationRequest({ pageSize: 100 }))
-      .then((res) => setRows((res.data ?? []).filter(isReleasedProductionOrder)))
+    loadAllReleasedProductionOrders()
+      .then(setRows)
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load production orders'))
       .finally(() => setLoading(false))
   }, [isOpen])
@@ -96,6 +141,9 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     >
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+      {!loading && !error && (
+        <p className="mb-3 text-sm text-slate-500">{rows.length} released production order(s)</p>
       )}
       <SapDataGrid
         columns={columns}

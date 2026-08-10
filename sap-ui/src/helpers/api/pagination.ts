@@ -11,6 +11,7 @@ export function createDefaultPaginationRequest(
     pageSize: DEFAULT_PAGE_SIZE,
     filters: [],
     sorts: [],
+    includeTotalCount: true,
     ...overrides,
   }
 }

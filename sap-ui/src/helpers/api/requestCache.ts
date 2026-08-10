@@ -31,6 +31,8 @@ export function shouldCacheApiUrl(url: string): boolean {
   if (path.endsWith('/pdf')) return false
   if (path.includes('/pdf?')) return false
   if (path.includes('/purchase-orders')) return false
+  // Live SAP ProductionOrders — do not serve a stale short page from the list cache.
+  if (path.includes('/production-orders')) return false
   return true
 }
 

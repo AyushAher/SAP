@@ -25,7 +25,10 @@ namespace SapApi.Infrastructure.Services.Sap
             PaginationRequest request)
         {
             var sapQueries = SapPaginationBuilder.ToSapQueries(request, SapPaginationProfiles.ProductionOrders);
-            var response = await GetAllProductionOrdersInternal(sapQueries);
+            // GetOrThrowAsync: a swallowed SAP failure would present as an empty/short list and hide
+            // Service Layer errors (wrong $filter field, session, etc.) from the UI.
+            var response = await httpRequestHandler.GetOrThrowAsync<GetAllSapProductionOrdersResponse>(
+                Constants.SapApiUrls.GetAllProductionOrders + sapQueries.GetQueryValue());
             var items = response?.Value ?? [];
             var totalCount = response is null
                 ? 0
@@ -35,7 +38,7 @@ namespace SapApi.Infrastructure.Services.Sap
         }
 
         private Task<GetAllSapProductionOrdersResponse?> GetAllProductionOrdersInternal(SapQueries sapQueries) =>
-            httpRequestHandler.GetAsync<GetAllSapProductionOrdersResponse>(
+            httpRequestHandler.GetOrThrowAsync<GetAllSapProductionOrdersResponse>(
                 Constants.SapApiUrls.GetAllProductionOrders + sapQueries.GetQueryValue());
 
 

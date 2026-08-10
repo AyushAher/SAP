@@ -41,19 +41,31 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions ProductionOrders => new()
     {
-        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus",
+        // Include CustomerCode / DrawingNo / CreationDate so list + Issue/Receipt picker match SapForms columns.
+        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,U_DwgNo,CreationDate",
+        KeyFields = ["AbsoluteEntry"],
         DefaultSortField = "AbsoluteEntry",
         DefaultSortDirection = "desc",
+        SearchOrFields = ["DocumentNumber", "ItemNo", "ProductDescription", "Project", "CustomerCode"],
+        SearchCodeFields = ["DocumentNumber", "ItemNo", "CustomerCode"],
+        NumericSearchCodeFields = ["DocumentNumber"],
+        SearchTextFields = ["ProductDescription", "Project"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["AbsoluteEntry"] = "AbsoluteEntry",
             ["DocumentNumber"] = "DocumentNumber",
             ["ItemNo"] = "ItemNo",
+            ["ItemNumber"] = "ItemNo",
             ["ProductDescription"] = "ProductDescription",
             ["PlannedQuantity"] = "PlannedQuantity",
             ["Project"] = "Project",
             ["Warehouse"] = "Warehouse",
             ["ProductionOrderStatus"] = "ProductionOrderStatus",
+            // UI column key is Status; SAP OData field is ProductionOrderStatus.
+            ["Status"] = "ProductionOrderStatus",
+            ["CustomerCode"] = "CustomerCode",
+            ["DrawingNo"] = "U_DwgNo",
+            ["CreationDate"] = "CreationDate",
         },
     };
 
@@ -154,9 +166,10 @@ public static class SapPaginationProfiles
         KeyFields = ["Code"],
         DefaultSortField = "Code",
         DefaultSortDirection = "asc",
+        // Any-keyword: mid-string match on both Code and Name (not code-prefix only).
         SearchOrFields = ["Code", "Name"],
-        SearchCodeFields = ["Code"],
-        SearchTextFields = ["Name"],
+        SearchCodeFields = [],
+        SearchTextFields = ["Code", "Name"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["Code"] = "Code",
@@ -216,19 +229,21 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions EmployeesInfo => new()
     {
-        Select = "EmployeeID,FirstName,LastName,Active",
+        Select = "EmployeeID,FirstName,LastName,MobilePhone,OfficePhone,HomePhone,Active",
         KeyFields = ["EmployeeID"],
         DefaultSortField = "EmployeeID",
         DefaultSortDirection = "asc",
-        SearchOrFields = ["EmployeeID", "FirstName", "LastName"],
+        SearchOrFields = ["EmployeeID", "FirstName", "LastName", "MobilePhone", "OfficePhone"],
         SearchCodeFields = ["EmployeeID"],
         NumericSearchCodeFields = ["EmployeeID"],
-        SearchTextFields = ["FirstName", "LastName"],
+        SearchTextFields = ["FirstName", "LastName", "MobilePhone", "OfficePhone"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["EmployeeID"] = "EmployeeID",
             ["FirstName"] = "FirstName",
             ["LastName"] = "LastName",
+            ["MobilePhone"] = "MobilePhone",
+            ["OfficePhone"] = "OfficePhone",
         },
     };
 

@@ -26,6 +26,8 @@ export interface PaginationRequest {
   pageNumber: number
   filters: Filter[]
   sorts: Sort[]
+  /** When true, API asks SAP for $inlinecount so totalCount is exact. */
+  includeTotalCount?: boolean
   /**
    * Optional subset of field names actually needed by the caller (e.g. `['ItemCode', 'ItemName']` for
    * a dropdown that only displays a code + label). When omitted, the backend falls back to its default
