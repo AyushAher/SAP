@@ -41,15 +41,15 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions ProductionOrders => new()
     {
-        // Include CustomerCode / DrawingNo / CreationDate so list + Issue/Receipt picker match SapForms columns.
-        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,U_DwgNo,CreationDate",
+        // Include Customer / Project names (UDFs) so Issue/Receipt picker can show and filter them.
+        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,U_DwgNo,U_CustomerName,U_PrjName,CreationDate",
         KeyFields = ["AbsoluteEntry"],
         DefaultSortField = "AbsoluteEntry",
         DefaultSortDirection = "desc",
-        SearchOrFields = ["DocumentNumber", "ItemNo", "ProductDescription", "Project", "CustomerCode"],
+        SearchOrFields = ["DocumentNumber", "ItemNo", "ProductDescription", "Project", "CustomerCode", "U_CustomerName", "U_PrjName"],
         SearchCodeFields = ["DocumentNumber", "ItemNo", "CustomerCode"],
         NumericSearchCodeFields = ["DocumentNumber"],
-        SearchTextFields = ["ProductDescription", "Project"],
+        SearchTextFields = ["ProductDescription", "Project", "U_CustomerName", "U_PrjName"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["AbsoluteEntry"] = "AbsoluteEntry",
@@ -59,11 +59,13 @@ public static class SapPaginationProfiles
             ["ProductDescription"] = "ProductDescription",
             ["PlannedQuantity"] = "PlannedQuantity",
             ["Project"] = "Project",
+            ["ProjectName"] = "U_PrjName",
             ["Warehouse"] = "Warehouse",
             ["ProductionOrderStatus"] = "ProductionOrderStatus",
             // UI column key is Status; SAP OData field is ProductionOrderStatus.
             ["Status"] = "ProductionOrderStatus",
             ["CustomerCode"] = "CustomerCode",
+            ["CustomerName"] = "U_CustomerName",
             ["DrawingNo"] = "U_DwgNo",
             ["CreationDate"] = "CreationDate",
         },
@@ -107,6 +109,22 @@ public static class SapPaginationProfiles
             ["PurchaseVatGroup"] = "PurchaseVATGroup",
             ["ChapterID"] = "ChapterID",
             ["DefaultWarehouse"] = "DefaultWarehouse",
+            ["ItemsGroupCode"] = "ItemsGroupCode",
+        },
+    };
+
+    public static SapPaginationOptions ItemGroups => new()
+    {
+        Select = "Number,GroupName",
+        KeyFields = ["Number"],
+        DefaultSortField = "Number",
+        DefaultSortDirection = "asc",
+        SearchOrFields = ["GroupName"],
+        SearchTextFields = ["GroupName"],
+        FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Number"] = "Number",
+            ["GroupName"] = "GroupName",
         },
     };
 

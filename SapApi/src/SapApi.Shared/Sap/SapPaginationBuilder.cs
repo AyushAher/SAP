@@ -219,17 +219,13 @@ public static class SapPaginationBuilder
             if (string.IsNullOrEmpty(text))
                 return $"{sapField} eq {formatted}";
 
-            if (operatorName == "contains" && LooksLikeMasterCode(text) && IsLikelyCodeField(sapField))
-                return $"{sapField} eq {formatted}";
         }
 
         return operatorName switch
         {
             "eq" => $"{sapField} eq {formatted}",
             "neq" => $"{sapField} ne {formatted}",
-            "contains" => IsLikelyCodeField(sapField)
-                ? $"contains({sapField},{formatted})"
-                : $"startswith({sapField},{formatted})",
+            "contains" => $"contains({sapField},{formatted})",
             "startswith" => $"startswith({sapField},{formatted})",
             "endswith" => $"endswith({sapField},{formatted})",
             "gt" => $"{sapField} gt {formatted}",

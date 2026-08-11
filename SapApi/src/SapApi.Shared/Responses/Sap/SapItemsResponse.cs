@@ -7,6 +7,17 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("value")] public List<ItemsResponse>? Value { get; set; }
     }
 
+    public record SapItemGroupsResponse : SapBaseResponse
+    {
+        [JsonPropertyName("value")] public List<SapItemGroupResponse>? Value { get; set; }
+    }
+
+    public record SapItemGroupResponse
+    {
+        [JsonPropertyName("Number")] public int Number { get; set; }
+        [JsonPropertyName("GroupName")] public string? GroupName { get; set; }
+    }
+
     public record ItemsResponse
     {
         [JsonPropertyName("ItemCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ItemCode { get; set; }

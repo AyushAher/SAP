@@ -35,7 +35,7 @@ export function normalizeProductionOrder(raw: ProductionOrder | Record<string, u
     CustomerCode: readString(source, 'CustomerCode', 'customerCode'),
     CustomerName: readString(source, 'CustomerName', 'customerName', 'U_CustomerName', 'u_CustomerName'),
     Project: readString(source, 'Project', 'project'),
-    ProjectName: readString(source, 'ProjectName', 'projectName'),
+    ProjectName: readString(source, 'ProjectName', 'projectName', 'U_PrjName', 'u_PrjName'),
     Warehouse: readString(source, 'Warehouse', 'warehouse'),
     DrawingNo: readString(source, 'DrawingNo', 'drawingNo', 'U_DwgNo', 'u_DwgNo'),
     CreationDate: readString(source, 'CreationDate', 'creationDate'),
@@ -80,5 +80,6 @@ export function normalizeProductionOrderSelection(raw: unknown): ProductionOrder
     ProductionOrderLinesEntryNumber: Array.isArray(linesRaw)
       ? linesRaw.map((line) => normalizeProductionOrderLine(line as ProductionOrderLine))
       : [],
+    WorkerName: readString(source, 'WorkerName', 'workerName'),
   }
 }

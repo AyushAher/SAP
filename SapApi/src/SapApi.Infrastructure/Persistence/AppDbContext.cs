@@ -270,6 +270,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.ConfigureSoftDeleteProperty();
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CreatedByUserName).HasMaxLength(150);
+            entity.Property(x => x.WorkerName).HasMaxLength(200);
             entity.HasIndex(x => x.CompanyDb);
         });
 

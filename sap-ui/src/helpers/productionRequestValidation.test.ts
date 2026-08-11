@@ -31,10 +31,10 @@ describe('validateProductionRequestForSave', () => {
     ).toBe('Please select a production order.')
   })
 
-  it('requires at least one line', () => {
+  it('allows saving with no lines so items can be added afterwards', () => {
     expect(
       validateProductionRequestForSave(selection({ ProductionOrderLinesEntryNumber: [] })),
-    ).toBe('At least one production order line is required.')
+    ).toBeNull()
   })
 
   it('rejects issued quantity above planned', () => {

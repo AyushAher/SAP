@@ -32,8 +32,8 @@
         [JsonPropertyName("CompletedQuantity")]
         public double CompletedQuantity { get; set; }
 
-        [JsonPropertyName("U_CustomerName"), JsonIgnore]
-        public string CustomerName { get; set; } = "";
+        [JsonPropertyName("U_CustomerName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CustomerName { get; set; }
 
         [JsonPropertyName("U_DwgNo")]
         public string DrawingNo { get; set; } = "";

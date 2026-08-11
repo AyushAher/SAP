@@ -203,6 +203,7 @@ namespace SapApi.Shared
             public static string GetAllItems = SapServiceLayerUrl + SapBaseUrl +
                                                "/Items?$select=ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight";
             public static string ItemsCollection = SapServiceLayerUrl + SapBaseUrl + "/Items";
+            public static string ItemGroupsCollection = SapServiceLayerUrl + SapBaseUrl + "/ItemGroups";
             public static string WarehousesCollection = SapServiceLayerUrl + SapBaseUrl + "/Warehouses";
             public static string SalesTaxCodesCollection = SapServiceLayerUrl + SapBaseUrl + "/SalesTaxCodes";
             public static string ProjectsCollection = SapServiceLayerUrl + SapBaseUrl + "/Projects";

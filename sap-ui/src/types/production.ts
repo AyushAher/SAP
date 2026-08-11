@@ -41,6 +41,7 @@ export interface ProductionOrder {
 export interface ProductionOrderSelection {
   ProductionOrder: ProductionOrder
   ProductionOrderLinesEntryNumber: ProductionOrderLine[]
+  WorkerName?: string
 }
 
 export interface ProductionOrderAddLineResult {

@@ -73,10 +73,32 @@ export function ProductionOrderLinesDialog({ isOpen, order, onClose, onConfirm }
     })
   }, [])
 
+  const allSelected = lines.length > 0 && lines.every((line) => isLineSelected(line))
+  const someSelected = lines.some((line) => isLineSelected(line))
+
+  const toggleAll = useCallback(() => {
+    setSelected((prev) => {
+      const all = lines.length > 0 && lines.every((line) => prev.some((x) => lineKey(x) === lineKey(line)))
+      return all ? [] : [...lines]
+    })
+  }, [lines])
+
   const columns: SapColumn<ProductionOrderLine>[] = [
     {
       key: 'select',
-      header: '',
+      header: (
+        <input
+          type="checkbox"
+          checked={allSelected}
+          ref={(el) => {
+            if (el) el.indeterminate = someSelected && !allSelected
+          }}
+          onChange={toggleAll}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Select all items"
+          title="Select all"
+        />
+      ),
       render: (row) => (
         <input
           type="checkbox"

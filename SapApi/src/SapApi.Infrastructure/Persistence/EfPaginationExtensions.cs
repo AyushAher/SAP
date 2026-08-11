@@ -9,10 +9,11 @@ public static class EfPaginationExtensions
     public static async Task<(List<T> Items, int TotalCount)> ToPaginatedListAsync<T>(
         this IQueryable<T> query,
         PaginationRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string[]>? orFieldAliases = null)
         where T : class
     {
-        query = ApplyFilters(query, request.Filters);
+        query = ApplyFilters(query, request.Filters, orFieldAliases);
         var totalCount = await query.CountAsync(cancellationToken);
         query = ApplySorts(query, request.Sorts);
 
@@ -23,12 +24,23 @@ public static class EfPaginationExtensions
         return (items, totalCount);
     }
 
-    private static IQueryable<T> ApplyFilters<T>(IQueryable<T> query, List<FilterModel> filters)
+    private static IQueryable<T> ApplyFilters<T>(
+        IQueryable<T> query,
+        List<FilterModel> filters,
+        IReadOnlyDictionary<string, string[]>? orFieldAliases)
     {
         foreach (var filter in filters)
         {
             if (filter.Value is null || string.IsNullOrWhiteSpace(filter.Value.ToString()))
                 continue;
+
+            if (orFieldAliases is not null
+                && orFieldAliases.TryGetValue(filter.Field, out var aliasedFields)
+                && aliasedFields.Length > 0)
+            {
+                query = ApplyOrContainsFilter(query, aliasedFields, filter);
+                continue;
+            }
 
             var property = typeof(T).GetProperty(filter.Field, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
             if (property is null)
@@ -38,6 +50,34 @@ public static class EfPaginationExtensions
         }
 
         return query;
+    }
+
+    private static IQueryable<T> ApplyOrContainsFilter<T>(IQueryable<T> query, string[] fieldNames, FilterModel filter)
+    {
+        var parameter = Expression.Parameter(typeof(T), "x");
+        Expression? combined = null;
+        var textValue = filter.Value?.ToString() ?? string.Empty;
+
+        foreach (var fieldName in fieldNames)
+        {
+            var property = typeof(T).GetProperty(fieldName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (property is null)
+                continue;
+
+            if (property.PropertyType != typeof(string))
+                continue;
+
+            var member = Expression.Property(parameter, property);
+            Expression clause = BuildCaseInsensitiveStringContains(member, textValue);
+
+            combined = combined is null ? clause : Expression.OrElse(combined, clause);
+        }
+
+        if (combined is null)
+            return query;
+
+        var lambda = Expression.Lambda<Func<T, bool>>(combined, parameter);
+        return query.Where(lambda);
     }
 
     private static IQueryable<T> ApplyFilter<T>(IQueryable<T> query, PropertyInfo property, FilterModel filter)

@@ -9,10 +9,6 @@ export function validateProductionRequestForSave(
   }
 
   const lines = selection.ProductionOrderLinesEntryNumber ?? []
-  if (lines.length === 0) {
-    return 'At least one production order line is required.'
-  }
-
   if (lines.some((line) => (line.IssuedQuantity ?? 0) > (line.PlannedQuantity ?? 0))) {
     return 'Issued quantity cannot exceed planned quantity for any line item.'
   }

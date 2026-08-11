@@ -4,6 +4,7 @@ import { PageHeader } from "@/Components/shared/PageHeader";
 import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } from "@/Components/shared/RowActions";
 import { DataTable, type DataTableColumn } from "@/Components/ui";
 import { ROUTES } from "@/config/constants";
+import { formatDate } from "@/helpers/lib/utils";
 import { formatCodeWithName } from "@/helpers/masterLookup";
 import { useEnrichedListFetch } from "@/hooks/useEnrichedListFetch";
 import {
@@ -39,15 +40,29 @@ export function IssueForProductionListPage() {
         accessor: (r) => r.id,
       },
       {
-        key: "cardCode",
-        header: "Customer",
+        key: "cardName",
+        header: "Customer Name",
         sortable: true,
         filterable: true,
+        filterOperator: "contains",
         accessor: (r) =>
-          formatCodeWithName(
-            r.cardCode,
-            r.cardName ?? lookupMaps.businessPartners[r.cardCode],
-          ),
+          r.cardName
+          || lookupMaps.businessPartners[r.cardCode]
+          || r.cardCode,
+      },
+      {
+        key: "createdOnUtc",
+        header: "Request Date",
+        sortable: true,
+        accessor: (r) => (r.createdOnUtc ? formatDate(r.createdOnUtc) : "—"),
+      },
+      {
+        key: "createdByUserName",
+        header: "Username",
+        sortable: true,
+        filterable: true,
+        filterOperator: "contains",
+        accessor: (r) => r.createdByUserName || "—",
       },
       {
         key: "project",
@@ -65,6 +80,7 @@ export function IssueForProductionListPage() {
         header: "Item",
         sortable: true,
         filterable: true,
+        filterOperator: "contains",
         accessor: (r) =>
           formatCodeWithName(
             r.itemNo,

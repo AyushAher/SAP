@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { DataTable, type DataTableColumn } from '@/Components/ui'
 import { Button, Modal } from '@/Components/ui'
 import { listProductionOrders } from '@/Requests/productionOrders'
-import { createDefaultPaginationRequest } from '@/helpers/api/pagination'
 import { formatCodeWithName } from '@/helpers/masterLookup'
+import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
+import type { PaginationRequest } from '@/types/api'
 import type { ProductionOrder } from '@/types/production'
 
 interface ProductionOrderSelectionDialogProps {
@@ -13,75 +14,41 @@ interface ProductionOrderSelectionDialogProps {
 }
 
 const RELEASED_STATUS = 'boposReleased'
-const PAGE_SIZE = 100
-
-/**
- * Load every Released production order from SAP (server-side status filter), paging until complete.
- * Previously only the first page was fetched and then filtered client-side — so Released POs outside
- * that page never appeared (often looking like "only a handful" on UAT).
- */
-async function loadAllReleasedProductionOrders(): Promise<ProductionOrder[]> {
-  const all: ProductionOrder[] = []
-  let pageNumber = 1
-  let totalCount = Number.POSITIVE_INFINITY
-
-  while (all.length < totalCount) {
-    const res = await listProductionOrders(
-      createDefaultPaginationRequest({
-        pageNumber,
-        pageSize: PAGE_SIZE,
-        includeTotalCount: true,
-        filters: [{ field: 'Status', operator: 'eq', value: RELEASED_STATUS }],
-        sorts: [{ field: 'AbsoluteEntry', direction: 'desc' }],
-      }),
-    )
-
-    const page = res.data ?? []
-    all.push(...page)
-
-    if (typeof res.totalCount === 'number' && res.totalCount >= 0)
-      totalCount = res.totalCount
-    else if (page.length < PAGE_SIZE)
-      totalCount = all.length
-    else
-      totalCount = all.length + 1 // keep going until a short page
-
-    if (page.length === 0)
-      break
-
-    pageNumber += 1
-    // Safety cap — avoid unbounded loops if SAP count is wrong.
-    if (pageNumber > 50)
-      break
-  }
-
-  return all
-}
 
 export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: ProductionOrderSelectionDialogProps) {
-  const [rows, setRows] = useState<ProductionOrder[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<ProductionOrder | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
-    setLoading(true)
-    setError(null)
     setSelected(null)
-    loadAllReleasedProductionOrders()
-      .then(setRows)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load production orders'))
-      .finally(() => setLoading(false))
+    setError(null)
   }, [isOpen])
+
+  const fetchReleased = useCallback(async (request: PaginationRequest) => {
+    const filters = [
+      { field: 'Status', operator: 'eq' as const, value: RELEASED_STATUS },
+      ...(request.filters ?? []).filter((f) => f.field.toLowerCase() !== 'status'),
+    ]
+    return listProductionOrders({
+      ...request,
+      filters,
+      includeTotalCount: true,
+    })
+  }, [])
+
+  const { fetchData, lookupMaps } = useEnrichedListFetch(fetchReleased, {
+    projectCodes: (row) => row.Project,
+    cardCodes: (row) => row.CustomerCode,
+  })
 
   const isSelected = useCallback(
     (row: ProductionOrder) => selected?.AbsoluteEntry != null && selected.AbsoluteEntry === row.AbsoluteEntry,
     [selected],
   )
 
-  const columns: SapColumn<ProductionOrder>[] = [
+  const columns = useMemo<DataTableColumn<ProductionOrder>[]>(() => [
     {
       key: 'select',
       header: '',
@@ -95,20 +62,65 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
         />
       ),
     },
-    { key: 'DocumentNumber', header: 'Production Order No.', accessor: (r) => r.DocumentNumber },
-    { key: 'Status', header: 'Status', accessor: (r) => r.Status ?? '—' },
+    {
+      key: 'DocumentNumber',
+      header: 'Production Order No.',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) => r.DocumentNumber,
+    },
+    {
+      key: 'Status',
+      header: 'Status',
+      sortable: true,
+      accessor: (r) => r.Status ?? '—',
+    },
     {
       key: 'Project',
       header: 'Project',
-      accessor: (r) => formatCodeWithName(r.Project, r.ProjectName),
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) => r.Project,
+    },
+    {
+      key: 'ProjectName',
+      header: 'Project Name',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) => r.ProjectName ?? lookupMaps.projects[r.Project ?? ''] ?? '—',
+    },
+    {
+      key: 'CustomerName',
+      header: 'Business Partner Name',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) =>
+        r.CustomerName
+        ?? lookupMaps.businessPartners[r.CustomerCode ?? '']
+        ?? r.CustomerCode
+        ?? '—',
     },
     {
       key: 'ItemNumber',
       header: 'Product',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
       accessor: (r) => formatCodeWithName(r.ItemNumber, r.ProductDescription),
     },
-    { key: 'DrawingNo', header: 'Drawing No.', accessor: (r) => r.DrawingNo },
-  ]
+    {
+      key: 'DrawingNo',
+      header: 'Drawing No.',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) => r.DrawingNo,
+    },
+  ], [isSelected, lookupMaps])
 
   const handleConfirm = useCallback(async () => {
     if (!selected?.AbsoluteEntry) return
@@ -124,15 +136,21 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     }
   }, [onClose, onSelected, selected])
 
+  const handleClose = useCallback(() => {
+    setSelected(null)
+    setError(null)
+    onClose()
+  }, [onClose])
+
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       title="Select Production Order"
       size="full"
       footer={(
         <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={onClose} disabled={confirming}>Cancel</Button>
+          <Button variant="outline" onClick={handleClose} disabled={confirming}>Cancel</Button>
           <Button onClick={handleConfirm} disabled={!selected || confirming} isLoading={confirming}>
             Select Production Order
           </Button>
@@ -142,19 +160,16 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
-      {!loading && !error && (
-        <p className="mb-3 text-sm text-slate-500">{rows.length} released production order(s)</p>
+      {isOpen && (
+        <DataTable
+          columns={columns}
+          fetchData={fetchData}
+          getRowKey={(row) => row.AbsoluteEntry ?? row.DocumentNumber ?? Math.random()}
+          onRowClick={setSelected}
+          emptyMessage="No released production orders found"
+          defaultPageSize={20}
+        />
       )}
-      <SapDataGrid
-        columns={columns}
-        data={rows}
-        loading={loading}
-        getRowKey={(row) => row.AbsoluteEntry ?? row.DocumentNumber ?? Math.random()}
-        emptyMessage="No released production orders found"
-        onRowClick={setSelected}
-        isRowSelected={isSelected}
-        maxHeight="55vh"
-      />
     </Modal>
   )
 }

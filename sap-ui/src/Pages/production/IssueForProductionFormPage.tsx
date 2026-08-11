@@ -14,6 +14,8 @@ export function IssueForProductionFormPage() {
       loadOrderLines={getIssueForProductionOrderLines}
       saveOrderLines={saveIssueForProduction}
       downloadPdf={downloadIssueForProductionPdf}
+      showWorkerName
+      consumableItemsOnly
     />
   )
 }

@@ -7,7 +7,7 @@ import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
 import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
 import { Button, Card, CardContent, Input, SearchableSelect } from '@/Components/ui'
-import { searchItems, searchWarehouses, formatWarehouseOptionLabel } from '@/Requests/masters'
+import { searchItems, searchWarehouses, formatWarehouseOptionLabel, CONSUMABLES_ITEM_GROUP_FILTER } from '@/Requests/masters'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import { addProductionOrderLine, selectProductionOrder } from '@/Requests/productionOrders'
@@ -24,6 +24,8 @@ interface ProductionRequestFormProps {
   loadOrderLines: (id: number) => Promise<ProductionOrderSelection | null>
   saveOrderLines: (orderLines: ProductionOrderSelection, id?: number) => Promise<{ id?: number }>
   downloadPdf?: (id: number) => Promise<void>
+  showWorkerName?: boolean
+  consumableItemsOnly?: boolean
 }
 
 const emptyLine = (): ProductionOrderLine => ({
@@ -39,6 +41,8 @@ export function ProductionRequestForm({
   loadOrderLines,
   saveOrderLines,
   downloadPdf,
+  showWorkerName = false,
+  consumableItemsOnly = false,
 }: ProductionRequestFormProps) {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -54,6 +58,7 @@ export function ProductionRequestForm({
   const [addingLine, setAddingLine] = useState(false)
   const [loading, setLoading] = useState(!!id)
   const [saving, setSaving] = useState(false)
+  const [workerName, setWorkerName] = useState('')
 
   const lineItemCodes = useMemo(
     () => [
@@ -71,6 +76,7 @@ export function ProductionRequestForm({
         if (data) {
           setSelection(data)
           setProjectName(data.ProductionOrder?.ProjectName ?? '')
+          setWorkerName(data.WorkerName ?? '')
         }
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load request'))
@@ -78,12 +84,17 @@ export function ProductionRequestForm({
   }, [id, loadOrderLines])
 
   const searchItemOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchItems(search)
+    const response = await searchItems(
+      search,
+      20,
+      undefined,
+      consumableItemsOnly ? [CONSUMABLES_ITEM_GROUP_FILTER] : [],
+    )
     return (response.data ?? []).map((item) => ({
       value: item.ItemCode ?? '',
       label: `${item.ItemCode ?? ''} - ${item.ItemName ?? ''}`.trim(),
     })).filter((o) => o.value)
-  }, [])
+  }, [consumableItemsOnly])
 
   const searchWarehouseOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
     const response = await searchWarehouses(search)
@@ -215,7 +226,10 @@ export function ProductionRequestForm({
     setSaving(true)
     setError(null)
     try {
-      await saveOrderLines(selection!, id ? Number(id) : undefined)
+      await saveOrderLines(
+        { ...selection!, WorkerName: workerName },
+        id ? Number(id) : undefined,
+      )
       navigate(listRoute)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -236,6 +250,19 @@ export function ProductionRequestForm({
       />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+
+      {showWorkerName && (
+        <Card>
+          <CardContent className="pt-6">
+            <Input
+              label="Worker Name"
+              value={workerName}
+              onChange={(e) => setWorkerName(e.target.value)}
+              placeholder="Enter worker name"
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <ProductionOrderDetailsPanel order={selection?.ProductionOrder} projectName={projectName} />
 

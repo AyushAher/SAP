@@ -1,12 +1,12 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/Components/ui'
 import { Spinner } from '@/Components/ui'
 import { rowActionsCellClassName, rowActionsHeaderClassName } from '@/Components/shared/RowActions'
 
 export interface SapColumn<T> {
   key: string
-  header: string
-  render?: (row: T) => React.ReactNode
+  header: ReactNode
+  render?: (row: T) => ReactNode
   accessor?: (row: T) => string | number | null | undefined
 }
 

@@ -1,6 +1,6 @@
 import { apiListPost } from '@/helpers/api/list'
 import { createMasterSearchRequest } from '@/helpers/api/masterSearch'
-import type { PaginationRequest, PaginationResponse } from '@/types/api'
+import type { Filter, PaginationRequest, PaginationResponse } from '@/types/api'
 
 export interface MasterItem {
   ItemCode?: string
@@ -209,8 +209,23 @@ function normalizeLookupResult(raw: Record<string, unknown>): MasterLookupResult
   }
 }
 
-async function searchMaster<T>(url: string, search: string, pageSize = 20, fields?: string[]) {
-  return apiListPost<T>(url, createMasterSearchRequest(search, { pageSize, fields }))
+async function searchMaster<T>(
+  url: string,
+  search: string,
+  pageSize = 20,
+  fields?: string[],
+  extraFilters: Filter[] = [],
+) {
+  const request = createMasterSearchRequest(search, { pageSize, fields })
+  if (extraFilters.length > 0)
+    request.filters = [...(request.filters ?? []), ...extraFilters]
+  return apiListPost<T>(url, request)
+}
+
+export const CONSUMABLES_ITEM_GROUP_FILTER: Filter = {
+  field: 'ItemsGroupName',
+  operator: 'contains',
+  value: 'Consumable',
 }
 
 export const ITEM_DROPDOWN_FIELDS = ['ItemCode', 'ItemName']
@@ -233,8 +248,13 @@ export const TAX_CODE_DROPDOWN_FIELDS = ['Code', 'Name', 'Rate']
 export const PROJECT_DROPDOWN_FIELDS = ['Code', 'Name']
 export const GL_ACCOUNT_DROPDOWN_FIELDS = ['Code', 'Name']
 
-export function searchItems(search: string, pageSize = 20, fields: string[] = ITEM_DROPDOWN_FIELDS) {
-  return searchMaster<MasterItem>('/masters/items/list', search, pageSize, fields).then((res) => ({
+export function searchItems(
+  search: string,
+  pageSize = 20,
+  fields: string[] = ITEM_DROPDOWN_FIELDS,
+  extraFilters: Filter[] = [],
+) {
+  return searchMaster<MasterItem>('/masters/items/list', search, pageSize, fields, extraFilters).then((res) => ({
     ...res,
     data: (res.data ?? []).map((row) => normalizeItem(row as MasterItem)).filter(Boolean) as MasterItem[],
   }))

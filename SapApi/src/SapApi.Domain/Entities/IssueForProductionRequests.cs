@@ -13,5 +13,8 @@ namespace SapApi.Domain.Entities
         public string Status { get; set; } = string.Empty;
         public string ItemNo { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
+        public DateTime CreatedOnUtc { get; set; }
+        public string CreatedByUserName { get; set; } = string.Empty;
+        public string WorkerName { get; set; } = string.Empty;
     }
 }

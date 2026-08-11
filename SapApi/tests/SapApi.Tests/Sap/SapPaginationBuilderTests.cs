@@ -29,7 +29,7 @@ public class SapPaginationBuilderTests
         query.Skip.Should().Be("10");
         query.InlineCount.Should().BeFalse();
         query.Filter.Should().Contain("DocDate ge '2026-01-01'");
-        query.Filter.Should().Contain("startswith(CardName,'Acme')");
+        query.Filter.Should().Contain("contains(CardName,'Acme')");
         query.OrderBy.Should().Be("DocNum desc");
         query.GetQueryValue().Should().NotContain("$inlinecount=allpages");
     }

@@ -38,13 +38,100 @@ public class SapMasterDataService(
     private static readonly string[] ProjectLookupKeyFields = ["Code"];
     private static readonly string[] BusinessPlaceLookupKeyFields = ["BPLID"];
 
-    public Task<PaginationResponse<List<ItemsResponse>>> SearchItemsAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>
-        SearchAsync<SapItemsResponse, ItemsResponse>(
+    public async Task<PaginationResponse<List<ItemsResponse>>> SearchItemsAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var (profile, filteredRequest) = await ApplyItemGroupNameFilterAsync(request, cancellationToken);
+        if (profile is null)
+        {
+            var normalized = PaginationRequest.Normalize(filteredRequest);
+            return PaginationResponseFactory.Create(normalized, new List<ItemsResponse>(), 0);
+        }
+
+        return await SearchAsync<SapItemsResponse, ItemsResponse>(
             Constants.SapApiUrls.ItemsCollection,
-            SapPaginationProfiles.Items,
-            request,
+            profile,
+            filteredRequest,
             r => r?.Value,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Translates ItemsGroupName (e.g. "Consumable") into ItemsGroupCode OData filters.
+    /// Returns profile=null when the named group does not exist so callers get an empty page
+    /// instead of unfiltered items.
+    /// </summary>
+    private async Task<(SapPaginationOptions? Profile, PaginationRequest Request)> ApplyItemGroupNameFilterAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var groupNameFilters = request.Filters
+            .Where(f => f.Field.Equals("ItemsGroupName", StringComparison.OrdinalIgnoreCase)
+                        || f.Field.Equals("ItemGroupName", StringComparison.OrdinalIgnoreCase)
+                        || f.Field.Equals("GroupName", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (groupNameFilters.Count == 0)
+            return (SapPaginationProfiles.Items, request);
+
+        var remaining = request.Filters
+            .Where(f => !groupNameFilters.Contains(f))
+            .ToList();
+
+        var groupCodes = new HashSet<int>();
+        foreach (var filter in groupNameFilters)
+        {
+            var name = filter.Value?.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            var groups = await SearchAsync<SapItemGroupsResponse, SapItemGroupResponse>(
+                Constants.SapApiUrls.ItemGroupsCollection,
+                SapPaginationProfiles.ItemGroups,
+                new PaginationRequest
+                {
+                    PageNumber = 1,
+                    PageSize = 20,
+                    Filters = [new FilterModel { Field = "GroupName", Operator = "contains", Value = name }],
+                },
+                r => r?.Value,
+                cancellationToken);
+
+            foreach (var group in groups.Data ?? [])
+                groupCodes.Add(group.Number);
+        }
+
+        request.Filters = remaining;
+
+        if (groupCodes.Count == 0)
+            return (null, request);
+
+        var groupFilter = string.Join(" or ", groupCodes.Select(code => $"ItemsGroupCode eq {code}"));
+        var profile = WithBaseFilter(SapPaginationProfiles.Items, groupFilter);
+        return (profile, request);
+    }
+
+    private static SapPaginationOptions WithBaseFilter(SapPaginationOptions source, string extraFilter)
+    {
+        var combined = string.IsNullOrWhiteSpace(source.BaseFilter)
+            ? $"({extraFilter})"
+            : $"({source.BaseFilter}) and ({extraFilter})";
+
+        return new SapPaginationOptions
+        {
+            BaseFilter = combined,
+            Select = source.Select,
+            KeyFields = source.KeyFields,
+            FieldMap = source.FieldMap,
+            DefaultSortField = source.DefaultSortField,
+            DefaultSortDirection = source.DefaultSortDirection,
+            SearchOrFields = source.SearchOrFields,
+            SearchCodeFields = source.SearchCodeFields,
+            NumericSearchCodeFields = source.NumericSearchCodeFields,
+            SearchTextFields = source.SearchTextFields,
+        };
+    }
 
     public Task<PaginationResponse<List<WarehouseResponse>>> SearchWarehousesAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>
         SearchAsync<SapWarehousesResponse, WarehouseResponse>(

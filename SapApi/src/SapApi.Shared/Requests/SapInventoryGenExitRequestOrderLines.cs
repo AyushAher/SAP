@@ -6,6 +6,7 @@ namespace SapApi.Shared.Requests
     {
         public SapProductionOrdersResponse ProductionOrder { get; set; }
         public List<SapProductionOrderLines> ProductionOrderLinesEntryNumber { get; set; } = [];
+        public string? WorkerName { get; set; }
     }
 
     public class SapInventoryGenExitRequestOrderRequest

@@ -25,9 +25,15 @@ public static class ProductionRequestMapper
         string? cardName,
         string? status,
         string? itemNo,
-        string? itemName)
+        string? itemName,
+        string? workerName = null)
     {
-        if (orderLines?.ProductionOrder is null) return orderLines;
+        if (orderLines is null) return orderLines;
+
+        if (string.IsNullOrWhiteSpace(orderLines.WorkerName) && !string.IsNullOrWhiteSpace(workerName))
+            orderLines.WorkerName = workerName;
+
+        if (orderLines.ProductionOrder is null) return orderLines;
 
         var po = orderLines.ProductionOrder;
         if (string.IsNullOrWhiteSpace(po.Project) && !string.IsNullOrWhiteSpace(project))
@@ -49,23 +55,23 @@ public static class ProductionRequestMapper
     }
 
     /// <summary>
-    /// Same rules as SapForms IssueForProduction / ReceiptFromProduction save:
-    /// production order required, at least one line, IssuedQuantity ≤ PlannedQuantity.
+    /// Production order required; lines may be empty so items can be added afterwards.
+    /// When lines are present, IssuedQuantity ≤ PlannedQuantity.
     /// </summary>
     public static void ValidateForSave(SapInventoryGenExitRequestOrderLines orderLines)
     {
         if (orderLines.ProductionOrder is null)
             throw new ArgumentException("Production order is required.");
 
-        var lines = orderLines.ProductionOrderLinesEntryNumber;
-        if (lines is null || lines.Count == 0)
-            throw new ArgumentException("At least one production order line is required.");
-
+        var lines = orderLines.ProductionOrderLinesEntryNumber ?? [];
         if (lines.Any(x => x.IssuedQuantity > x.PlannedQuantity))
             throw new ArgumentException("Issued quantity cannot exceed planned quantity for any line item.");
     }
 
-    public static IssueForProductionRequests ToIssueEntity(SapInventoryGenExitRequestOrderLines orderLines, string companyDb)
+    public static IssueForProductionRequests ToIssueEntity(
+        SapInventoryGenExitRequestOrderLines orderLines,
+        string companyDb,
+        string? createdByUserName = null)
     {
         ValidateForSave(orderLines);
         var po = orderLines.ProductionOrder!;
@@ -81,6 +87,9 @@ public static class ProductionRequestMapper
             Status = po.Status ?? string.Empty,
             ItemNo = po.ItemNumber ?? string.Empty,
             ItemName = po.ProductDescription ?? string.Empty,
+            CreatedOnUtc = DateTime.UtcNow,
+            CreatedByUserName = createdByUserName ?? string.Empty,
+            WorkerName = orderLines.WorkerName ?? string.Empty,
         };
     }
 
@@ -106,6 +115,16 @@ public static class ProductionRequestMapper
 
 public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDbAccessor companyDbAccessor)
 {
+    private static readonly Dictionary<string, string[]> ListOrFieldAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["itemNo"] = ["ItemNo", "ItemName"],
+        ["itemName"] = ["ItemNo", "ItemName"],
+        ["cardCode"] = ["CardCode", "CardName"],
+        ["cardName"] = ["CardCode", "CardName"],
+        ["createdByUserName"] = ["CreatedByUserName"],
+        ["userName"] = ["CreatedByUserName"],
+    };
+
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
 
     public async Task<(IReadOnlyList<IssueForProductionRequests> Items, int TotalCount)> ListAsync(
@@ -116,7 +135,7 @@ public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDb
         return await db.IssueForProductionRequests.AsNoTracking()
             .Where(x => x.CompanyDb == CompanyDb)
             .OrderByDescending(x => x.Id)
-            .ToPaginatedListAsync(normalized, cancellationToken);
+            .ToPaginatedListAsync(normalized, cancellationToken, ListOrFieldAliases);
     }
 
     public Task<IssueForProductionRequests?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
@@ -126,11 +145,12 @@ public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDb
     public async Task<IssueForProductionRequests> SaveAsync(
         SapInventoryGenExitRequestOrderLines orderLines,
         int? id,
+        string? createdByUserName,
         CancellationToken cancellationToken)
     {
         if (id is null or <= 0)
         {
-            var entity = ProductionRequestMapper.ToIssueEntity(orderLines, CompanyDb);
+            var entity = ProductionRequestMapper.ToIssueEntity(orderLines, CompanyDb, createdByUserName);
             await db.IssueForProductionRequests.AddAsync(entity, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             return entity;
@@ -140,7 +160,7 @@ public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDb
             .FirstOrDefaultAsync(x => x.Id == id && x.CompanyDb == CompanyDb, cancellationToken)
             ?? throw new KeyNotFoundException("Issue for production request not found.");
 
-        var mapped = ProductionRequestMapper.ToIssueEntity(orderLines, CompanyDb);
+        var mapped = ProductionRequestMapper.ToIssueEntity(orderLines, CompanyDb, createdByUserName);
         existing.RequestBody = mapped.RequestBody;
         existing.CardCode = mapped.CardCode;
         existing.CardName = mapped.CardName;
@@ -149,6 +169,7 @@ public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDb
         existing.Status = mapped.Status;
         existing.ItemNo = mapped.ItemNo;
         existing.ItemName = mapped.ItemName;
+        existing.WorkerName = mapped.WorkerName;
         await db.SaveChangesAsync(cancellationToken);
         return existing;
     }

@@ -53,15 +53,27 @@ public class ProductionRequestMapperTests
     }
 
     [Test]
-    public void ValidateForSave_rejects_empty_lines()
+    public void ValidateForSave_allows_empty_lines()
     {
         var orderLines = ValidOrderLines();
         orderLines.ProductionOrderLinesEntryNumber = [];
 
         var act = () => ProductionRequestMapper.ValidateForSave(orderLines);
 
-        act.Should().Throw<ArgumentException>()
-            .WithMessage("At least one production order line is required.");
+        act.Should().NotThrow();
+    }
+
+    [Test]
+    public void ToIssueEntity_persists_worker_name_and_creator()
+    {
+        var orderLines = ValidOrderLines();
+        orderLines.WorkerName = "Ramesh";
+
+        var issue = ProductionRequestMapper.ToIssueEntity(orderLines, "TEST_DB", "Sandeep Bagul");
+
+        issue.WorkerName.Should().Be("Ramesh");
+        issue.CreatedByUserName.Should().Be("Sandeep Bagul");
+        issue.CreatedOnUtc.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
     }
 
     [Test]

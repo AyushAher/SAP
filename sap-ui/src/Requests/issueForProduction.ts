@@ -14,6 +14,9 @@ export interface IssueForProductionRequest {
   status: string
   itemNo: string
   itemName: string
+  createdOnUtc?: string
+  createdByUserName?: string
+  workerName?: string
 }
 
 export async function listIssueForProduction(request: PaginationRequest): Promise<PaginationResponse<IssueForProductionRequest[]>> {
