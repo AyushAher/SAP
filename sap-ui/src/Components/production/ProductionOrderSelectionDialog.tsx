@@ -87,7 +87,6 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     {
       key: 'ProjectName',
       header: 'Project Name',
-      sortable: true,
       filterable: true,
       filterOperator: 'contains',
       accessor: (r) => r.ProjectName ?? lookupMaps.projects[r.Project ?? ''] ?? '—',
@@ -95,7 +94,6 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     {
       key: 'CustomerName',
       header: 'Business Partner Name',
-      sortable: true,
       filterable: true,
       filterOperator: 'contains',
       accessor: (r) =>

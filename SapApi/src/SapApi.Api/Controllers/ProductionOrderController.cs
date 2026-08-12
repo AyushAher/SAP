@@ -14,8 +14,8 @@ namespace SapApi.Api.Controllers;
 public class ProductionOrderController(SapProductionOrdersService service) : ControllerBase
 {
     [HttpPost("list")]
-    public async Task<IActionResult> List([FromBody] PaginationRequest? request) =>
-        Ok(await service.GetAllProductionOrdersPaginated(PaginationRequest.Normalize(request)));
+    public async Task<IActionResult> List([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
+        Ok(await service.GetAllProductionOrdersPaginated(PaginationRequest.Normalize(request), cancellationToken));
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id) =>

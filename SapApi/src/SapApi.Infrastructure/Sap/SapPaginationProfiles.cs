@@ -41,15 +41,17 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions ProductionOrders => new()
     {
-        // Include Customer / Project names (UDFs) so Issue/Receipt picker can show and filter them.
-        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,U_DwgNo,U_CustomerName,U_PrjName,CreationDate",
+        // Only real ProductionOrders fields: customer/project *names* are not UDFs on this document,
+        // so SAP rejects them in $select ("Property 'U_CustomerName' ... is invalid"). Names are
+        // resolved from master data in SapProductionOrdersService instead.
+        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,U_DwgNo,CreationDate",
         KeyFields = ["AbsoluteEntry"],
         DefaultSortField = "AbsoluteEntry",
         DefaultSortDirection = "desc",
-        SearchOrFields = ["DocumentNumber", "ItemNo", "ProductDescription", "Project", "CustomerCode", "U_CustomerName", "U_PrjName"],
+        SearchOrFields = ["DocumentNumber", "ItemNo", "ProductDescription", "Project", "CustomerCode"],
         SearchCodeFields = ["DocumentNumber", "ItemNo", "CustomerCode"],
         NumericSearchCodeFields = ["DocumentNumber"],
-        SearchTextFields = ["ProductDescription", "Project", "U_CustomerName", "U_PrjName"],
+        SearchTextFields = ["ProductDescription", "Project"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["AbsoluteEntry"] = "AbsoluteEntry",
@@ -59,13 +61,11 @@ public static class SapPaginationProfiles
             ["ProductDescription"] = "ProductDescription",
             ["PlannedQuantity"] = "PlannedQuantity",
             ["Project"] = "Project",
-            ["ProjectName"] = "U_PrjName",
             ["Warehouse"] = "Warehouse",
             ["ProductionOrderStatus"] = "ProductionOrderStatus",
             // UI column key is Status; SAP OData field is ProductionOrderStatus.
             ["Status"] = "ProductionOrderStatus",
             ["CustomerCode"] = "CustomerCode",
-            ["CustomerName"] = "U_CustomerName",
             ["DrawingNo"] = "U_DwgNo",
             ["CreationDate"] = "CreationDate",
         },

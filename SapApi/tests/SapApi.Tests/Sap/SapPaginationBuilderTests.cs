@@ -97,6 +97,19 @@ public class SapPaginationBuilderTests
     }
 
     [Test]
+    public void ProductionOrders_NeverQueriesNameUdfsSapRejects()
+    {
+        // SAP rejects unknown properties outright ("Property 'U_CustomerName' of 'ProductionOrder' is
+        // invalid"), so project/customer names must be resolved from master data, never selected here.
+        var query = SapPaginationBuilder.ToSapQueries(
+            new PaginationRequest { PageNumber = 1, PageSize = 20 },
+            SapPaginationProfiles.ProductionOrders);
+
+        query.Select.Should().NotContain("U_CustomerName");
+        query.Select.Should().NotContain("U_PrjName");
+    }
+
+    [Test]
     public void ResolveTotalCount_UsesODataCountWhenPresent()
     {
         var response = new GetAllSapPurchaseOrdersResponse { ODataCount = 42 };
