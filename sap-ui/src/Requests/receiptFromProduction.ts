@@ -14,6 +14,9 @@ export interface ReceiptFromProductionRequest {
   status: string
   itemNo: string
   itemName: string
+  createdOnUtc?: string
+  createdByUserName?: string
+  workerName?: string
 }
 
 export async function listReceiptFromProduction(request: PaginationRequest): Promise<PaginationResponse<ReceiptFromProductionRequest[]>> {

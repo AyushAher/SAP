@@ -77,6 +77,48 @@ public class ProductionRequestMapperTests
     }
 
     [Test]
+    public void ToReceiptEntity_persists_worker_name_and_creator()
+    {
+        var orderLines = ValidOrderLines();
+        orderLines.WorkerName = "Ramesh";
+
+        var receipt = ProductionRequestMapper.ToReceiptEntity(orderLines, "TEST_DB", "Sandeep Bagul");
+
+        receipt.WorkerName.Should().Be("Ramesh");
+        receipt.CreatedByUserName.Should().Be("Sandeep Bagul");
+        receipt.CreatedOnUtc.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void ListOrFieldAliases_search_item_and_customer_across_code_and_name()
+    {
+        // Issue and receipt lists both filter mid-string across the code and the name column.
+        ProductionRequestMapper.ListOrFieldAliases["itemNo"].Should().BeEquivalentTo("ItemNo", "ItemName");
+        ProductionRequestMapper.ListOrFieldAliases["cardName"].Should().BeEquivalentTo("CardCode", "CardName");
+        ProductionRequestMapper.ListOrFieldAliases["userName"].Should().BeEquivalentTo("CreatedByUserName");
+    }
+
+    [Test]
+    public void EnrichOrderLinesFromDraft_restores_stored_worker_name()
+    {
+        var orderLines = ValidOrderLines();
+        orderLines.WorkerName = null;
+
+        var enriched = ProductionRequestMapper.EnrichOrderLinesFromDraft(
+            orderLines,
+            project: "P1",
+            projectName: "Project One",
+            cardCode: "C001",
+            cardName: "Customer",
+            status: "boposReleased",
+            itemNo: "FG-1",
+            itemName: "Finished Good",
+            workerName: "Ramesh");
+
+        enriched!.WorkerName.Should().Be("Ramesh");
+    }
+
+    [Test]
     public void ValidateForSave_rejects_issued_above_planned()
     {
         var orderLines = ValidOrderLines(issued: 5, planned: 2);

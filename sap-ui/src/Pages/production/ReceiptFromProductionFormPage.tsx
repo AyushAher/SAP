@@ -14,6 +14,8 @@ export function ReceiptFromProductionFormPage() {
       loadOrderLines={getReceiptFromProductionOrderLines}
       saveOrderLines={saveReceiptFromProduction}
       downloadPdf={downloadReceiptFromProductionPdf}
+      showWorkerName
+      consumableItemsOnly
     />
   )
 }

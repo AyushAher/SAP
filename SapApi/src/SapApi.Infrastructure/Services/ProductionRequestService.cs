@@ -93,7 +93,10 @@ public static class ProductionRequestMapper
         };
     }
 
-    public static ReceiptFromProductionRequests ToReceiptEntity(SapInventoryGenExitRequestOrderLines orderLines, string companyDb)
+    public static ReceiptFromProductionRequests ToReceiptEntity(
+        SapInventoryGenExitRequestOrderLines orderLines,
+        string companyDb,
+        string? createdByUserName = null)
     {
         ValidateForSave(orderLines);
         var po = orderLines.ProductionOrder!;
@@ -109,13 +112,14 @@ public static class ProductionRequestMapper
             Status = po.Status ?? string.Empty,
             ItemNo = po.ItemNumber ?? string.Empty,
             ItemName = po.ProductDescription ?? string.Empty,
+            CreatedOnUtc = DateTime.UtcNow,
+            CreatedByUserName = createdByUserName ?? string.Empty,
+            WorkerName = orderLines.WorkerName ?? string.Empty,
         };
     }
-}
 
-public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDbAccessor companyDbAccessor)
-{
-    private static readonly Dictionary<string, string[]> ListOrFieldAliases = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Mid-string list filters: one UI column searches both the code and the name.</summary>
+    public static readonly Dictionary<string, string[]> ListOrFieldAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["itemNo"] = ["ItemNo", "ItemName"],
         ["itemName"] = ["ItemNo", "ItemName"],
@@ -124,7 +128,10 @@ public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDb
         ["createdByUserName"] = ["CreatedByUserName"],
         ["userName"] = ["CreatedByUserName"],
     };
+}
 
+public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDbAccessor companyDbAccessor)
+{
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
 
     public async Task<(IReadOnlyList<IssueForProductionRequests> Items, int TotalCount)> ListAsync(
@@ -135,7 +142,7 @@ public sealed class IssueForProductionService(AppDbContext db, ICurrentCompanyDb
         return await db.IssueForProductionRequests.AsNoTracking()
             .Where(x => x.CompanyDb == CompanyDb)
             .OrderByDescending(x => x.Id)
-            .ToPaginatedListAsync(normalized, cancellationToken, ListOrFieldAliases);
+            .ToPaginatedListAsync(normalized, cancellationToken, ProductionRequestMapper.ListOrFieldAliases);
     }
 
     public Task<IssueForProductionRequests?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
@@ -197,7 +204,7 @@ public sealed class ReceiptFromProductionService(AppDbContext db, ICurrentCompan
         return await db.ReceiptFromProductionRequests.AsNoTracking()
             .Where(x => x.CompanyDb == CompanyDb)
             .OrderByDescending(x => x.Id)
-            .ToPaginatedListAsync(normalized, cancellationToken);
+            .ToPaginatedListAsync(normalized, cancellationToken, ProductionRequestMapper.ListOrFieldAliases);
     }
 
     public Task<ReceiptFromProductionRequests?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
@@ -207,11 +214,12 @@ public sealed class ReceiptFromProductionService(AppDbContext db, ICurrentCompan
     public async Task<ReceiptFromProductionRequests> SaveAsync(
         SapInventoryGenExitRequestOrderLines orderLines,
         int? id,
+        string? createdByUserName,
         CancellationToken cancellationToken)
     {
         if (id is null or <= 0)
         {
-            var entity = ProductionRequestMapper.ToReceiptEntity(orderLines, CompanyDb);
+            var entity = ProductionRequestMapper.ToReceiptEntity(orderLines, CompanyDb, createdByUserName);
             await db.ReceiptFromProductionRequests.AddAsync(entity, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             return entity;
@@ -221,7 +229,7 @@ public sealed class ReceiptFromProductionService(AppDbContext db, ICurrentCompan
             .FirstOrDefaultAsync(x => x.Id == id && x.CompanyDb == CompanyDb, cancellationToken)
             ?? throw new KeyNotFoundException("Receipt from production request not found.");
 
-        var mapped = ProductionRequestMapper.ToReceiptEntity(orderLines, CompanyDb);
+        var mapped = ProductionRequestMapper.ToReceiptEntity(orderLines, CompanyDb, createdByUserName);
         existing.RequestBody = mapped.RequestBody;
         existing.CardCode = mapped.CardCode;
         existing.CardName = mapped.CardName;
@@ -230,6 +238,7 @@ public sealed class ReceiptFromProductionService(AppDbContext db, ICurrentCompan
         existing.Status = mapped.Status;
         existing.ItemNo = mapped.ItemNo;
         existing.ItemName = mapped.ItemName;
+        existing.WorkerName = mapped.WorkerName;
         await db.SaveChangesAsync(cancellationToken);
         return existing;
     }

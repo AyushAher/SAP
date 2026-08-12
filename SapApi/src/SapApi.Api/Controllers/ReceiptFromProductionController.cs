@@ -5,6 +5,7 @@ using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Services;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Infrastructure.Sap;
+using SapApi.Shared;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
@@ -49,7 +50,8 @@ public class ReceiptFromProductionController(
             item.CardName,
             item.Status,
             item.ItemNo,
-            item.ItemName);
+            item.ItemName,
+            item.WorkerName);
         return Ok(ApiResponse<object>.Ok(orderLines));
     }
 
@@ -103,7 +105,6 @@ public class ReceiptFromProductionController(
         var placeholders = new Dictionary<string, string>
         {
             ["documentNo"] = record.Id.ToString(),
-            ["documentDate"] = DateTime.Now.ToString("dd/MM/yyyy"),
             ["projectName"] = record.ProjectName ?? order?.ProjectName ?? string.Empty,
             ["projectNo"] = record.Project ?? order?.Project ?? string.Empty,
             ["drawingNo"] = order?.DrawingNo ?? string.Empty,
@@ -116,7 +117,11 @@ public class ReceiptFromProductionController(
             ["totalQty"] = totalQty.ToString("F2"),
             ["totalWeight"] = totalWeight.ToString("F2"),
             ["journalRemarks"] = "Auto generated from system",
-            ["userName"] = User.Identity?.Name ?? string.Empty,
+            ["userName"] = !string.IsNullOrWhiteSpace(record.CreatedByUserName)
+                ? record.CreatedByUserName
+                : ClaimsPrincipalDisplayName.GetDisplayName(User),
+            ["workersName"] = record.WorkerName ?? orderLines?.WorkerName ?? string.Empty,
+            ["documentDate"] = (record.CreatedOnUtc == default ? DateTime.Now : record.CreatedOnUtc.ToLocalTime()).ToString("dd/MM/yyyy"),
         };
 
         var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
@@ -131,7 +136,7 @@ public class ReceiptFromProductionController(
     {
         try
         {
-            var entity = await service.SaveAsync(orderLines, null, cancellationToken);
+            var entity = await service.SaveAsync(orderLines, null, ClaimsPrincipalDisplayName.GetDisplayName(User), cancellationToken);
             return Ok(ApiResponse<object>.Ok(entity));
         }
         catch (ArgumentException ex)
@@ -145,7 +150,7 @@ public class ReceiptFromProductionController(
     {
         try
         {
-            var entity = await service.SaveAsync(orderLines, id, cancellationToken);
+            var entity = await service.SaveAsync(orderLines, id, ClaimsPrincipalDisplayName.GetDisplayName(User), cancellationToken);
             return Ok(ApiResponse<object>.Ok(entity));
         }
         catch (KeyNotFoundException)
