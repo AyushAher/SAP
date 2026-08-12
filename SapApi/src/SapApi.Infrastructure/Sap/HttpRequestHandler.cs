@@ -20,7 +20,8 @@ public class HttpRequestHandler(
     /// </summary>
     private static readonly ConcurrentDictionary<string, Task<object?>> InFlightGets = new();
 
-    private string BuildInFlightKey(string url) => $"{companyDbAccessor.GetCompanyDbName()}::GET::{url}";
+    private string BuildInFlightKey(string url, int? maxPageSize) =>
+        $"{companyDbAccessor.GetCompanyDbName()}::GET::{maxPageSize?.ToString() ?? "-"}::{url}";
 
     public async Task<T?> GetAsync<T>(string url, bool setTimeout = true, bool checkCache = true, CancellationToken cancellationToken = default)
     {
@@ -30,7 +31,7 @@ public class HttpRequestHandler(
 
         try
         {
-            return await GetCoalescedAsync<T>(url, cancellationToken);
+            return await GetCoalescedAsync<T>(url, null, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -40,18 +41,31 @@ public class HttpRequestHandler(
     }
 
     public Task<T?> GetOrThrowAsync<T>(string url, CancellationToken cancellationToken = default) =>
-        GetCoalescedAsync<T>(url, cancellationToken);
+        GetCoalescedAsync<T>(url, null, cancellationToken);
 
-    private async Task<T?> GetCoalescedAsync<T>(string url, CancellationToken cancellationToken)
+    public async Task<T?> GetPageAsync<T>(string url, int maxPageSize, CancellationToken cancellationToken = default)
     {
-        var inFlightKey = BuildInFlightKey(url);
+        try
+        {
+            return await GetCoalescedAsync<T>(url, maxPageSize, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "GET failed for {Url}", url);
+            return default;
+        }
+    }
+
+    private async Task<T?> GetCoalescedAsync<T>(string url, int? maxPageSize, CancellationToken cancellationToken)
+    {
+        var inFlightKey = BuildInFlightKey(url, maxPageSize);
 
         while (true)
         {
             if (InFlightGets.TryGetValue(inFlightKey, out var existing))
                 return (T?)await existing;
 
-            var task = ExecuteGetAsync<T>(url, cancellationToken);
+            var task = ExecuteGetAsync<T>(url, maxPageSize, cancellationToken);
             // Await rather than reading Task.Result so the original exception is preserved for
             // every waiter instead of being wrapped in an AggregateException.
             var boxed = BoxAsync(task);
@@ -76,9 +90,11 @@ public class HttpRequestHandler(
         static async Task<object?> BoxAsync(Task<T?> task) => await task;
     }
 
-    private async Task<T?> ExecuteGetAsync<T>(string url, CancellationToken cancellationToken)
+    private async Task<T?> ExecuteGetAsync<T>(string url, int? maxPageSize, CancellationToken cancellationToken)
     {
         var request = await BuildSapRequestAsync(HttpMethod.Get, url, cancellationToken);
+        if (maxPageSize is > 0)
+            request.Headers.Add("Prefer", $"odata.maxpagesize={maxPageSize}");
         var response = await client.SendAsync(request, cancellationToken);
         return await HandleResponseAsync<T>(request, response, cancellationToken);
     }

@@ -7,6 +7,7 @@ using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Responses;
 using SapApi.Shared.Responses.Sap;
+using Serilog;
 
 namespace SapApi.Infrastructure.Services;
 
@@ -166,17 +167,18 @@ public class StageWisePaymentPageService(
         var cardCode = po.CardCode ?? string.Empty;
         var poDocEntry = po.DocEntry.Value;
 
-        var directInvoices = await vendorPaymentService.GetApInvoicesForPurchaseOrder(cardCode, poDocEntry);
-        if (directInvoices?.Error is not null)
-            return await LoadApInvoicesFallbackAsync(po, cancellationToken);
-
-        var direct = directInvoices?.Value ?? [];
-        if (direct.Count > 0)
-            return direct;
-
+        // A purchase order can be invoiced directly and through goods receipts at the same time,
+        // so the receipts are resolved first and both link types are collected in one invoice scan.
         var grpos = await vendorPaymentService.GetGrposForPurchaseOrder(cardCode, poDocEntry);
-        if (grpos?.Error is not null)
-            return await LoadApInvoicesFallbackAsync(po, cancellationToken);
+        if (grpos is null || grpos.Error is not null)
+        {
+            Log.Warning(
+                "Could not list goods receipt POs for purchase order {PoDocEntry} ({CompanyDb}); "
+                + "AP invoices raised through a receipt may be missing from the picker. SAP said: {SapMessage}",
+                poDocEntry,
+                CompanyDb,
+                grpos?.Error?.Message?.Value ?? "no response");
+        }
 
         var grpoDocEntries = grpos?.Value?
             .Where(x => x.DocEntry.HasValue)
@@ -184,43 +186,19 @@ public class StageWisePaymentPageService(
             .Distinct()
             .ToList() ?? [];
 
-        if (grpoDocEntries.Count == 0)
-            return [];
-
-        var grpoInvoices = await vendorPaymentService.GetApInvoicesForGrpos(cardCode, grpoDocEntries);
-        if (grpoInvoices?.Error is not null)
-            return await LoadApInvoicesFallbackAsync(po, cancellationToken);
-
-        return grpoInvoices?.Value ?? [];
-    }
-
-    private async Task<List<SapPurchaseInvoicesResponse>> LoadApInvoicesFallbackAsync(
-        SapPurchaseOrdersResponse po,
-        CancellationToken cancellationToken)
-    {
-        var allApInvoicesTask = vendorPaymentService.GetApInvoices(po.CardCode ?? string.Empty);
-        var grposTask = vendorPaymentService.GetGrpo(po.CardCode ?? string.Empty);
-        await Task.WhenAll(allApInvoicesTask, grposTask);
-
-        var apInvoices = allApInvoicesTask.Result?.Value?
-            .Where(x => x.BaseEntry == po.DocEntry && x.DocumentStatus == "bost_Open")
-            .ToList() ?? [];
-
-        if (apInvoices.Count > 0)
-            return apInvoices;
-
-        var relatedGrpos = grposTask.Result?.Value?
-            .Where(x => x.BaseType == 22 && x.BaseEntry == po.DocEntry)
-            .ToList() ?? [];
-
-        foreach (var grpo in relatedGrpos)
+        var invoices = await vendorPaymentService.GetApInvoicesForPurchaseOrder(cardCode, poDocEntry, grpoDocEntries);
+        if (invoices is null || invoices.Error is not null)
         {
-            apInvoices.AddRange(allApInvoicesTask.Result?.Value?
-                .Where(x => x.BaseType == 20 && x.BaseEntry == grpo.DocEntry)
-                .ToList() ?? []);
+            Log.Warning(
+                "Could not list AP invoices for purchase order {PoDocEntry} ({CompanyDb}); the payment page "
+                + "will show no selectable invoice. SAP said: {SapMessage}",
+                poDocEntry,
+                CompanyDb,
+                invoices?.Error?.Message?.Value ?? "no response");
+            return [];
         }
 
-        return apInvoices;
+        return invoices.Value ?? [];
     }
 
     private async Task<List<StageWisePaymentWtCodeOption>> LoadWithholdingTaxCodesAsync(
