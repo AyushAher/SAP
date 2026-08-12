@@ -4,188 +4,228 @@
     <meta charset="UTF-8" />
     <title>Purchase Order</title>
     <style>
+        @page {
+            size: A4;
+            margin: 18px;
+
+            @bottom-right {
+                font-family: Arial, sans-serif;
+                font-size: 9px;
+                content: "Page No: " counter(page) " of " counter(pages);
+            }
+        }
+
         body {
             font-family: Arial, sans-serif;
-            margin: 16px;
-            font-size: 12px;
+            font-size: 10px;
             color: #000;
+            margin: 0;
         }
-
-        .container {
-            border: 1px solid #000;
-            padding: 10px;
-        }
-
-        h1, h2, h3 {
-            text-align: center;
-            margin: 4px 0;
-        }
-
-        h2 { font-size: 16px; }
-        h3 { font-size: 14px; margin-top: 12px; }
-
-        p { margin: 2px 0; }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 8px;
+            table-layout: fixed;
         }
 
-        table, th, td {
+        .sheet, .sheet td, .sheet th {
             border: 1px solid #000;
         }
 
-        th, td {
-            padding: 5px;
+        .sheet td, .sheet th {
+            padding: 3px 4px;
             vertical-align: top;
-            font-size: 11px;
+            word-wrap: break-word;
         }
 
-        .meta td, .parties td {
-            width: 50%;
-        }
-
-        .right { text-align: right; }
-        .center { text-align: center; }
-        .no-border, .no-border td, .no-border th {
-            border: none !important;
-        }
-
-        .section-title {
+        .entity-name {
+            text-align: center;
+            font-size: 14px;
             font-weight: bold;
-            margin-top: 10px;
+            border-bottom: none !important;
+            padding-bottom: 0;
+        }
+
+        .entity-addr {
+            text-align: center;
+            font-size: 10px;
+            border-top: none !important;
+            padding-top: 0;
+        }
+
+        .doc-title {
+            text-align: center;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .party-head {
+            font-weight: bold;
+        }
+
+        .party td {
+            height: 78px;
+        }
+
+        .party-line {
+            display: block;
+        }
+
+        .items th {
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .special-lines {
+            border-top: none !important;
+            height: 22px;
+        }
+
+        .terms-head {
+            text-align: center;
+            font-weight: bold;
         }
 
         .terms {
             white-space: pre-wrap;
-            min-height: 40px;
+            min-height: 60px;
         }
 
-        .sign-row td {
-            height: 70px;
+        .sign td {
+            height: 62px;
+        }
+
+        .right { text-align: right; }
+        .center { text-align: center; }
+
+        .footer {
+            margin-top: 4px;
+            font-size: 9px;
+        }
+
+        .footer td {
+            border: none;
+            padding: 1px 2px;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>{{bplName}}</h2>
-        <p class="center">{{bplAddr}}</p>
-        <table>
-            <tr>
-                <td><b>EMAIL:</b> {{bplEmail}}</td>
-                <td><b>GST:</b> {{bplGst}}</td>
-                <td><b>PAN:</b> {{bplPan}}</td>
-            </tr>
-        </table>
+    <table class="sheet">
+        <colgroup>
+            <col style="width: 6%" />
+            <col style="width: 13%" />
+            <col style="width: 26%" />
+            <col style="width: 10%" />
+            <col style="width: 11%" />
+            <col style="width: 10%" />
+            <col style="width: 12%" />
+            <col style="width: 12%" />
+        </colgroup>
 
-        <h3>Purchase Order</h3>
+        <tr>
+            <td colspan="8" class="entity-name">{{bplName}}</td>
+        </tr>
+        <tr>
+            <td colspan="8" class="entity-addr">{{bplAddr}}</td>
+        </tr>
+        <tr>
+            <td colspan="3"><b>PAN:</b> {{bplPan}}</td>
+            <td colspan="3"><b>GST:</b> {{bplGst}}</td>
+            <td colspan="2"><b>EMAIL:</b> {{bplEmail}}</td>
+        </tr>
 
-        <table class="meta">
-            <tr>
-                <td><b>Order No:</b> {{documentNo}}</td>
-                <td><b>Type:</b> {{documentType}}</td>
-                <td><b>Date:</b> {{documentDate}}</td>
-            </tr>
-            <tr>
-                <td colspan="2"><b>PO NO:</b> {{poReference}}</td>
-                <td><b>Rev No:</b> -</td>
-            </tr>
-        </table>
+        <tr>
+            <td colspan="8" class="doc-title">Purchase Order</td>
+        </tr>
 
-        <table class="parties">
-            <tr>
-                <th class="center">Buy From</th>
-                <th class="center">Ship To</th>
-            </tr>
-            <tr>
-                <td>
-                    <b>{{buyFromVendor}}</b><br />
-                    {{buyFromAddress}}<br />
-                    Pin: {{buyFromPin}} &nbsp; State: {{buyFromState}}<br />
-                    PAN: {{buyFromPan}} &nbsp; GSTIN: {{buyFromGst}}<br />
-                    Contact Person: {{buyFromContact}}
-                </td>
-                <td>
-                    <b>{{shipToName}}</b><br />
-                    {{shipToAddress}}<br />
-                    Contact Person: {{shipToContact}}
-                </td>
-            </tr>
-        </table>
+        <tr>
+            <td colspan="4" class="party-head">Buy From</td>
+            <td colspan="4" class="party-head">Ship To</td>
+        </tr>
+        <tr class="party">
+            <td colspan="4">
+                <span class="party-line"><b>{{buyFromVendor}}</b></span>
+                <span class="party-line">{{buyFromAddress}}</span>
+                <span class="party-line">Pin: {{buyFromPin}} &nbsp; State: {{buyFromState}} &nbsp; State Code: {{buyFromStateCode}}</span>
+                <span class="party-line">PAN: {{buyFromPan}} &nbsp; GSTIN: {{buyFromGst}}</span>
+                <span class="party-line">Contact Person: {{buyFromContact}}</span>
+            </td>
+            <td colspan="4">
+                <span class="party-line"><b>{{shipToName}}</b></span>
+                <span class="party-line">{{shipToAddress}}</span>
+                <span class="party-line">Pin: {{shipToPin}} &nbsp; State: {{shipToState}} &nbsp; State Code: {{shipToStateCode}}</span>
+                <span class="party-line">PAN: {{shipToPan}} &nbsp; GSTIN: {{shipToGst}}</span>
+                <span class="party-line">Contact Person: {{shipToContact}}</span>
+            </td>
+        </tr>
 
-        <table>
-            <thead>
-                <tr>
-                    <th>SR. NO.</th>
-                    <th>PART NO.</th>
-                    <th>Item Description</th>
-                    <th>Delivery Date</th>
-                    <th>Purchase Qty</th>
-                    <th>Stock Qty</th>
-                    <th>Unit Price</th>
-                    <th>Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {{@items}}
-            </tbody>
-        </table>
+        <tr>
+            <td colspan="3"><b>Order No:</b> {{documentNo}}</td>
+            <td colspan="3"><b>Type:</b> {{documentType}}</td>
+            <td colspan="2"><b>Date:</b> {{documentDate}}</td>
+        </tr>
+        <tr>
+            <td colspan="8"><b>Project Details:</b> {{projectNo}} - {{projectName}}</td>
+        </tr>
+        <tr>
+            <td colspan="8"><b>Reference:</b> {{reference}}</td>
+        </tr>
 
-        <table>
-            <tr>
-                <td colspan="2">
-                    <b>Project:</b> {{projectNo}} - {{projectName}}
-                </td>
-            </tr>
-            <tr>
-                <td colspan="2">
-                    <b>Reference:</b> {{reference}}
-                </td>
-            </tr>
-            <tr>
-                <td colspan="2">
-                    <b>Document Special Lines</b><br />
-                    {{specialLines}}
-                </td>
-            </tr>
-            <tr>
-                <td colspan="2">
-                    <b>Terms of Contract</b>
-                    <div class="terms">{{terms}}</div>
-                </td>
-            </tr>
-            <tr>
-                <td>
-                    <b>Amount in Figures:</b> {{amountFigures}}
-                </td>
-                <td>
-                    <b>Amount in Words:</b> {{amountWords}}
-                </td>
-            </tr>
-        </table>
+        <tr class="items">
+            <th>SR. NO.</th>
+            <th>PART NO.</th>
+            <th>Item Description</th>
+            <th>Delivery Date</th>
+            <th>Purchase Qty</th>
+            <th>Stock Qty</th>
+            <th>Unit Price</th>
+            <th>Total</th>
+        </tr>
+        {{@items}}
+        {{@documentSpecialLines}}
 
-        <table>
-            <tr>
-                <th class="center">Prepared by</th>
-                <th class="center">Approved By</th>
-                <th class="center">For, {{entityName}}</th>
-            </tr>
-            <tr class="sign-row">
-                <td class="center">
-                    {{buyerName}}<br />
-                    {{buyerEmail}}
-                </td>
-                <td class="center">
-                    {{approverName}}
-                </td>
-                <td class="center">Director</td>
-            </tr>
-        </table>
+        <tr>
+            <td colspan="6"><b>Amount in Figures</b></td>
+            <td colspan="2" class="right">{{amountFigures}}</td>
+        </tr>
+        <tr>
+            <td colspan="8"><b>Amount in Words:</b> {{amountWords}}</td>
+        </tr>
 
-        <p style="margin-top: 12px;">
-            <b>Printed by:</b> {{userName}} on {{printedOn}}
-        </p>
-    </div>
+        <tr>
+            <td colspan="8" class="terms-head">Terms of Contract</td>
+        </tr>
+        <tr>
+            <td colspan="8"><div class="terms">{{terms}}</div></td>
+        </tr>
+
+        <tr>
+            <td colspan="3"><b>Prepared by:</b></td>
+            <td colspan="3"><b>Approved By:</b></td>
+            <td colspan="2"><b>For, {{entityName}}</b></td>
+        </tr>
+        <tr class="sign">
+            <td colspan="3">
+                <span class="party-line">{{buyerName}}</span>
+                <span class="party-line">{{buyerEmail}}</span>
+            </td>
+            <td colspan="3">
+                <span class="party-line">{{approverName}}</span>
+                <span class="party-line">{{approverEmail}}</span>
+            </td>
+            <td colspan="2">Director</td>
+        </tr>
+    </table>
+
+    <table class="footer">
+        <tr>
+            <td style="width: 34%"><b>PO NO:</b> {{poReference}}</td>
+            <td style="width: 16%"><b>Rev No:</b> {{revNo}}</td>
+            <td style="width: 50%"><b>Project:</b> {{projectNo}}</td>
+        </tr>
+        <tr>
+            <td colspan="3"><b>Printed by:</b> {{userName}} on {{printedOn}}</td>
+        </tr>
+    </table>
 </body>
 </html>

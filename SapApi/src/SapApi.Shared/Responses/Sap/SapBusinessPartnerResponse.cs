@@ -27,6 +27,7 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("ShipToDefault"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ShipToDefault { get; set; }
         [JsonPropertyName("BilltoDefault"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? BillToDefault { get; set; }
         [JsonPropertyName("ContactPerson"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ContactPerson { get; set; }
+        [JsonPropertyName("EmailAddress"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? EmailAddress { get; set; }
         [JsonPropertyName("BPWithholdingTaxCollection"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<SapWithholdingTaxDataCollectionResponse>? WithholdingTaxDataCollectionResponse { get; set; }
         [JsonPropertyName("BPAddresses"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<SapBusinessPartnerAddress>? BPAddresses { get; set; }
         [JsonPropertyName("ContactEmployees"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<SapBusinessPartnerContact>? ContactEmployees { get; set; }
@@ -47,6 +48,8 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("BuildingFloorRoom"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? BuildingFloorRoom { get; set; }
         [JsonPropertyName("AddressName2"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? AddressName2 { get; set; }
         [JsonPropertyName("AddressName3"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? AddressName3 { get; set; }
+        /// <summary>India localisation: GSTIN lives on the address, not on the BP header.</summary>
+        [JsonPropertyName("GSTIN"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Gstin { get; set; }
     }
 
     public record SapBusinessPartnerContact

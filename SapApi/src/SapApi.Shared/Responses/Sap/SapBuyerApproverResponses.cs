@@ -10,6 +10,9 @@ public record SapSalesPersonResponse
 
     [JsonPropertyName("Active"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Active { get; set; }
+
+    [JsonPropertyName("Email"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Email { get; set; }
 }
 
 public record GetAllSapSalesPersonsResponse : SapBaseResponse
@@ -40,6 +43,9 @@ public record SapEmployeeInfoResponse
 
     [JsonPropertyName("HomePhone"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? HomePhone { get; set; }
+
+    [JsonPropertyName("eMail"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Email { get; set; }
 
     [JsonIgnore]
     public string DisplayName =>

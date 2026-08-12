@@ -580,6 +580,23 @@ public class SapMasterDataService(
     }
 
     /// <summary>
+    /// Full BP entity by key — addresses carry the India GSTIN / state needed on printed documents.
+    /// </summary>
+    public async Task<SapBusinessPartner?> GetBusinessPartnerWithAddressesAsync(
+        string cardCode,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(cardCode))
+            return null;
+
+        await sapLogin.SapLoginAsync(cancellationToken);
+        var safeCode = SapPaginationBuilder.EscapeODataString(cardCode.Trim());
+        return await GetCachedAsync<SapBusinessPartner>(
+            $"{Constants.SapApiUrls.BusinessPartnersCollection}('{safeCode}')",
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Addresses + contact employees for PO Logistics (Dispatch Address / Contact Person).
     /// </summary>
     public async Task<BusinessPartnerLogisticsDetails?> GetBusinessPartnerLogisticsAsync(
