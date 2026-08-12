@@ -3,7 +3,6 @@ import { DataTable, type DataTableColumn } from '@/Components/ui'
 import { Button, Modal } from '@/Components/ui'
 import { listProductionOrders } from '@/Requests/productionOrders'
 import { formatCodeWithName } from '@/helpers/masterLookup'
-import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import type { PaginationRequest } from '@/types/api'
 import type { ProductionOrder } from '@/types/production'
 
@@ -26,7 +25,8 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     setError(null)
   }, [isOpen])
 
-  const fetchReleased = useCallback(async (request: PaginationRequest) => {
+  // Project / business partner names come resolved from the API, so no client-side master lookup here.
+  const fetchData = useCallback(async (request: PaginationRequest) => {
     const filters = [
       { field: 'Status', operator: 'eq' as const, value: RELEASED_STATUS },
       ...(request.filters ?? []).filter((f) => f.field.toLowerCase() !== 'status'),
@@ -37,11 +37,6 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       includeTotalCount: true,
     })
   }, [])
-
-  const { fetchData, lookupMaps } = useEnrichedListFetch(fetchReleased, {
-    projectCodes: (row) => row.Project,
-    cardCodes: (row) => row.CustomerCode,
-  })
 
   const isSelected = useCallback(
     (row: ProductionOrder) => selected?.AbsoluteEntry != null && selected.AbsoluteEntry === row.AbsoluteEntry,
@@ -89,18 +84,14 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       header: 'Project Name',
       filterable: true,
       filterOperator: 'contains',
-      accessor: (r) => r.ProjectName ?? lookupMaps.projects[r.Project ?? ''] ?? '—',
+      accessor: (r) => r.ProjectName || '—',
     },
     {
       key: 'CustomerName',
       header: 'Business Partner Name',
       filterable: true,
       filterOperator: 'contains',
-      accessor: (r) =>
-        r.CustomerName
-        ?? lookupMaps.businessPartners[r.CustomerCode ?? '']
-        ?? r.CustomerCode
-        ?? '—',
+      accessor: (r) => r.CustomerName || r.CustomerCode || '—',
     },
     {
       key: 'ItemNumber',
@@ -118,7 +109,7 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       filterOperator: 'contains',
       accessor: (r) => r.DrawingNo,
     },
-  ], [isSelected, lookupMaps])
+  ], [isSelected])
 
   const handleConfirm = useCallback(async () => {
     if (!selected?.AbsoluteEntry) return
@@ -162,7 +153,7 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
         <DataTable
           columns={columns}
           fetchData={fetchData}
-          getRowKey={(row) => row.AbsoluteEntry ?? row.DocumentNumber ?? Math.random()}
+          getRowKey={(row) => row.AbsoluteEntry ?? row.DocumentNumber ?? `${row.Project ?? ''}-${row.ItemNumber ?? ''}`}
           onRowClick={setSelected}
           emptyMessage="No released production orders found"
           defaultPageSize={20}

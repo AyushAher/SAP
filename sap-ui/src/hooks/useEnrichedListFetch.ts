@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   buildMasterLookupMapsFromRows,
   type MasterLookupMaps,
@@ -11,15 +11,23 @@ const emptyMaps: MasterLookupMaps = {
   businessPartners: {},
 }
 
+export interface ListRowExtractors<T> {
+  itemCodes?: (row: T) => string | undefined
+  projectCodes?: (row: T) => string | undefined
+  cardCodes?: (row: T) => string | undefined
+}
+
 export function useEnrichedListFetch<T>(
   fetchFn: (request: PaginationRequest) => Promise<PaginationResponse<T[]>>,
-  extractors: {
-    itemCodes?: (row: T) => string | undefined
-    projectCodes?: (row: T) => string | undefined
-    cardCodes?: (row: T) => string | undefined
-  },
+  extractors: ListRowExtractors<T>,
 ) {
   const [lookupMaps, setLookupMaps] = useState<MasterLookupMaps>(emptyMaps)
+
+  // Read extractors through a ref so callers may pass an inline object literal: including the
+  // extractor functions in the dependency list below would give fetchData a new identity on every
+  // render, and DataTable refetches whenever fetchData changes — an endless fetch/render loop.
+  const extractorsRef = useRef(extractors)
+  extractorsRef.current = extractors
 
   const fetchData = useCallback(async (request: PaginationRequest) => {
     const response = await fetchFn(request)
@@ -30,14 +38,14 @@ export function useEnrichedListFetch<T>(
     }
 
     try {
-      const maps = await buildMasterLookupMapsFromRows(rows, extractors)
+      const maps = await buildMasterLookupMapsFromRows(rows, extractorsRef.current)
       setLookupMaps(maps)
     } catch {
       setLookupMaps(emptyMaps)
     }
 
     return response
-  }, [fetchFn, extractors.itemCodes, extractors.projectCodes, extractors.cardCodes])
+  }, [fetchFn])
 
   return { fetchData, lookupMaps }
 }
