@@ -166,3 +166,54 @@ export async function updateProductionOrder(id: number, data: ProductionOrder, p
     { policyRequestId },
   )
 }
+
+/**
+ * A failed download answers with the standard error envelope, but inside a blob because the
+ * request asked for binary — unwrap it so the caller can show the server's message.
+ */
+async function readDownloadErrorMessage(error: unknown): Promise<string> {
+  const { getApiErrorMessage } = await import('@/helpers/api/axiosInstance')
+  const body = (error as { response?: { data?: unknown } })?.response?.data
+  if (body instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await readBlobText(body)) as { message?: string; errors?: string[] }
+      const message = parsed.message?.trim() || parsed.errors?.filter(Boolean).join(' ')
+      if (message) return message
+    } catch {
+      // Not a JSON envelope; fall back to the generic axios message.
+    }
+  }
+  return getApiErrorMessage(error)
+}
+
+/** Blob.text() is not available on every runtime, so fall back to FileReader. */
+function readBlobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === 'function') return blob.text()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the response.'))
+    reader.readAsText(blob)
+  })
+}
+
+/** Downloads the printed production order. Throws with a readable message when it fails. */
+export async function downloadProductionOrderPdf(
+  absoluteEntry: number,
+  documentNumber?: number | null,
+): Promise<void> {
+  const { apiDownloadGet } = await import('@/helpers/api/client')
+  let blob: Blob
+  try {
+    blob = await apiDownloadGet(`/production-orders/${absoluteEntry}/pdf`)
+  } catch (error) {
+    throw new Error(await readDownloadErrorMessage(error), { cause: error })
+  }
+
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `ProductionOrder(${documentNumber ?? absoluteEntry}).pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}

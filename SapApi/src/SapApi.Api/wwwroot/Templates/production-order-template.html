@@ -62,8 +62,10 @@
         width: 50%;
       }
 
-      .footer-space {
-        height: 60px;
+      /* iText ignores a height on <tr>, so the signing space has to sit on the cells. */
+      .footer-space td {
+        height: 55px;
+        vertical-align: bottom;
       }
     </style>
   </head>
@@ -95,20 +97,39 @@
           </td>
 
           <td>
-            <b>Order Date:</b>
-            {{orderDate}}
+            <b>Status:</b>
+            {{status}}
           </td>
         </tr>
 
         <tr>
           <td>
-            <b>Status:</b>
-            {{status}}
+            <b>Order Date:</b>
+            {{orderDate}}
           </td>
 
           <td>
-            <b>Production Location:</b>
-            {{productionLocation}}
+            <b>Production Category:</b>
+            {{productionCategory}}
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <b>Start Date:</b>
+            {{startDate}}
+          </td>
+
+          <td>
+            <b>Due Date:</b>
+            {{dueDate}}
+          </td>
+        </tr>
+
+        <tr>
+          <td colspan="2">
+            <b>Customer:</b><br />
+            {{customerCode}} - {{customerName}}
           </td>
         </tr>
 
@@ -120,9 +141,14 @@
         </tr>
 
         <tr>
-          <td colspan="2">
+          <td>
             <b>Drawing No:</b>
             {{drawingNo}}
+          </td>
+
+          <td>
+            <b>Sales Order No:</b>
+            {{salesOrderNo}}
           </td>
         </tr>
 
@@ -135,13 +161,25 @@
 
         <tr>
           <td>
-            <b>FG Quantity:</b>
+            <b>Planned Quantity:</b>
             {{plannedQty}}
           </td>
 
           <td>
             <b>Stock UOM:</b>
             {{uom}}
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <b>Completed Quantity:</b>
+            {{completedQty}}
+          </td>
+
+          <td>
+            <b>Rejected Quantity:</b>
+            {{rejectedQty}}
           </td>
         </tr>
 
@@ -158,14 +196,17 @@
         </tr>
       </table>
 
+      <h3>Components</h3>
+
       <table>
         <tr>
-          <th>Sr. No</th>
-          <th>Part No</th>
+          <th style="width: 6%">Sr. No</th>
+          <th style="width: 20%">Part No</th>
           <th>Description</th>
-          <th>Quantity</th>
-          <th>UOM</th>
-          <th>Weight (KG)</th>
+          <th style="width: 12%">Planned Qty</th>
+          <th style="width: 12%">Issued Qty</th>
+          <th style="width: 13%">Warehouse</th>
+          <th style="width: 8%">UOM</th>
         </tr>
 
         {{@items}}
@@ -176,14 +217,16 @@
           </td>
 
           <td class="center">
-            <b>{{totalQty}}</b>
+            <b>{{totalPlannedQty}}</b>
+          </td>
+
+          <td class="center">
+            <b>{{totalIssuedQty}}</b>
           </td>
 
           <td></td>
 
-          <td class="right">
-            <b>{{totalWeight}}</b>
-          </td>
+          <td></td>
         </tr>
       </table>
 
@@ -207,6 +250,12 @@
         <tr class="footer-space">
           <td class="center">{{userName}}</td>
           <td></td>
+        </tr>
+      </table>
+
+      <table>
+        <tr>
+          <td><b>Printed by:</b> {{userName}} on {{printedOn}}</td>
         </tr>
       </table>
     </div>

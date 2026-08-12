@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileDown, Pencil, RefreshCw } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
@@ -6,15 +6,16 @@ import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } fr
 import { Button, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName } from '@/helpers/masterLookup'
+import { toast } from '@/helpers/toast'
 import { useDocumentSync } from '@/hooks/useDocumentSync'
 import {
+  downloadProductionOrderPdf,
   enqueueFullProductionOrderSyncJob,
   getProductionOrderSyncStatus,
   listProductionOrders,
   syncProductionOrderFromSap,
   type ProductionOrder,
 } from '@/Requests/productionOrders'
-import { downloadPdfTemplate } from '@/Requests/pdf'
 
 export function ProductionOrderListPage() {
   // The list is served from the local mirror, so codes already arrive with their resolved names
@@ -37,6 +38,27 @@ export function ProductionOrderListPage() {
     getSyncStatus: getProductionOrderSyncStatus,
     syncRow: syncProductionOrderFromSap,
   })
+
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const [downloadingKey, setDownloadingKey] = useState<number | null>(null)
+
+  const handleDownloadPdf = useCallback(async (row: ProductionOrder) => {
+    const absoluteEntry = row.AbsoluteEntry
+    if (absoluteEntry == null) return
+    setPdfError(null)
+    setDownloadingKey(absoluteEntry)
+    try {
+      await downloadProductionOrderPdf(absoluteEntry, row.DocumentNumber)
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'The production order PDF could not be downloaded.'
+      setPdfError(message)
+      toast.error(message)
+    } finally {
+      setDownloadingKey(null)
+    }
+  }, [])
 
   const columns = useMemo<DataTableColumn<ProductionOrder>[]>(() => [
     { key: 'AbsoluteEntry', header: 'Entry', sortable: true, filterable: true, accessor: (r) => r.AbsoluteEntry },
@@ -101,14 +123,15 @@ export function ProductionOrderListPage() {
             />
             <RowActionButton
               title="Download PDF"
+              disabled={absoluteEntry == null || downloadingKey === absoluteEntry}
               icon={<FileDown className={rowActionIconClassName} />}
-              onClick={() => downloadPdfTemplate('production-order-template.html')}
+              onClick={() => void handleDownloadPdf(row)}
             />
           </RowActions>
         )
       },
     },
-  ], [handleSyncRow, syncingKey])
+  ], [downloadingKey, handleDownloadPdf, handleSyncRow, syncingKey])
 
   return (
     <div className="space-y-6">
@@ -136,6 +159,11 @@ export function ProductionOrderListPage() {
       {syncError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
           {syncError}
+        </div>
+      )}
+      {pdfError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {pdfError}
         </div>
       )}
       <DataTable

@@ -15,6 +15,7 @@ using SapApi.Shared.Configuration;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
+using Serilog;
 
 namespace SapApi.Api.Controllers;
 
@@ -24,6 +25,8 @@ namespace SapApi.Api.Controllers;
 public class ProductionOrderController(
     SapProductionOrdersService service,
     ProductionOrderLocalStore localStore,
+    ProductionOrderPdfBuilder pdfBuilder,
+    IPdfService pdfService,
     ICurrentCompanyDbAccessor companyDbAccessor,
     IHttpContextAccessor httpContextAccessor,
     IOptions<HangfireOptions> hangfireOptions,
@@ -45,6 +48,35 @@ public class ProductionOrderController(
     [HttpGet("{id}/lines")]
     public async Task<IActionResult> GetLines(string id, CancellationToken cancellationToken) =>
         Ok(ApiResponse<object>.Ok(new { value = await service.GetProductionOrderLines(id, cancellationToken) }));
+
+    /// <summary>
+    /// Prints the production order from the local mirror. Nothing here reads SAP: customer and
+    /// project names were resolved at sync time, and an order that has never been synced is filled
+    /// in by the mirror's own one-row fallback.
+    /// </summary>
+    [HttpGet("{absoluteEntry:int}/pdf")]
+    public async Task<IActionResult> DownloadPdf(int absoluteEntry, CancellationToken cancellationToken)
+    {
+        var order = await service.GetProductionOrders(
+            absoluteEntry.ToString(),
+            cancellationToken: cancellationToken);
+        if (order is null)
+            return NotFound(ApiResponse<object>.Fail(BaseErrorCodes.NullValue, "Production order not found"));
+
+        var placeholders = pdfBuilder.BuildPlaceholders(order, ClaimsPrincipalDisplayName.GetDisplayName(User));
+        var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
+            "production-order-template.html", placeholders, cancellationToken);
+
+        Log.Information(
+            "Printed production order {AbsoluteEntry} (DocNum {DocumentNumber}) for {CompanyDb}, correlation {CorrelationId}",
+            absoluteEntry,
+            order.DocumentNumber,
+            companyDbAccessor.GetCompanyDbName(),
+            HttpContext.TraceIdentifier);
+
+        var fileName = $"ProductionOrder({order.DocumentNumber ?? absoluteEntry}).pdf";
+        return File(pdfBytes, "application/pdf", fileName);
+    }
 
     [HttpGet("sync-status")]
     public async Task<IActionResult> SyncStatus(CancellationToken cancellationToken) =>
