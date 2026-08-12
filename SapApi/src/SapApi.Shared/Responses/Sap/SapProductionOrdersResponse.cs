@@ -23,8 +23,10 @@
         [JsonPropertyName("BPLID"), JsonIgnore]
         public int? BPLId { get; set; }
 
-        [JsonPropertyName("U_ProdType")]
-        public string ProductionCategory { get; set; } = "";
+        // Optional SAP user field: null on orders where it was never filled in, and omitted when
+        // null so an update never clears the value SAP already holds.
+        [JsonPropertyName("U_ProdType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ProductionCategory { get; set; }
 
         [JsonPropertyName("PlannedQuantity")]
         public double PlannedQuantity { get; set; }
@@ -35,8 +37,8 @@
         [JsonPropertyName("U_CustomerName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? CustomerName { get; set; }
 
-        [JsonPropertyName("U_DwgNo")]
-        public string DrawingNo { get; set; } = "";
+        [JsonPropertyName("U_DwgNo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? DrawingNo { get; set; }
 
         [JsonPropertyName("ProductionOrderOriginNumber"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? SalesOrderDocNum { get; set; }
