@@ -486,7 +486,7 @@ export function PurchaseOrderFormPage() {
       ...paymentTerms,
       {
         ...row,
-        desc: buildPaymentTermDescription(row),
+        desc: buildPaymentTermDescription(row, paymentTypeLabelMap),
       },
     ])
     setPaymentDraft(emptyPaymentTermDraft())
@@ -573,7 +573,7 @@ export function PurchaseOrderFormPage() {
     // Header warehouse is UI default for lines only (not a valid OPOR UDF).
     delete payload.U_Warehouse
     delete payload.ShipToCode
-    payload = applyPaymentTermsToPo(payload, paymentTerms)
+    payload = applyPaymentTermsToPo(payload, paymentTerms, paymentTypeLabelMap)
     payload = applyLogisticsToPo(payload, logistics)
     payload = applyOtherTermsToPo(payload, otherTerms)
     return payload as PurchaseOrder

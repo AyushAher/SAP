@@ -214,18 +214,31 @@ describe('payment term type → basic/gst mapping', () => {
     expect(payload.U_T11).toBe('Invoice')
   })
 
-  it('sends payment term description as %Value Basic|GST Type Stage', () => {
-    expect(buildPaymentTermDescription({ id: 1, type: 'Advance', basic: 20, stage: 'Stage1' }))
-      .toBe('%20 Basic Advance Stage1')
+  it('sends payment term description as Value% Basic|GST Type Stage', () => {
+    expect(buildPaymentTermDescription({ id: 1, type: 'Advance', basic: 20, stage: 'Within 30 Days' }))
+      .toBe('20% Basic As Advance Within 30 Days')
     expect(buildPaymentTermDescription({ id: 11, type: 'Invoice', gst: 100 }))
-      .toBe('%100 GST Invoice')
+      .toBe('100% GST Against Invoice')
 
     const payload = applyPaymentTermsToPo({}, [
       { id: 1, type: 'Advance', basic: 20, stage: 'Stage1' },
       { id: 11, type: 'TaxInvoice', gst: 18 },
     ])
-    expect(payload.U_D1).toBe('%20 Basic Advance Stage1')
-    expect(payload.U_D11).toBe('%18 GST TaxInvoice')
+    expect(payload.U_D1).toBe('20% Basic As Advance Stage1')
+    expect(payload.U_D11).toBe('18% GST Against Tax Invoice')
+  })
+
+  it('uses SAP ValidValue descriptions for the type when available', () => {
+    const labels = { Advance: 'As Advance', Proforma: 'Against Proforma' }
+    expect(buildPaymentTermDescription({ id: 2, type: 'Running', basic: 30 }, labels))
+      .toBe('30% Basic Against Proforma')
+    expect(applyPaymentTermsToPo({}, [{ id: 1, type: 'Advance', basic: 10 }], labels).U_D1)
+      .toBe('10% Basic As Advance')
+  })
+
+  it('does not repeat GST when the type description already starts with it', () => {
+    expect(buildPaymentTermDescription({ id: 11, type: 'GstProforma', gst: 100 }))
+      .toBe('100% GST against Proforma Invoice')
   })
 })
 

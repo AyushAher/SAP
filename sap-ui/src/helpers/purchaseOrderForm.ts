@@ -158,7 +158,11 @@ export function parsePaymentTermsFromPo(po: PoRecord): PaymentTermRow[] {
   return terms.sort((a, b) => a.id - b.id)
 }
 
-export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): PoRecord {
+export function applyPaymentTermsToPo(
+  po: PoRecord,
+  terms: PaymentTermRow[],
+  typeLabels?: Record<string, string>,
+): PoRecord {
   const next = { ...po }
   for (let i = 1; i <= MAX_PAYMENT_TERMS; i += 1) {
     delete next[`U_B${i}`]
@@ -185,7 +189,7 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
   for (const term of basicTerms.slice(0, MAX_BASIC_PAYMENT_TERMS)) {
     const slot = Math.min(Math.max(term.id, 1), MAX_BASIC_PAYMENT_TERMS)
     const percent = resolvePaymentTermPercent(term) ?? term.basic
-    const desc = buildPaymentTermDescription({ ...term, id: slot })
+    const desc = buildPaymentTermDescription({ ...term, id: slot }, typeLabels)
     if (term.type || percent != null || term.stage || desc) {
       next[`U_B${slot}`] = percent ?? 0
       next[`U_G${slot}`] = 0
@@ -201,7 +205,7 @@ export function applyPaymentTermsToPo(po: PoRecord, terms: PaymentTermRow[]): Po
     // Always write GST% to U_G11 — even when type is Invoice / Retention (legacy habit).
     next[`U_G${slot}`] = percent
     // U_B11 does not exist on this company DB — never write it.
-    const desc = buildPaymentTermDescription({ ...gstTerm, id: slot })
+    const desc = buildPaymentTermDescription({ ...gstTerm, id: slot }, typeLabels)
     if (desc) next[`U_D${slot}`] = desc
     if (gstTerm.stage) next[`U_S${slot}`] = gstTerm.stage
     if (gstTerm.type) next[`U_T${slot}`] = normalizePaymentTermType(gstTerm.type) || gstTerm.type
@@ -486,22 +490,44 @@ export function dispatchLocationForWarehouse(warehouse?: string | null): PoDispa
     ?? PO_WAREHOUSE_TO_DISPATCH_LOCATION[code.toUpperCase()]
 }
 
+/** Type wording used by existing OPOR descriptions; live SAP ValidValue descriptions win. */
+const PAYMENT_TERM_TYPE_PHRASES: Record<string, string> = {
+  Advance: 'As Advance',
+  Proforma: 'Against Proforma',
+  Invoice: 'Against Invoice',
+  Retention: 'Retention',
+  GstProforma: 'GST against Proforma Invoice',
+  TaxInvoice: 'Against Tax Invoice',
+}
+
+function paymentTermTypePhrase(
+  type: string,
+  isGst: boolean,
+  typeLabels?: Record<string, string>,
+): string {
+  const phrase = (typeLabels?.[type] || PAYMENT_TERM_TYPE_PHRASES[type] || type).trim()
+  // "100% GST GST against Proforma Invoice" reads badly — the basis already says GST.
+  if (isGst && /^gst\s+/i.test(phrase)) return phrase.slice(4).trim()
+  return phrase
+}
+
 /**
  * SAP U_Dn payment-term description:
- * `%{Value} {Basic|GST} {Type} {Stage}`
- * e.g. `%20 Basic Advance Stage1`, `%100 GST Invoice`
+ * `{Value}% {Basic|GST} {Type} {Stage}`
+ * e.g. `20% Basic As Advance Stage1`, `100% GST Against Invoice`
  */
 export function buildPaymentTermDescription(
   term: Pick<PaymentTermRow, 'id' | 'type' | 'basic' | 'gst' | 'stage'>,
+  typeLabels?: Record<string, string>,
 ): string {
   const percent = resolvePaymentTermPercent(term)
-  const basis = isGstPaymentTermRow(term) ? 'GST' : 'Basic'
+  const isGst = isGstPaymentTermRow(term)
   const type = normalizePaymentTermType(term.type)
   const stage = (term.stage ?? '').trim()
   return [
-    percent != null && Number.isFinite(percent) ? `%${percent}` : '',
-    basis,
-    type,
+    percent != null && Number.isFinite(percent) ? `${percent}%` : '',
+    isGst ? 'GST' : 'Basic',
+    type ? paymentTermTypePhrase(type, isGst, typeLabels) : '',
     stage,
   ].filter(Boolean).join(' ')
 }
@@ -510,7 +536,7 @@ export function paymentTermDisplayLabel(
   term: PaymentTermRow,
   typeLabels?: Record<string, string>,
 ): string {
-  const built = buildPaymentTermDescription(term)
+  const built = buildPaymentTermDescription(term, typeLabels)
   if (built) {
     // Prefer live structure over a stale stored desc when type/percent/stage are present.
     if (term.type || resolvePaymentTermPercent(term) != null || term.stage) return built
