@@ -80,7 +80,6 @@ export function RegisterPage() {
           onChange={(e) => setUserName(e.target.value)}
           placeholder="Enter your SAP username"
           leftIcon={<User className="h-4 w-4" />}
-          hint="Used to sign in and authenticate with SAP"
           required
           autoComplete="username"
         />

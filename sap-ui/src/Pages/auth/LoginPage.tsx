@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { User, Lock, Eye, EyeOff, Building2 } from 'lucide-react'
+import { User, Lock, Eye, EyeOff } from 'lucide-react'
 import { Button, Input, Checkbox, Select } from '@/Components/ui'
 import { DEFAULT_COMPANY_DB, SAP_COMPANY_DATABASES } from '@/config/companyDb'
 import { ROUTES } from '@/config/constants'
@@ -106,11 +106,6 @@ export function LoginPage() {
         <Link to={ROUTES.REGISTER} className="font-medium text-primary-600 hover:text-primary-700">
           Sign up
         </Link>
-      </p>
-
-      <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-400">
-        <Building2 className="h-3.5 w-3.5" />
-        Select the SAP company database you want to connect to
       </p>
     </div>
   )

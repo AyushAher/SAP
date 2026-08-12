@@ -575,7 +575,6 @@ export function PurchaseOrderLinesEditor({
                   label="Free Text"
                   value={draft.FreeText ?? ''}
                   onChange={(e) => setDraft({ ...draft, FreeText: e.target.value })}
-                  hint="Saved to SAP DocumentLines.FreeText."
                 />
               </div>
               <SearchableSelect
@@ -605,7 +604,6 @@ export function PurchaseOrderLinesEditor({
                 onChange={(value) => setDraft({ ...draft, UoMCode: value, UomName: value })}
                 placeholder={draft.ItemCode ? 'Select purchase UoM' : 'Select an item first'}
                 disabled={!draft.ItemCode || purchaseUomOptions.length === 0}
-                hint="From item master PurchaseUnit (and Inventory UoM when different)."
               />
               <Input
                 label="Stock Qty *"
@@ -620,7 +618,6 @@ export function PurchaseOrderLinesEditor({
                 label="Stock UoM"
                 value={draft.StockUom ?? ''}
                 disabled
-                hint="From item master Inventory UoM (not editable)."
               />
               <Input
                 label="Items per Unit"
@@ -630,7 +627,6 @@ export function PurchaseOrderLinesEditor({
                   return factor != null ? String(Number(factor.toFixed(6))) : ''
                 })()}
                 readOnly
-                hint="Stock Qty ÷ Purchase Qty (sent to SAP as UnitsOfMeasurment)."
               />
               <Input
                 label="Inventory UoM"
@@ -642,7 +638,6 @@ export function PurchaseOrderLinesEditor({
                   return ''
                 })()}
                 readOnly
-                hint="Yes when Items per Unit is 1; otherwise No (SAP UseBaseUnits)."
               />
             </>
           )}
@@ -653,7 +648,6 @@ export function PurchaseOrderLinesEditor({
                   label="Free Text"
                   value={draft.FreeText ?? ''}
                   onChange={(e) => setDraft({ ...draft, FreeText: e.target.value })}
-                  hint="Saved to SAP DocumentLines.FreeText."
                 />
               </div>
               <Input
