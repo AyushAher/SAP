@@ -189,12 +189,12 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             contact: contact?.Name ?? order.UContactPerson ?? string.Empty);
     }
 
-    /// <summary>Ship To is the PO's Dispatch To partner (U_CardCode) with its address UDF.</summary>
+    /// <summary>Ship To is the PO's Dispatch To partner (U_DisID) with its address UDF.</summary>
     private async Task<PartyBlock> BuildShipToAsync(
         SapPurchaseOrdersResponse order,
         CancellationToken cancellationToken)
     {
-        var dispatchTo = order.UCardCode;
+        var dispatchTo = order.DispatchToCardCode;
         var bp = await masterDataService.GetBusinessPartnerWithAddressesAsync(
             dispatchTo ?? string.Empty, cancellationToken);
 

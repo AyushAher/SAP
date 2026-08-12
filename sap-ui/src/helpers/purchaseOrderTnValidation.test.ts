@@ -87,7 +87,7 @@ describe('validatePurchaseOrderAgainstTn', () => {
       ...base,
       vendorSeries: PO_TN.transporterBpSeries,
       trn: 'OPEN-1',
-      disId: 'D1',
+      disId: 'C000030',
       dispachAdd: 'Addr',
       poType: 'JOB',
       lines: [{

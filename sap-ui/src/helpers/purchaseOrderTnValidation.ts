@@ -37,6 +37,7 @@ export interface PoTnValidationInput {
   poType?: string | null
   docType?: string | null
   trn?: string | null
+  /** U_DisID value — the Dispatch To business partner CardCode. */
   disId?: string | null
   dispachAdd?: string | null
   vendorSeries?: number | null

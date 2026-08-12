@@ -178,25 +178,53 @@ public class SapPurchaseOrderPayloadBuilderTests
     }
 
     [Test]
-    public void Prepare_Create_IncludesDispatchIdAndAddress()
+    public void Prepare_Create_SendsDispatchToPartnerOnDisIdAndAddress()
     {
         var source = new SapPurchaseOrdersResponse
         {
             CardCode = "S000744",
-            UDisId = "DISP-42",
+            UDisId = "C000030",
             UDispachAdd = "Pune plant",
-            UCardCode = "C000030",
             UShipTo = "Ravi Kumar (9876543210)",
             UContactPerson = "legacy-should-not-send",
         };
 
         var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
 
-        payload.UDisId.Should().Be("DISP-42");
+        payload.UDisId.Should().Be("C000030");
         payload.UDispachAdd.Should().Be("Pune plant");
-        payload.UCardCode.Should().Be("C000030");
+        payload.UCardCode.Should().BeNull();
         payload.UShipTo.Should().Be("Ravi Kumar (9876543210)");
         payload.UContactPerson.Should().BeNull();
+    }
+
+    [Test]
+    public void Prepare_Create_MovesLegacyDispatchCardCodeOntoDisId()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "S000744",
+            UCardCode = "C000030",
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.UDisId.Should().Be("C000030");
+        payload.UCardCode.Should().BeNull();
+    }
+
+    [Test]
+    public void Prepare_Create_TruncatesDispatchAddressToFieldSize()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "S000744",
+            UDispachAdd = new string('A', 200),
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.UDispachAdd.Should().HaveLength(120);
     }
 
     [Test]
@@ -206,7 +234,7 @@ public class SapPurchaseOrderPayloadBuilderTests
         {
             CardCode = "S000744",
             ShipToCode = "C000030",
-            UCardCode = "C000030",
+            UDisId = "C000030",
             UWarehouse = "Store1",
         };
 
@@ -214,7 +242,7 @@ public class SapPurchaseOrderPayloadBuilderTests
 
         payload.ShipToCode.Should().BeNull();
         payload.UWarehouse.Should().BeNull();
-        payload.UCardCode.Should().Be("C000030");
+        payload.UDisId.Should().Be("C000030");
     }
 
     [Test]
@@ -224,7 +252,7 @@ public class SapPurchaseOrderPayloadBuilderTests
         {
             CardCode = "S000744",
             ShipToCode = "PEARLS METALS",
-            UCardCode = "C000030",
+            UDisId = "C000030",
         };
 
         var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);

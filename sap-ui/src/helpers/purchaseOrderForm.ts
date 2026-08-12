@@ -241,9 +241,8 @@ export function nextPaymentTermSlot(
 
 export function readLogisticsFromPo(po: PoRecord): PurchaseOrderLogistics {
   return {
-    // ADOC U_CardCode is the real Dispatch To BP field; U_DispatchTo is not valid on this DB.
-    dispatchTo: readString(po, 'U_CardCode', 'U_DispatchTo'),
-    dispatchId: readString(po, 'U_DisID'),
+    // U_DisID is the Dispatch To BP field; U_CardCode is the fallback for POs saved before that move.
+    dispatchTo: readString(po, 'U_DisID', 'U_CardCode', 'U_DispatchTo'),
     dispatchAddress: readString(po, 'U_DispachAdd'),
     // Contact Person is an employee (+ phone) stored in U_SHIPTO.
     contactPerson: readString(po, 'U_SHIPTO', 'U_ContactPerson'),
@@ -256,13 +255,14 @@ export function readLogisticsFromPo(po: PoRecord): PurchaseOrderLogistics {
 export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogistics): PoRecord {
   const next: PoRecord = {
     ...po,
-    U_CardCode: logistics.dispatchTo || undefined,
-    U_DisID: logistics.dispatchId || undefined,
-    U_DispachAdd: logistics.dispatchAddress || undefined,
+    U_DisID: logistics.dispatchTo || undefined,
+    U_DispachAdd: logistics.dispatchAddress?.slice(0, 120) || undefined,
     U_SHIPTO: logistics.contactPerson || undefined,
     U_PRI_BAS: logistics.priceBasis || undefined,
     U_TransMode: logistics.modeOfTransport || undefined,
     // Do not map BP CardCode onto ShipToCode (ShipToCode is an address name on the vendor).
+    // U_CardCode is no longer written — a stale value loaded from SAP must not be echoed back.
+    U_CardCode: undefined,
     U_DispatchTo: undefined,
     U_ContactPerson: undefined,
     U_PriceBasis: undefined,

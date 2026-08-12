@@ -16,6 +16,7 @@ public static class SapPurchaseOrderPayloadBuilder
         var docDate = source.DocDate ?? source.PostingDate ?? DateTime.UtcNow.Date;
         var docDue = source.DocDueDate ?? source.DueDate ?? docDate;
         var taxDate = source.TaxDate ?? docDate;
+        var dispatchToBp = NullIfWhiteSpace(source.DispatchToCardCode);
 
         var payload = new SapPurchaseOrdersResponse
         {
@@ -48,11 +49,12 @@ public static class SapPurchaseOrderPayloadBuilder
             UOwner = NullIfWhiteSpace(source.UOwner),
             UPoType = NullIfWhiteSpace(source.UPoType),
             UTrn = NullIfWhiteSpace(source.UTrn),
-            UDisId = NullIfWhiteSpace(source.UDisId),
-            UDispachAdd = NullIfWhiteSpace(source.UDispachAdd),
+            // Dispatch To BP goes to U_DisID, matching what SAP itself writes on OPOR.
+            UDisId = dispatchToBp,
+            UDispachAdd = Truncate(NullIfWhiteSpace(source.UDispachAdd), 120),
             URemark = NullIfWhiteSpace(source.URemark),
-            // ADOC U_CardCode stores Dispatch To BP; never send invalid U_DispatchTo.
-            UCardCode = NullIfWhiteSpace(source.UCardCode ?? source.UDispatchTo),
+            // U_CardCode is a read-only fallback for POs saved before the move — never written again.
+            UCardCode = null,
             // Contact Person on the form is an employee (+ phone) stored in U_SHIPTO.
             UShipTo = NullIfWhiteSpace(source.UShipTo ?? source.UContactPerson),
             UContactPerson = null,
@@ -313,7 +315,7 @@ public static class SapPurchaseOrderPayloadBuilder
         if (shipTo is null)
             return null;
 
-        var dispatchBp = NullIfWhiteSpace(source.UCardCode) ?? NullIfWhiteSpace(source.UDispatchTo);
+        var dispatchBp = NullIfWhiteSpace(source.DispatchToCardCode);
         if (dispatchBp is not null
             && string.Equals(shipTo, dispatchBp, StringComparison.OrdinalIgnoreCase))
             return null;
@@ -328,4 +330,7 @@ public static class SapPurchaseOrderPayloadBuilder
 
     static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    static string? Truncate(string? value, int maxLength) =>
+        value is not null && value.Length > maxLength ? value[..maxLength] : value;
 }

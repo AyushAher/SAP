@@ -119,11 +119,14 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_TRN"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UTrn { get; set; }
 
-        /// <summary>DRP dispatch id — required with U_DispachAdd when any line warehouse is DRP/DRP2.</summary>
+        /// <summary>
+        /// Dispatch To / Ship To BP CardCode (OPOR UDF U_DisID, Alpha(15) linked to BusinessPartners).
+        /// Required with U_DispachAdd when any line warehouse is DRP/DRP2.
+        /// </summary>
         [JsonPropertyName("U_DisID"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UDisId { get; set; }
 
-        /// <summary>Note: SAP UDF name is misspelled Dispach (not Dispatch).</summary>
+        /// <summary>Dispatch address, Alpha(120). Note: SAP UDF name is misspelled Dispach (not Dispatch).</summary>
         [JsonPropertyName("U_DispachAdd"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UDispachAdd { get; set; }
 
@@ -132,8 +135,8 @@ namespace SapApi.Shared.Responses.Sap
         public string? URemark { get; set; }
 
         /// <summary>
-        /// Dispatch To / Ship To BP (ADOC U_CardCode, linked to BusinessPartners).
-        /// Prefer this over the legacy non-existent U_DispatchTo name.
+        /// Previous home of the Dispatch To / Ship To BP (ADOC U_CardCode). Read-only fallback:
+        /// U_DisID now holds that CardCode and nothing writes this field any more.
         /// </summary>
         [JsonPropertyName("U_CardCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UCardCode { get; set; }
@@ -141,6 +144,14 @@ namespace SapApi.Shared.Responses.Sap
         /// <summary>Legacy alias — not a valid Service Layer property on this company DB.</summary>
         [JsonPropertyName("U_DispatchTo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UDispatchTo { get; set; }
+
+        /// <summary>Dispatch To BP for reads: U_DisID first, then the pre-migration U_CardCode.</summary>
+        [JsonIgnore]
+        public string? DispatchToCardCode =>
+            !string.IsNullOrWhiteSpace(UDisId) ? UDisId
+            : !string.IsNullOrWhiteSpace(UCardCode) ? UCardCode
+            : !string.IsNullOrWhiteSpace(UDispatchTo) ? UDispatchTo
+            : null;
 
         /// <summary>Ship-to contact (employee name + phone) — OPOR UDF U_SHIPTO.</summary>
         [JsonPropertyName("U_SHIPTO"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

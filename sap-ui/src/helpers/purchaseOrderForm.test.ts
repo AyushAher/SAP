@@ -243,15 +243,14 @@ describe('payment term type → basic/gst mapping', () => {
 })
 
 describe('logistics SAP field mapping', () => {
-  it('maps to U_CardCode / U_DisID / U_DispachAdd / U_SHIPTO (not ShipToCode)', () => {
+  it('maps to U_DisID / U_DispachAdd / U_SHIPTO (not U_CardCode, not ShipToCode)', () => {
     const payload = applyLogisticsToPo({}, {
       dispatchTo: 'C000001',
-      dispatchId: 'DISP-99',
       dispatchAddress: 'Pune plant',
       contactPerson: 'Ravi Kumar (9876543210)',
     })
-    expect(payload.U_CardCode).toBe('C000001')
-    expect(payload.U_DisID).toBe('DISP-99')
+    expect(payload.U_DisID).toBe('C000001')
+    expect(payload.U_CardCode).toBeUndefined()
     expect(payload.U_DispachAdd).toBe('Pune plant')
     expect(payload.U_SHIPTO).toBe('Ravi Kumar (9876543210)')
     expect(payload.U_ContactPerson).toBeUndefined()
@@ -275,11 +274,10 @@ describe('logistics SAP field mapping', () => {
     })
     expect(cleared.ShipToCode).toBeUndefined()
     expect(cleared.U_Warehouse).toBeUndefined()
-    expect(cleared.U_CardCode).toBe('C000030')
+    expect(cleared.U_DisID).toBe('C000030')
 
     const read = readLogisticsFromPo({
-      U_CardCode: 'C000001',
-      U_DisID: 'DISP-99',
+      U_DisID: 'C000001',
       U_DispachAdd: 'Pune plant',
       U_SHIPTO: 'Ravi Kumar (9876543210)',
       U_PRI_BAS: 'F.O.R.',
@@ -287,11 +285,29 @@ describe('logistics SAP field mapping', () => {
       ShipToCode: 'SHOULD-NOT-USE',
     })
     expect(read.dispatchTo).toBe('C000001')
-    expect(read.dispatchId).toBe('DISP-99')
     expect(read.dispatchAddress).toBe('Pune plant')
     expect(read.contactPerson).toBe('Ravi Kumar (9876543210)')
     expect(read.priceBasis).toBe('F.O.R.')
     expect(read.modeOfTransport).toBe('1')
+  })
+
+  it('truncates the dispatch address to the SAP field size', () => {
+    const payload = applyLogisticsToPo({}, { dispatchAddress: 'x'.repeat(200) })
+    expect(String(payload.U_DispachAdd)).toHaveLength(120)
+  })
+
+  it('reads the dispatch partner from U_CardCode on purchase orders saved before the move', () => {
+    const legacy = readLogisticsFromPo({ U_CardCode: 'C000030', U_DispachAdd: 'Pune plant' })
+    expect(legacy.dispatchTo).toBe('C000030')
+
+    const migrated = readLogisticsFromPo({ U_DisID: 'C000099', U_CardCode: 'C000030' })
+    expect(migrated.dispatchTo).toBe('C000099')
+  })
+
+  it('never echoes a stale U_CardCode back to SAP', () => {
+    const payload = applyLogisticsToPo({ U_CardCode: 'C000030' }, { dispatchTo: 'C000099' })
+    expect(payload.U_DisID).toBe('C000099')
+    expect(payload.U_CardCode).toBeUndefined()
   })
 })
 

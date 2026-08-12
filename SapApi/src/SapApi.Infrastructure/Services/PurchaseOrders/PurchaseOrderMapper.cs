@@ -42,7 +42,8 @@ public static class PurchaseOrderMapper
         entity.UDisId = sap.UDisId;
         entity.UDispachAdd = sap.UDispachAdd;
         entity.URemark = sap.URemark;
-        entity.UDispatchTo = sap.UCardCode ?? sap.UDispatchTo;
+        // Local UDispatchTo column mirrors the resolved Dispatch To BP (U_DisID, or legacy U_CardCode).
+        entity.UDispatchTo = sap.DispatchToCardCode;
         // Local UContactPerson column stores the U_SHIPTO (employee + phone) value.
         entity.UContactPerson = sap.UShipTo ?? sap.UContactPerson;
         entity.UPriceBasis = sap.UPriceBasis;
@@ -167,10 +168,10 @@ public static class PurchaseOrderMapper
             UOwner = entity.UOwner,
             UPoType = entity.UPoType,
             UTrn = entity.UTrn,
-            UDisId = entity.UDisId,
+            UDisId = entity.UDispatchTo ?? entity.UDisId,
             UDispachAdd = entity.UDispachAdd,
             URemark = entity.URemark,
-            UCardCode = entity.UDispatchTo,
+            UCardCode = null,
             UDispatchTo = entity.UDispatchTo,
             UShipTo = entity.UContactPerson,
             UContactPerson = null,

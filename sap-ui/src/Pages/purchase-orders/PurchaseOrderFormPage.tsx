@@ -93,12 +93,12 @@ import { useQuery } from '@tanstack/react-query'
 
 type FormTab = 'items' | 'logistics' | 'payment' | 'other'
 
-const FORM_TABS: Array<{ id: FormTab; label: string; description: string }> = [
-  { id: 'items', label: 'Items', description: 'Add and manage purchase order line items.' },
-  { id: 'logistics', label: 'Logistics', description: 'Dispatch, shipping, and transport details.' },
-  { id: 'payment', label: 'Payment Terms', description: 'Define stage-wise payment terms for this order.' },
-  { id: 'other', label: 'Other Terms', description: 'Commercial terms, warranty, and additional conditions.' },
-]
+/** The items tab has no heading — the tab trigger already names it. */
+const FORM_TAB_HEADINGS: Record<Exclude<FormTab, 'items'>, { label: string; description: string }> = {
+  logistics: { label: 'Logistics', description: 'Dispatch, shipping, and transport details.' },
+  payment: { label: 'Payment Terms', description: 'Define stage-wise payment terms for this order.' },
+  other: { label: 'Other Terms', description: 'Commercial terms, warranty, and additional conditions.' },
+}
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10)
@@ -603,7 +603,7 @@ export function PurchaseOrderFormPage() {
       poType: String(form.U_PO_Type ?? ''),
       docType,
       trn: String(form.U_TRN ?? ''),
-      disId: String(logistics.dispatchId ?? ''),
+      disId: String(logistics.dispatchTo ?? ''),
       dispachAdd: String(logistics.dispatchAddress ?? ''),
       vendorSeries,
       lines,
@@ -755,7 +755,6 @@ export function PurchaseOrderFormPage() {
                     const date = e.target.value
                     updateForm({ DocDate: date, PostingDate: date, TaxDate: date })
                   }}
-                  hint="Document Date is set to the same value."
                 />
                 <SearchableSelect
                   label="Project"
@@ -788,7 +787,6 @@ export function PurchaseOrderFormPage() {
                     value={dispatchLocation}
                     onChange={(value) => applyDispatchLocation(value)}
                     placeholder="Factory / Office / BP Loc"
-                    hint="Maps warehouse: Factory→Store1, Office→Store5, BP Loc→PBPL(S)."
                   />
                 ) : null}
                 <SearchableSelect
@@ -837,15 +835,7 @@ export function PurchaseOrderFormPage() {
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent
-                  value="items"
-                  title={isServiceDoc ? 'Service Details' : FORM_TABS[0].label}
-                  description={
-                    isServiceDoc
-                      ? 'Add and manage G/L service lines for this purchase order.'
-                      : FORM_TABS[0].description
-                  }
-                >
+                <TabsContent value="items">
                   <PurchaseOrderLinesEditor
                     lines={lines}
                     onChange={setLines}
@@ -857,12 +847,14 @@ export function PurchaseOrderFormPage() {
 
                 <TabsContent
                   value="logistics"
-                  title={FORM_TABS[1].label}
-                  description={FORM_TABS[1].description}
+                  title={FORM_TAB_HEADINGS.logistics.label}
+                  description={FORM_TAB_HEADINGS.logistics.description}
                 >
                   <div className="grid gap-4 md:grid-cols-2">
                   <SearchableSelect
-                    label="Dispatch To / Ship To (BP Code & Name)"
+                    label={usesDrpWarehouse
+                      ? 'Dispatch To / Ship To (BP Code & Name) *'
+                      : 'Dispatch To / Ship To (BP Code & Name)'}
                     lookupKind="businessPartner"
                     value={logistics.dispatchTo ?? ''}
                     selectedLabel={dispatchToLabel}
@@ -877,14 +869,7 @@ export function PurchaseOrderFormPage() {
                       })
                       void loadDispatchLogisticsOptions(cardCode, true)
                     }}
-                  />
-                  <Input
-                    label={usesDrpWarehouse ? 'Dispatch ID *' : 'Dispatch ID'}
-                    value={logistics.dispatchId ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, dispatchId: e.target.value || undefined })}
-                    hint={usesDrpWarehouse
-                      ? 'Required for DRP / DRP2. Saved to SAP U_DisID.'
-                      : 'Saved to SAP U_DisID.'}
+                    hint={usesDrpWarehouse ? 'Required for DRP / DRP2.' : undefined}
                   />
                   <Select
                     label="Address from BP"
@@ -909,8 +894,8 @@ export function PurchaseOrderFormPage() {
                     value={logistics.dispatchAddress ?? ''}
                     onChange={(e) => setLogistics({ ...logistics, dispatchAddress: e.target.value.slice(0, 120) })}
                     hint={usesDrpWarehouse
-                      ? 'Required for DRP / DRP2. Saved to SAP U_DispachAdd (max 120).'
-                      : 'Saved to SAP U_DispachAdd (max 120 characters).'}
+                      ? 'Required for DRP / DRP2. Maximum 120 characters.'
+                      : 'Maximum 120 characters.'}
                   />
                   <SearchableSelect
                     label="Contact Person"
@@ -923,7 +908,6 @@ export function PurchaseOrderFormPage() {
                       setContactPersonLabel(label)
                       setLogistics({ ...logistics, contactPerson: value || undefined })
                     }}
-                    hint="Employees with contact no. Saved to SAP U_SHIPTO."
                   />
                   <Select
                     label="Price Basis"
@@ -932,7 +916,6 @@ export function PurchaseOrderFormPage() {
                     onChange={(value) => setLogistics({ ...logistics, priceBasis: value || undefined })}
                     placeholder="Select price basis"
                     clearable
-                    hint="SAP U_PRI_BAS ValidValues (same list as B1 client)."
                   />
                   <Select
                     label="Mode of Transport"
@@ -941,15 +924,14 @@ export function PurchaseOrderFormPage() {
                     onChange={(value) => setLogistics({ ...logistics, modeOfTransport: value || undefined })}
                     placeholder="Select mode of transport"
                     clearable
-                    hint="SAP U_TransMode ValidValues (same list as B1 client)."
                   />
                 </div>
                 </TabsContent>
 
                 <TabsContent
                   value="payment"
-                  title={FORM_TABS[2].label}
-                  description={FORM_TABS[2].description}
+                  title={FORM_TAB_HEADINGS.payment.label}
+                  description={FORM_TAB_HEADINGS.payment.description}
                 >
                 <div className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -986,7 +968,6 @@ export function PurchaseOrderFormPage() {
                           applyPaymentPercentToTerm(paymentDraft, percent, paymentDraft.type, nextBasis),
                         )
                       }}
-                      hint="GST amount always saves to U_G11 only."
                     />
                     <Input
                       label="Payment %"
@@ -1020,12 +1001,6 @@ export function PurchaseOrderFormPage() {
                       <Button type="button" onClick={handleAddPaymentTerm}>Add</Button>
                     </div>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    Description sent to SAP as{' '}
-                    <span className="font-mono">%Value Basic|GST Type Stage</span>
-                    {' '}(e.g. <span className="font-mono">%20 Basic Advance Stage1</span>).
-                  </p>
-
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
                     <table className="min-w-full text-sm">
                       <thead className="bg-slate-50 text-left text-slate-600">
@@ -1065,8 +1040,8 @@ export function PurchaseOrderFormPage() {
 
                 <TabsContent
                   value="other"
-                  title={FORM_TABS[3].label}
-                  description={FORM_TABS[3].description}
+                  title={FORM_TAB_HEADINGS.other.label}
+                  description={FORM_TAB_HEADINGS.other.description}
                 >
                 <div className="grid gap-4 md:grid-cols-2">
                   <Input label="Delivery Terms" value={otherTerms.deliveryTerms ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, deliveryTerms: e.target.value })} />

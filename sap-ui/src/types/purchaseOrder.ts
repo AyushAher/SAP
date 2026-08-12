@@ -75,10 +75,11 @@ export interface PurchaseOrderOtherTerms {
 }
 
 export interface PurchaseOrderLogistics {
-  /** Business partner CardCode — maps to ADOC U_CardCode (Dispatch To / Ship To). */
+  /**
+   * Dispatch To / Ship To business partner CardCode — stored in SAP UDF U_DisID.
+   * Required with the dispatch address when any line warehouse is DRP/DRP2.
+   */
   dispatchTo?: string
-  /** SAP UDF U_DisID — required with dispatch address when any line warehouse is DRP/DRP2. */
-  dispatchId?: string
   /** SAP UDF U_DispachAdd (note SAP spelling). Max 120 chars. */
   dispatchAddress?: string
   /** SAP UDF U_SHIPTO — employee name + contact number. */
