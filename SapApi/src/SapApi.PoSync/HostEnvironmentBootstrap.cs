@@ -21,6 +21,7 @@ internal static class HostEnvironmentBootstrap
         MapIfPresent(configuration, "SAP_PASSWORD", "SapCredentials:Accounts:0:Password");
         MapIfPresent(configuration, "SAP_COMPANY_DB", "SapCredentials:Accounts:0:CompanyDb");
         MapIfPresent(configuration, "SAP_COMPANY_DB", "PurchaseOrderSync:CompanyDb");
+        MapIfPresent(configuration, "SAP_COMPANY_DB", "ProductionOrderSync:CompanyDb");
     }
 
     private static void LoadDotEnvFiles()

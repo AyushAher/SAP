@@ -26,6 +26,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
     public DbSet<PurchaseOrderPaymentTerm> PurchaseOrderPaymentTerms => Set<PurchaseOrderPaymentTerm>();
     public DbSet<PurchaseOrderSyncState> PurchaseOrderSyncStates => Set<PurchaseOrderSyncState>();
+    public DbSet<ProductionOrder> ProductionOrders => Set<ProductionOrder>();
+    public DbSet<ProductionOrderLine> ProductionOrderLines => Set<ProductionOrderLine>();
+    public DbSet<ProductionOrderSyncState> ProductionOrderSyncStates => Set<ProductionOrderSyncState>();
+    public DbSet<ProductionOrderSyncLog> ProductionOrderSyncLogs => Set<ProductionOrderSyncLog>();
 
     public override int SaveChanges()
     {
@@ -343,6 +347,78 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.HangfireJobId).HasMaxLength(64);
             entity.Property(e => e.LastSyncMessage).HasMaxLength(2000);
             entity.HasIndex(e => e.CompanyDb).IsUnique();
+        });
+
+        modelBuilder.Entity<ProductionOrder>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.ItemNo).HasMaxLength(50);
+            entity.Property(e => e.ProductDescription).HasMaxLength(200);
+            entity.Property(e => e.Status).HasMaxLength(32);
+            entity.Property(e => e.Type).HasMaxLength(32);
+            entity.Property(e => e.ProductionCategory).HasMaxLength(10);
+            entity.Property(e => e.DrawingNo).HasMaxLength(60);
+            entity.Property(e => e.Warehouse).HasMaxLength(20);
+            entity.Property(e => e.InventoryUom).HasMaxLength(20);
+            entity.Property(e => e.CustomerCode).HasMaxLength(50);
+            entity.Property(e => e.CustomerName).HasMaxLength(200);
+            entity.Property(e => e.Project).HasMaxLength(50);
+            entity.Property(e => e.ProjectName).HasMaxLength(200);
+            entity.Property(e => e.ProductionOrderOrigin).HasMaxLength(32);
+            entity.HasIndex(e => new { e.CompanyDb, e.AbsoluteEntry }).IsUniqueAmongActiveRows();
+            entity.HasIndex(e => new { e.CompanyDb, e.DocumentNumber });
+            entity.HasIndex(e => new { e.CompanyDb, e.Status });
+            entity.HasIndex(e => new { e.CompanyDb, e.CustomerCode });
+            entity.HasIndex(e => new { e.CompanyDb, e.Project });
+            entity.HasIndex(e => new { e.CompanyDb, e.ItemNo });
+            entity.HasIndex(e => new { e.CompanyDb, e.SalesOrderDocNum });
+            entity.HasMany(e => e.Lines).WithOne(l => l.ProductionOrder).HasForeignKey(l => l.ProductionOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ProductionOrderLine>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.ItemNo).HasMaxLength(50);
+            entity.Property(e => e.ItemName).HasMaxLength(200);
+            entity.Property(e => e.ItemType).HasMaxLength(32);
+            entity.Property(e => e.Warehouse).HasMaxLength(20);
+            entity.Property(e => e.Project).HasMaxLength(50);
+            entity.Property(e => e.DocNum).HasMaxLength(10);
+            entity.HasIndex(e => new { e.ProductionOrderId, e.LineNumber }).IsUniqueAmongActiveRows();
+            entity.HasIndex(e => e.ItemNo);
+        });
+
+        modelBuilder.Entity<ProductionOrderSyncState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.HangfireJobId).HasMaxLength(64);
+            entity.Property(e => e.LastSyncMessage).HasMaxLength(2000);
+            entity.HasIndex(e => e.CompanyDb).IsUnique();
+        });
+
+        modelBuilder.Entity<ProductionOrderSyncLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Mode).HasMaxLength(16).IsRequired();
+            entity.Property(e => e.UserName).HasMaxLength(150);
+            entity.Property(e => e.CorrelationId).HasMaxLength(64);
+            entity.Property(e => e.Message).HasMaxLength(2000);
+            entity.Property(e => e.CreatedOn).HasDefaultValueSql("now()");
+            entity.HasIndex(e => new { e.CompanyDb, e.CreatedOn });
+            entity.HasIndex(e => new { e.CompanyDb, e.AbsoluteEntry });
         });
 
         modelBuilder.ApplySoftDeleteQueryFilters();

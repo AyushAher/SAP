@@ -8,22 +8,19 @@ public class ProductionOrderSelectionService(
     SapProductionOrdersService productionOrdersService,
     SapMasterDataService masterDataService)
 {
+    /// <summary>
+    /// Builds the Issue / Receipt from Production selection payload from the local mirror, which
+    /// already carries the resolved project name and SAP's numeric line UoMCode. The lines are used
+    /// verbatim — swapping in an inventory UoM name such as "KG" makes SAP reject the later PUT.
+    /// </summary>
     public async Task<SapInventoryGenExitRequestOrderLines?> BuildSelectionAsync(
         string absoluteEntry,
         CancellationToken cancellationToken = default)
     {
-        var order = await productionOrdersService.GetProductionOrders(absoluteEntry);
+        var order = await productionOrdersService.GetProductionOrders(
+            absoluteEntry,
+            cancellationToken: cancellationToken);
         if (order is null) return null;
-
-        // Keep Service Layer ProductionOrderLines — do not replace with SQL GetProductionOrderLines.
-        // The SQL query may expose inventory UoM names (e.g. "KG") as UoMCode; SAP ProductionOrders PUT
-        // requires UoMCode to be a whole number (UoM entry). Matches SapForms selection behavior.
-
-        if (string.IsNullOrEmpty(order.ProjectName) && !string.IsNullOrEmpty(order.Project))
-        {
-            order.ProjectName = await masterDataService.GetProjectNameAsync(order.Project, cancellationToken)
-                ?? string.Empty;
-        }
 
         return new SapInventoryGenExitRequestOrderLines
         {
@@ -71,7 +68,9 @@ public class ProductionOrderSelectionService(
         order.ProductionOrderLines.Add(line);
         selection.ProductionOrderLinesEntryNumber.Add(line);
 
-        var response = await productionOrdersService.UpdateProductionOrderAsync(order);
+        var response = await productionOrdersService.UpdateProductionOrderAsync(
+            order,
+            cancellationToken: cancellationToken);
         if (response?.Error is not null && !string.IsNullOrEmpty(response.Error.Message?.Value))
         {
             order.ProductionOrderLines.Remove(line);

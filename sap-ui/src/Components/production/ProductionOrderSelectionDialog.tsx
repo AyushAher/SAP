@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { DataTable, type DataTableColumn } from '@/Components/ui'
 import { Button, Modal } from '@/Components/ui'
-import { listProductionOrders } from '@/Requests/productionOrders'
+import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { formatCodeWithName } from '@/helpers/masterLookup'
+import { useDocumentSync } from '@/hooks/useDocumentSync'
+import { listProductionOrders, syncProductionOrderFromSap } from '@/Requests/productionOrders'
 import type { PaginationRequest } from '@/types/api'
 import type { ProductionOrder } from '@/types/production'
 
@@ -25,7 +28,9 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     setError(null)
   }, [isOpen])
 
-  // Project / business partner names come resolved from the API, so no client-side master lookup here.
+  // The released filter is applied server-side against the local mirror, so every released
+  // production order is reachable through paging — not just the ones on the first SAP page.
+  // Kept dependency-free so the table never refetches in a loop.
   const fetchData = useCallback(async (request: PaginationRequest) => {
     const filters = [
       { field: 'Status', operator: 'eq' as const, value: RELEASED_STATUS },
@@ -37,6 +42,10 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       includeTotalCount: true,
     })
   }, [])
+
+  const { tableKey, syncingKey, syncError, handleSyncRow } = useDocumentSync({
+    syncRow: syncProductionOrderFromSap,
+  })
 
   const isSelected = useCallback(
     (row: ProductionOrder) => selected?.AbsoluteEntry != null && selected.AbsoluteEntry === row.AbsoluteEntry,
@@ -72,6 +81,13 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       accessor: (r) => r.Status ?? '—',
     },
     {
+      key: 'SalesOrderDocNum',
+      header: 'Sales Order',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => r.SalesOrderDocNum ?? '—',
+    },
+    {
       key: 'Project',
       header: 'Project',
       sortable: true,
@@ -102,6 +118,14 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       accessor: (r) => formatCodeWithName(r.ItemNumber, r.ProductDescription),
     },
     {
+      key: 'Warehouse',
+      header: 'Warehouse',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) => r.Warehouse || '—',
+    },
+    {
       key: 'DrawingNo',
       header: 'Drawing No.',
       sortable: true,
@@ -109,7 +133,26 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       filterOperator: 'contains',
       accessor: (r) => r.DrawingNo,
     },
-  ], [isSelected])
+    {
+      key: 'sync',
+      header: '',
+      render: (row) => {
+        const absoluteEntry = row.AbsoluteEntry
+        const rowBusy = absoluteEntry != null && syncingKey === absoluteEntry
+        return (
+          <RowActionButton
+            title="Sync from SAP"
+            disabled={absoluteEntry == null || rowBusy}
+            icon={<RefreshCw className={`${rowActionIconClassName}${rowBusy ? ' animate-spin' : ''}`} />}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (absoluteEntry != null) void handleSyncRow(absoluteEntry)
+            }}
+          />
+        )
+      },
+    },
+  ], [handleSyncRow, isSelected, syncingKey])
 
   const handleConfirm = useCallback(async () => {
     if (!selected?.AbsoluteEntry) return
@@ -131,6 +174,8 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     onClose()
   }, [onClose])
 
+  const visibleError = error ?? syncError
+
   return (
     <Modal
       isOpen={isOpen}
@@ -146,11 +191,12 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
         </div>
       )}
     >
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      {visibleError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{visibleError}</div>
       )}
       {isOpen && (
         <DataTable
+          key={tableKey}
           columns={columns}
           fetchData={fetchData}
           getRowKey={(row) => row.AbsoluteEntry ?? row.DocumentNumber ?? `${row.Project ?? ''}-${row.ItemNumber ?? ''}`}

@@ -13,6 +13,11 @@ export interface ProductionOrderLine {
   BaseQuantity?: number
 }
 
+/**
+ * Editable view of a production order, in the friendly names the UI uses. Bodies sent to the API
+ * must be built with `toProductionOrderPayload`, which translates these into the SAP names the
+ * request model binds.
+ */
 export interface ProductionOrder {
   AbsoluteEntry?: number
   DocumentNumber?: number
@@ -27,13 +32,20 @@ export interface ProductionOrder {
   Status?: string
   CreationDate?: string
   PlannedQuantity?: number
+  CompletedQuantity?: number
+  RejectedQuantity?: number
+  Priority?: number
+  UoMEntry?: number
   ProductionOrderLines?: ProductionOrderLine[]
   SalesOrderDocNum?: number
   SalesOrderDocEntry?: number
   Type?: string
   ProductionCategory?: string
+  /** UI-only: seeds the warehouse of every component line. Never reaches SAP. */
   IssWarehouse?: string
   PostingDate?: string
+  DueDate?: string
+  StartDate?: string
   Remarks?: string
   [key: string]: unknown
 }
