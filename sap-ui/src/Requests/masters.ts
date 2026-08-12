@@ -396,13 +396,23 @@ export async function searchBusinessPartners(search: string, pageSize = 20) {
   }
 }
 
+/** Sales order rows for lookups. The API selects DocNum, DocEntry, CardCode, CardName, NumAtCard and Project. */
+export interface MasterSalesOrder {
+  DocNum?: number
+  DocEntry?: number
+  CardCode?: string
+  CardName?: string
+  NumAtCard?: string
+  Project?: string
+}
+
 export function listSalesOrders(search: string, customerId?: string, pageSize = 20) {
   const request: PaginationRequest = createMasterSearchRequest(search, { pageSize })
   const query = customerId ? `?customerId=${encodeURIComponent(customerId)}` : ''
-  return apiListPost<{ DocNum?: number; DocEntry?: number; CardName?: string; NumAtCard?: string }>(
+  return apiListPost<MasterSalesOrder>(
     `/masters/sales-orders/list${query}`,
     request,
-  ) as Promise<PaginationResponse<{ DocNum?: number; DocEntry?: number; CardName?: string; NumAtCard?: string }[]>>
+  ) as Promise<PaginationResponse<MasterSalesOrder[]>>
 }
 
 export async function lookupItem(itemCode: string): Promise<MasterItem | undefined> {

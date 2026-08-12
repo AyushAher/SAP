@@ -101,6 +101,9 @@ export function toProductionOrderPayload(
     if (value === undefined || value === null || value === '') return
     payload[key] = value
   }
+  // SAP holds production order dates at midnight, and the date inputs produce plain dates, so
+  // everything is sent date-only: a datetime with no zone would be read as a different instant.
+  const setDate = (key: string, value: string | undefined) => set(key, value?.slice(0, 10))
 
   set('AbsoluteEntry', order.AbsoluteEntry)
   set('DocumentNumber', order.DocumentNumber)
@@ -120,9 +123,9 @@ export function toProductionOrderPayload(
   set('Remarks', order.Remarks)
   set('ProductionOrderOriginNumber', order.SalesOrderDocNum)
   set('ProductionOrderOriginEntry', order.SalesOrderDocEntry)
-  set('DueDate', order.DueDate)
-  set('StartDate', order.StartDate)
-  set('CreationDate', order.CreationDate)
+  setDate('DueDate', order.DueDate)
+  setDate('StartDate', order.StartDate)
+  setDate('CreationDate', order.CreationDate)
   set('UoMEntry', order.UoMEntry)
   set('Priority', order.Priority)
 
@@ -131,7 +134,7 @@ export function toProductionOrderPayload(
   payload.PlannedQuantity = order.PlannedQuantity ?? 0
   payload.CompletedQuantity = order.CompletedQuantity ?? 0
   payload.RejectedQuantity = order.RejectedQuantity ?? 0
-  payload.PostingDate = order.PostingDate ?? new Date().toISOString().slice(0, 10)
+  payload.PostingDate = (order.PostingDate ?? new Date().toISOString()).slice(0, 10)
 
   payload.ProductionOrderLines = (lines ?? order.ProductionOrderLines ?? []).map((line) => ({ ...line }))
 

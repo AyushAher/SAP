@@ -89,7 +89,7 @@ namespace SapApi.Infrastructure.Services.Sap
                 };
             }
 
-            var payload = PrepareProductionOrderForSapPut(addedLines);
+            var payload = PrepareProductionOrderForSap(addedLines);
             var updated = await httpRequestHandler.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 Constants.SapApiUrls.GetProductionOrders(payload.AbsoluteEntry?.ToString() ?? "0"), payload);
 
@@ -116,8 +116,9 @@ namespace SapApi.Infrastructure.Services.Sap
                 };
             }
 
+            var payload = PrepareProductionOrderForSap(addedLines);
             var created = await httpRequestHandler.PostAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
-                Constants.SapApiUrls.CreateProductionOrder, addedLines);
+                Constants.SapApiUrls.CreateProductionOrder, payload);
 
             await RefreshMirrorAfterWriteAsync(created?.AbsoluteEntry, created, cancellationToken);
             return created;
@@ -148,7 +149,11 @@ namespace SapApi.Infrastructure.Services.Sap
             }
         }
 
-        static SapProductionOrdersResponse PrepareProductionOrderForSapPut(SapProductionOrdersResponse order)
+        /// <summary>
+        /// Both writes go through this: an approved request is replayed through the create path, so a
+        /// body SAP would reject must not survive there either.
+        /// </summary>
+        static SapProductionOrdersResponse PrepareProductionOrderForSap(SapProductionOrdersResponse order)
         {
             order.ProductionOrderLines = order.ProductionOrderLines?
                 .Select((line, index) =>

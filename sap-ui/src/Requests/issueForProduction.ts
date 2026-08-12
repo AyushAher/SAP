@@ -1,6 +1,6 @@
 import { apiDownloadGet } from '@/helpers/api/client'
 import { apiListPost } from '@/helpers/api/list'
-import { normalizeProductionOrderSelection } from '@/helpers/productionOrderMapper'
+import { normalizeProductionOrderSelection, toProductionOrderSelectionPayload } from '@/helpers/productionOrderMapper'
 import type { PaginationRequest, PaginationResponse } from '@/types/api'
 import type { ProductionOrderSelection } from '@/types/production'
 
@@ -31,8 +31,9 @@ export async function getIssueForProductionOrderLines(id: number) {
 
 export async function saveIssueForProduction(orderLines: ProductionOrderSelection, id?: number) {
   const { apiPost, apiPut } = await import('@/helpers/api/client')
-  if (id) return apiPut<IssueForProductionRequest>(`/issue-for-production/${id}`, orderLines)
-  return apiPost<IssueForProductionRequest>('/issue-for-production', orderLines)
+  const payload = toProductionOrderSelectionPayload(orderLines)
+  if (id) return apiPut<IssueForProductionRequest>(`/issue-for-production/${id}`, payload)
+  return apiPost<IssueForProductionRequest>('/issue-for-production', payload)
 }
 
 export async function deleteIssueForProduction(id: number) {

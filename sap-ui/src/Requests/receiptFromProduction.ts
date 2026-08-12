@@ -1,6 +1,6 @@
 import { apiDownloadGet } from '@/helpers/api/client'
 import { apiListPost } from '@/helpers/api/list'
-import { normalizeProductionOrderSelection } from '@/helpers/productionOrderMapper'
+import { normalizeProductionOrderSelection, toProductionOrderSelectionPayload } from '@/helpers/productionOrderMapper'
 import type { PaginationRequest, PaginationResponse } from '@/types/api'
 import type { ProductionOrderSelection } from '@/types/production'
 
@@ -31,8 +31,9 @@ export async function getReceiptFromProductionOrderLines(id: number) {
 
 export async function saveReceiptFromProduction(orderLines: ProductionOrderSelection, id?: number) {
   const { apiPost, apiPut } = await import('@/helpers/api/client')
-  if (id) return apiPut<ReceiptFromProductionRequest>(`/receipt-from-production/${id}`, orderLines)
-  return apiPost<ReceiptFromProductionRequest>('/receipt-from-production', orderLines)
+  const payload = toProductionOrderSelectionPayload(orderLines)
+  if (id) return apiPut<ReceiptFromProductionRequest>(`/receipt-from-production/${id}`, payload)
+  return apiPost<ReceiptFromProductionRequest>('/receipt-from-production', payload)
 }
 
 export async function deleteReceiptFromProduction(id: number) {
