@@ -87,6 +87,22 @@ public class ProductionOrderLocalStoreSyncTests
                 It.Is<string>(u => u.Contains($"({absoluteEntry})")), It.IsAny<CancellationToken>()))
             .ReturnsAsync(detail);
 
+    /// <summary>
+    /// The header scan the sync uses to decide what changed. SAP returns every header field on a
+    /// list page, so these stand in for whole documents minus their lines.
+    /// </summary>
+    private void SetupHeaderScan(params SapProductionOrdersResponse[] headers) =>
+        _http.Setup(h => h.GetPageOrThrowAsync<GetAllSapProductionOrdersResponse>(
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetAllSapProductionOrdersResponse { Value = headers.ToList() });
+
+    private void VerifyNoDetailRead(int absoluteEntry) =>
+        _http.Verify(
+            h => h.GetOrThrowAsync<SapProductionOrdersResponse>(
+                It.Is<string>(u => u.Contains($"({absoluteEntry})")),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+
     [Test]
     public async Task SyncNew_imports_records_with_their_lines()
     {
@@ -350,17 +366,19 @@ public class ProductionOrderLocalStoreSyncTests
             (11, Constants.SapProductionOrderStatus.Released),
             (12, Constants.SapProductionOrderStatus.Closed),
             (13, Constants.SapProductionOrderStatus.Cancelled));
+        SetupHeaderScan(
+            SapHeader(10, Constants.SapProductionOrderStatus.Closed),
+            SapHeader(11, Constants.SapProductionOrderStatus.Closed),
+            SapHeader(12, Constants.SapProductionOrderStatus.Closed),
+            SapHeader(13, Constants.SapProductionOrderStatus.Cancelled));
         SetupAnyDetail(Constants.SapProductionOrderStatus.Closed);
 
         var result = await _sut.SyncOpenOrdersFromSapAsync();
 
         result.Mode.Should().Be("open");
         result.UpdatedCount.Should().Be(2);
-        _http.Verify(
-            h => h.GetOrThrowAsync<SapProductionOrdersResponse>(
-                It.Is<string>(u => u.Contains("(12)") || u.Contains("(13)")),
-                It.IsAny<CancellationToken>()),
-            Times.Never);
+        VerifyNoDetailRead(12);
+        VerifyNoDetailRead(13);
 
         var statuses = await _context.ProductionOrders
             .OrderBy(p => p.AbsoluteEntry)
@@ -379,15 +397,163 @@ public class ProductionOrderLocalStoreSyncTests
         SeedLocal(
             (10, Constants.SapProductionOrderStatus.Released),
             (11, Constants.SapProductionOrderStatus.Released));
-        SetupAnyDetail();
+        SetupHeaderScan(
+            SapHeader(10, Constants.SapProductionOrderStatus.Closed),
+            SapHeader(11, Constants.SapProductionOrderStatus.Closed));
+        SetupAnyDetail(Constants.SapProductionOrderStatus.Closed);
 
         var result = await _sut.SyncOpenOrdersFromSapAsync(afterAbsoluteEntry: 10);
 
         result.UpdatedCount.Should().Be(1);
+        VerifyNoDetailRead(10);
+    }
+
+    /// <summary>
+    /// The behaviour the user asked for: clicking sync again must not redo the documents it already
+    /// holds. SAP has no last-changed field, so "already holds" means the header still matches.
+    /// </summary>
+    [Test]
+    public async Task SyncOpenOrders_leaves_documents_alone_when_the_SAP_header_still_matches()
+    {
+        SeedAsPreviouslySynced(
+            SapHeader(10, Constants.SapProductionOrderStatus.Released),
+            SapHeader(11, Constants.SapProductionOrderStatus.Released));
+        SetupHeaderScan(
+            SapHeader(10, Constants.SapProductionOrderStatus.Released),
+            SapHeader(11, Constants.SapProductionOrderStatus.Released));
+        SetupAnyDetail();
+
+        var result = await _sut.SyncOpenOrdersFromSapAsync();
+
+        result.UpdatedCount.Should().Be(0);
+        result.UnchangedCount.Should().Be(2);
+        result.Message.Should().Contain("already up to date");
+        VerifyNoDetailRead(10);
+        VerifyNoDetailRead(11);
+    }
+
+    [Test]
+    public async Task SyncOpenOrders_reads_only_the_document_that_changed()
+    {
+        SeedAsPreviouslySynced(
+            SapHeader(10, Constants.SapProductionOrderStatus.Released),
+            SapHeader(11, Constants.SapProductionOrderStatus.Released));
+        var moved = SapHeader(11, Constants.SapProductionOrderStatus.Released);
+        moved.CompletedQuantity = 3;
+        SetupHeaderScan(SapHeader(10, Constants.SapProductionOrderStatus.Released), moved);
+        SetupAnyDetail();
+
+        var result = await _sut.SyncOpenOrdersFromSapAsync();
+
+        result.UpdatedCount.Should().Be(1);
+        result.UnchangedCount.Should().Be(1);
+        VerifyNoDetailRead(10);
         _http.Verify(
             h => h.GetOrThrowAsync<SapProductionOrdersResponse>(
-                It.Is<string>(u => u.Contains("(10)")), It.IsAny<CancellationToken>()),
-            Times.Never);
+                It.Is<string>(u => u.Contains("(11)")), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task SyncOpenOrders_reports_rows_SAP_no_longer_has()
+    {
+        SeedLocal((10, Constants.SapProductionOrderStatus.Released));
+        SetupHeaderScan();
+        SetupAnyDetail();
+
+        var result = await _sut.SyncOpenOrdersFromSapAsync();
+
+        result.UpdatedCount.Should().Be(0);
+        result.Message.Should().Contain("no longer in SAP");
+        VerifyNoDetailRead(10);
+    }
+
+    [Test]
+    public async Task SyncOpenOrders_stops_and_reports_when_the_header_scan_fails()
+    {
+        SeedLocal((10, Constants.SapProductionOrderStatus.Released));
+        _http.Setup(h => h.GetPageOrThrowAsync<GetAllSapProductionOrdersResponse>(
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiErrorException(BaseErrorCodes.ValidationFailed, "SAP session expired."));
+
+        var act = async () => await _sut.SyncOpenOrdersFromSapAsync();
+
+        await act.Should().ThrowAsync<ApiErrorException>().WithMessage("*SAP session expired*");
+        var audit = await _context.ProductionOrderSyncLogs.SingleAsync();
+        audit.Succeeded.Should().BeFalse();
+        VerifyNoDetailRead(10);
+    }
+
+    /// <summary>
+    /// Syncing the same company twice must not grow the tables or duplicate lines, and the second
+    /// pass must not re-read documents SAP reports unchanged.
+    /// </summary>
+    [Test]
+    public async Task SyncAll_run_twice_neither_duplicates_rows_nor_re_reads_documents()
+    {
+        var sapDocument = new SapProductionOrdersResponse
+        {
+            AbsoluteEntry = 101,
+            DocumentNumber = 900101,
+            Status = Constants.SapProductionOrderStatus.Released,
+            PlannedQuantity = 4,
+            ProductionOrderLines =
+            [
+                new SapProductionOrderLines { LineNumber = 1, ItemNo = "RM-1", PlannedQuantity = 5 },
+                new SapProductionOrderLines { LineNumber = 2, ItemNo = "RM-2", PlannedQuantity = 7 },
+            ],
+        };
+        SetupHeaderScan(new SapProductionOrdersResponse
+        {
+            AbsoluteEntry = 101,
+            DocumentNumber = 900101,
+            Status = Constants.SapProductionOrderStatus.Released,
+            PlannedQuantity = 4,
+        });
+        SetupDetail(101, sapDocument);
+
+        var first = await _sut.SyncAllFromSapAsync();
+        _context.ChangeTracker.Clear();
+        var second = await _sut.SyncAllFromSapAsync();
+
+        first.AddedCount.Should().Be(1);
+        second.AddedCount.Should().Be(0);
+        second.UpdatedCount.Should().Be(0);
+        second.UnchangedCount.Should().Be(1);
+        second.Message.Should().Contain("already up to date");
+
+        _context.ProductionOrders.Count().Should().Be(1);
+        _context.ProductionOrderLines.Count().Should().Be(2);
+        _http.Verify(
+            h => h.GetOrThrowAsync<SapProductionOrdersResponse>(
+                It.Is<string>(u => u.Contains("(101)")), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    private static SapProductionOrdersResponse SapHeader(int absoluteEntry, string status) =>
+        new()
+        {
+            AbsoluteEntry = absoluteEntry,
+            DocumentNumber = 900000 + absoluteEntry,
+            Status = status,
+        };
+
+    /// <summary>
+    /// Rows exactly as an earlier sync would have written them, which is what change detection
+    /// compares against. Hand-built rows would differ on fields the mapper always fills.
+    /// </summary>
+    private void SeedAsPreviouslySynced(params SapProductionOrdersResponse[] headers)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var header in headers)
+        {
+            var entity = new ProductionOrder { CompanyDb = CompanyDb, CreatedOn = now };
+            ProductionOrderMapper.ApplyHeader(entity, header, now);
+            _context.ProductionOrders.Add(entity);
+        }
+
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
     }
 
     [Test]

@@ -43,6 +43,9 @@ public class HttpRequestHandler(
     public Task<T?> GetOrThrowAsync<T>(string url, CancellationToken cancellationToken = default) =>
         GetCoalescedAsync<T>(url, null, cancellationToken);
 
+    public Task<T?> GetPageOrThrowAsync<T>(string url, int maxPageSize, CancellationToken cancellationToken = default) =>
+        GetCoalescedAsync<T>(url, maxPageSize, cancellationToken);
+
     public async Task<T?> GetPageAsync<T>(string url, int maxPageSize, CancellationToken cancellationToken = default)
     {
         try

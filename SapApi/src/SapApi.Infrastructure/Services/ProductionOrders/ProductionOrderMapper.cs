@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Text.Json;
 using SapApi.Domain.Entities;
 using SapApi.Shared.Responses.Sap;
@@ -26,6 +27,49 @@ public static class ProductionOrderMapper
         ["warehouse"] = ["Warehouse"],
         ["productionCategory"] = ["ProductionCategory"],
     };
+
+    /// <summary>
+    /// Bookkeeping and enrichment columns: they move on every sync, or are filled from master data
+    /// rather than the SAP header, so they say nothing about whether SAP changed the document.
+    /// </summary>
+    private static readonly HashSet<string> NonSapHeaderColumns =
+    [
+        nameof(ProductionOrder.Id),
+        nameof(ProductionOrder.IsDeleted),
+        nameof(ProductionOrder.CompanyDb),
+        nameof(ProductionOrder.CustomerName),
+        nameof(ProductionOrder.SyncedAtUtc),
+        nameof(ProductionOrder.CreatedOn),
+        nameof(ProductionOrder.LastModifiedOn),
+    ];
+
+    /// <summary>
+    /// Discovered by reflection rather than listed by hand so a column added to the mirror is
+    /// compared automatically instead of silently dropping out of change detection.
+    /// </summary>
+    private static readonly PropertyInfo[] SapHeaderColumns = typeof(ProductionOrder)
+        .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        .Where(p => p is { CanRead: true, CanWrite: true })
+        .Where(p => p.PropertyType == typeof(string) || p.PropertyType.IsValueType)
+        .Where(p => !NonSapHeaderColumns.Contains(p.Name))
+        .ToArray();
+
+    /// <summary>
+    /// True when the mirrored header already matches what SAP reports, so the document does not need
+    /// re-reading. SAP exposes no last-changed field on ProductionOrders, and a list page carries
+    /// every header scalar, so comparing headers is how a re-sync avoids fetching documents it
+    /// already holds. Component issue quantities live on the lines and are invisible here — a row
+    /// sync is what refreshes those.
+    /// </summary>
+    public static bool HeaderMatchesSap(ProductionOrder local, SapProductionOrdersResponse sap)
+    {
+        // Run the real mapper against a throwaway header so the comparison cannot drift from it.
+        // ProjectName falls back to the stored name when SAP has no U_PrjName, so seed it.
+        var fromSap = new ProductionOrder { ProjectName = local.ProjectName };
+        ApplyHeader(fromSap, sap, local.SyncedAtUtc);
+
+        return SapHeaderColumns.All(column => Equals(column.GetValue(local), column.GetValue(fromSap)));
+    }
 
     public static void ApplyHeader(ProductionOrder entity, SapProductionOrdersResponse sap, DateTime syncedAtUtc)
     {

@@ -23,6 +23,12 @@ public interface IHttpRequestHandler
     /// number of round trips down.
     /// </summary>
     Task<T?> GetPageAsync<T>(string url, int maxPageSize, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Same as <see cref="GetPageAsync{T}"/> but lets the SAP failure surface. Use it where a
+    /// swallowed error would be reported to the user as a successful run that did nothing.
+    /// </summary>
+    Task<T?> GetPageOrThrowAsync<T>(string url, int maxPageSize, CancellationToken cancellationToken = default);
     Task<TResponse?> PostAsync<TRequest, TResponse>(string url, TRequest? data, CancellationToken cancellationToken = default);
     Task<TResponse?> PutAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default);
     Task<TResponse?> PatchAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default);

@@ -32,7 +32,9 @@ public record ProductionOrderSyncResult(
     int? LastAbsoluteEntry = null,
     string Status = ProductionOrderSyncState.StatusIdle,
     string? HangfireJobId = null,
-    DateTime? StartedAtUtc = null);
+    DateTime? StartedAtUtc = null,
+    /// <summary>Documents SAP reported unchanged, so they were not re-read.</summary>
+    int UnchangedCount = 0);
 
 /// <summary>
 /// Read model for SAP production orders. Every portal read of production order data comes from
@@ -58,6 +60,12 @@ public class ProductionOrderLocalStore(
 
     /// <summary>Header page size for the AbsoluteEntry scan (keys only, so a wide page is cheap).</summary>
     private const int HeaderPageSize = 1000;
+
+    /// <summary>
+    /// Page size for the change-detection scan. These rows carry every header field, so they are far
+    /// wider than the key-only scan; 100 keeps the round trips down without a huge response.
+    /// </summary>
+    private const int HeaderScanPageSize = 100;
 
     /// <summary>
     /// Statuses whose orders can still change in SAP. Refreshing only these keeps the pickers
@@ -350,6 +358,8 @@ public class ProductionOrderLocalStore(
     /// Re-pulls locally open orders (Planned / Released) so status, quantities and released dates
     /// stay current. A "new only" pass cannot see these changes because SAP exposes no
     /// last-updated field on ProductionOrders. Resumable via <paramref name="afterAbsoluteEntry"/>.
+    /// Orders whose SAP header already matches the mirror are skipped, so running the sync again
+    /// costs one cheap header scan instead of re-reading every open document.
     /// </summary>
     public async Task<ProductionOrderSyncResult> SyncOpenOrdersFromSapAsync(
         int? afterAbsoluteEntry = null,
@@ -360,10 +370,11 @@ public class ProductionOrderLocalStore(
         var afterExclusive = afterAbsoluteEntry ?? 0;
         var lastAbsoluteEntry = afterExclusive;
         var updated = 0;
+        var unchanged = 0;
         var missing = 0;
         var hasMore = false;
 
-        // Keys only, and capped — never materialise the whole open set in memory.
+        // Headers only, and capped — the lines stay in the database until a document needs replacing.
         var candidates = await db.ProductionOrders
             .AsNoTracking()
             .Where(x => x.CompanyDb == CompanyDb
@@ -371,7 +382,6 @@ public class ProductionOrderLocalStore(
                         && x.Status != null
                         && OpenStatuses.Contains(x.Status))
             .OrderBy(x => x.AbsoluteEntry)
-            .Select(x => x.AbsoluteEntry)
             .Take(MaxRecordsPerBatch + 1)
             .ToListAsync(cancellationToken);
 
@@ -381,15 +391,51 @@ public class ProductionOrderLocalStore(
             candidates.RemoveAt(candidates.Count - 1);
         }
 
+        if (candidates.Count == 0)
+        {
+            const string nothingOpen = "No open production orders to refresh.";
+            await SaveSyncStateAsync(syncedAt, 0, nothingOpen, cancellationToken, lastAbsoluteEntry);
+            return new ProductionOrderSyncResult(
+                CompanyDb,
+                UpsertedCount: 0,
+                PageCount: 0,
+                SyncedAtUtc: syncedAt,
+                Message: nothingOpen,
+                Mode: "open",
+                HasMore: false,
+                LastAbsoluteEntry: lastAbsoluteEntry);
+        }
+
         try
         {
-            foreach (var absoluteEntry in candidates)
+            // One scan over the candidate range tells us which documents actually moved. The scan is
+            // deliberately unfiltered by status: an order that left Planned/Released still has to be
+            // re-read so the mirror learns it closed.
+            var sapHeaders = await ReadSapHeadersAsync(
+                candidates[0].AbsoluteEntry,
+                candidates[^1].AbsoluteEntry,
+                cancellationToken);
+
+            foreach (var local in candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                lastAbsoluteEntry = absoluteEntry;
+                lastAbsoluteEntry = local.AbsoluteEntry;
 
+                if (!sapHeaders.TryGetValue(local.AbsoluteEntry, out var sapHeader))
+                {
+                    missing++;
+                    continue;
+                }
+
+                if (ProductionOrderMapper.HeaderMatchesSap(local, sapHeader))
+                {
+                    unchanged++;
+                    continue;
+                }
+
+                // Changed in SAP: the list page carries no lines, so re-read the whole document.
                 var detail = await requestHandler.GetOrThrowAsync<SapProductionOrdersResponse>(
-                    Constants.SapApiUrls.GetProductionOrders(absoluteEntry.ToString()),
+                    Constants.SapApiUrls.GetProductionOrders(local.AbsoluteEntry.ToString()),
                     cancellationToken);
 
                 if (detail?.AbsoluteEntry is null)
@@ -417,12 +463,7 @@ public class ProductionOrderLocalStore(
             throw;
         }
 
-        var message = hasMore
-            ? $"Refreshed {updated} open production order(s) up to entry {lastAbsoluteEntry}. More remaining."
-            : updated == 0
-                ? "No open production orders needed refreshing."
-                : $"Refreshed {updated} open production order(s)"
-                  + (missing > 0 ? $" ({missing} no longer in SAP)." : ".");
+        var message = BuildOpenRefreshMessage(hasMore, updated, unchanged, missing, lastAbsoluteEntry);
 
         await SaveSyncStateAsync(syncedAt, updated, message, cancellationToken, lastAbsoluteEntry);
         await WriteAuditAsync("open", null, 0, updated, true, message, stopwatch, cancellationToken);
@@ -436,7 +477,67 @@ public class ProductionOrderLocalStore(
             Mode: "open",
             UpdatedCount: updated,
             HasMore: hasMore,
-            LastAbsoluteEntry: lastAbsoluteEntry);
+            LastAbsoluteEntry: lastAbsoluteEntry,
+            UnchangedCount: unchanged);
+    }
+
+    private static string BuildOpenRefreshMessage(
+        bool hasMore,
+        int updated,
+        int unchanged,
+        int missing,
+        int lastAbsoluteEntry)
+    {
+        var checkedCount = updated + unchanged + missing;
+        var tail = missing > 0 ? $", {missing} no longer in SAP" : string.Empty;
+
+        if (hasMore)
+            return $"Checked {checkedCount} open production order(s) up to entry {lastAbsoluteEntry}: "
+                   + $"{updated} refreshed, {unchanged} already up to date{tail}. More remaining.";
+
+        return updated == 0 && missing == 0
+            ? $"Checked {checkedCount} open production order(s); all were already up to date."
+            : $"Checked {checkedCount} open production order(s): {updated} refreshed, "
+              + $"{unchanged} already up to date{tail}.";
+    }
+
+    /// <summary>
+    /// Reads SAP production order headers for an inclusive AbsoluteEntry range. A list page carries
+    /// every header scalar (only the child collections are omitted), which is what makes header
+    /// comparison possible without one call per document.
+    /// </summary>
+    private async Task<Dictionary<int, SapProductionOrdersResponse>> ReadSapHeadersAsync(
+        int fromAbsoluteEntry,
+        int toAbsoluteEntry,
+        CancellationToken cancellationToken)
+    {
+        var headers = new Dictionary<int, SapProductionOrdersResponse>();
+        var url = Constants.SapApiUrls.GetAllProductionOrders
+                  + $"?$filter=AbsoluteEntry ge {fromAbsoluteEntry} and AbsoluteEntry le {toAbsoluteEntry}"
+                  + "&$orderby=AbsoluteEntry";
+
+        while (!string.IsNullOrWhiteSpace(url))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var page = await requestHandler.GetPageOrThrowAsync<GetAllSapProductionOrdersResponse>(
+                url,
+                HeaderScanPageSize,
+                cancellationToken);
+
+            if (page?.Value is null)
+                throw new ApiErrorException(
+                    BaseErrorCodes.ValidationFailed,
+                    "SAP did not return the production order headers needed to decide what changed. "
+                    + "The sync was stopped so no record is silently treated as up to date.");
+
+            foreach (var header in page.Value.Where(h => h.AbsoluteEntry is > 0))
+                headers[header.AbsoluteEntry!.Value] = header;
+
+            url = ResolveNextLink(page.ODataNextLink);
+        }
+
+        return headers;
     }
 
     /// <summary>
@@ -597,6 +698,7 @@ public class ProductionOrderLocalStore(
         var mode = newOnly ? "new" : "full";
         var added = 0;
         var updated = 0;
+        var unchanged = 0;
         var pages = 0;
         var hasMore = false;
 
@@ -605,7 +707,9 @@ public class ProductionOrderLocalStore(
             ?? (newOnly ? await GetMaxLocalAbsoluteEntryAsync(cancellationToken) : 0);
         var lastAbsoluteEntry = startEntry;
 
-        var url = BuildSyncStartUrl(startEntry);
+        // A full pass compares headers before re-reading a document, so it asks for whole headers;
+        // a "new only" pass has nothing local to compare and only needs the keys.
+        var url = BuildSyncStartUrl(startEntry, keysOnly: newOnly);
         var stopwatch = Stopwatch.StartNew();
 
         try
@@ -615,11 +719,16 @@ public class ProductionOrderLocalStore(
                 cancellationToken.ThrowIfCancellationRequested();
                 pages++;
 
-                // GetOrThrowAsync: a swallowed failure here would end the loop early and be
+                // Throwing variants: a swallowed failure here would end the loop early and be
                 // reported to the user as a successful sync that imported nothing.
-                var page = await requestHandler.GetOrThrowAsync<GetAllSapProductionOrdersResponse>(
-                    url,
-                    cancellationToken);
+                var page = newOnly
+                    ? await requestHandler.GetOrThrowAsync<GetAllSapProductionOrdersResponse>(
+                        url,
+                        cancellationToken)
+                    : await requestHandler.GetPageOrThrowAsync<GetAllSapProductionOrdersResponse>(
+                        url,
+                        HeaderScanPageSize,
+                        cancellationToken);
 
                 if (page?.Value is null)
                     throw new ApiErrorException(
@@ -635,10 +744,31 @@ public class ProductionOrderLocalStore(
                     if (header.AbsoluteEntry is null or <= 0)
                         continue;
 
-                    var existed = await db.ProductionOrders.AsNoTracking()
-                        .AnyAsync(
+                    var local = await db.ProductionOrders.AsNoTracking()
+                        .IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(
                             x => x.CompanyDb == CompanyDb && x.AbsoluteEntry == header.AbsoluteEntry.Value,
                             cancellationToken);
+                    var existed = local is not null;
+
+                    // Already holding what SAP reports: skip the detail call rather than rewrite the
+                    // same document. Only a full pass carries whole headers to compare.
+                    if (local is { IsDeleted: false } && !newOnly
+                        && ProductionOrderMapper.HeaderMatchesSap(local, header))
+                    {
+                        unchanged++;
+                        lastAbsoluteEntry = header.AbsoluteEntry.Value;
+
+                        // Skips are cheap but not free: a company with thousands of unchanged orders
+                        // must still hand control back so the caller can resume.
+                        if (stopwatch.Elapsed >= BatchTimeBudget)
+                        {
+                            hasMore = true;
+                            break;
+                        }
+
+                        continue;
+                    }
 
                     // Collection responses omit ProductionOrderLines — fetch the complete document.
                     var detail = await requestHandler.GetOrThrowAsync<SapProductionOrdersResponse>(
@@ -693,17 +823,18 @@ public class ProductionOrderLocalStore(
         }
 
         var upserted = added + updated;
-        var message = BuildSyncMessage(newOnly, hasMore, added, updated, pages, startEntry, lastAbsoluteEntry);
+        var message = BuildSyncMessage(newOnly, hasMore, added, updated, unchanged, pages, startEntry, lastAbsoluteEntry);
 
         await SaveSyncStateAsync(syncedAt, upserted, message, cancellationToken, lastAbsoluteEntry);
         await WriteAuditAsync(mode, null, added, updated, true, message, stopwatch, cancellationToken);
 
         Log.Information(
-            "Production order {Mode} sync batch for {CompanyDb}: added={Added}, updated={Updated}, pages={Pages}, hasMore={HasMore}, lastEntry={LastEntry}, durationMs={DurationMs}",
+            "Production order {Mode} sync batch for {CompanyDb}: added={Added}, updated={Updated}, unchanged={Unchanged}, pages={Pages}, hasMore={HasMore}, lastEntry={LastEntry}, durationMs={DurationMs}",
             mode,
             CompanyDb,
             added,
             updated,
+            unchanged,
             pages,
             hasMore,
             lastAbsoluteEntry,
@@ -719,7 +850,8 @@ public class ProductionOrderLocalStore(
             AddedCount: added,
             UpdatedCount: updated,
             HasMore: hasMore,
-            LastAbsoluteEntry: lastAbsoluteEntry);
+            LastAbsoluteEntry: lastAbsoluteEntry,
+            UnchangedCount: unchanged);
     }
 
     private async Task<int> GetMaxLocalAbsoluteEntryAsync(CancellationToken cancellationToken) =>
@@ -734,31 +866,40 @@ public class ProductionOrderLocalStore(
         bool hasMore,
         int added,
         int updated,
+        int unchanged,
         int pages,
         int startEntry,
         int lastEntry)
     {
         var upserted = added + updated;
+        var skipped = unchanged > 0 ? $", {unchanged} already up to date" : string.Empty;
 
         if (hasMore)
-            return $"Synced {upserted} production order(s) ({added} added, {updated} updated) up to entry {lastEntry}. More remaining.";
+            return $"Synced {upserted} production order(s) ({added} added, {updated} updated{skipped}) up to entry {lastEntry}. More remaining.";
 
         if (newOnly)
             return upserted == 0
                 ? $"No new production orders in SAP (local max entry {startEntry})."
                 : $"Added {added} new production order(s) from SAP (after entry {startEntry}).";
 
-        return $"Synced {upserted} production order(s) ({added} added, {updated} updated) across {pages} page(s).";
+        return upserted == 0 && unchanged > 0
+            ? $"Checked {unchanged} production order(s) across {pages} page(s); all were already up to date."
+            : $"Synced {upserted} production order(s) ({added} added, {updated} updated{skipped}) across {pages} page(s).";
     }
 
-    /// <summary>Only real ProductionOrders fields — SAP rejects the whole query on an unknown property.</summary>
-    private static string BuildSyncStartUrl(int minAbsoluteEntryExclusive)
+    /// <summary>
+    /// Only real ProductionOrders fields — SAP rejects the whole query on an unknown property.
+    /// A full pass needs every header field to compare against the mirror, so it omits $select;
+    /// $top is left off there too, because the page size comes from the Prefer header instead.
+    /// </summary>
+    private static string BuildSyncStartUrl(int minAbsoluteEntryExclusive, bool keysOnly)
     {
         var filter = minAbsoluteEntryExclusive > 0
             ? $"&$filter=AbsoluteEntry gt {minAbsoluteEntryExclusive}"
             : string.Empty;
+        var projection = keysOnly ? $"$select=AbsoluteEntry&$top={HeaderPageSize}&" : string.Empty;
         return Constants.SapApiUrls.GetAllProductionOrders
-            + $"?$select=AbsoluteEntry&$orderby=AbsoluteEntry&$top={HeaderPageSize}{filter}";
+            + $"?{projection}$orderby=AbsoluteEntry{filter}";
     }
 
     private static string? ResolveNextLink(string? nextLink)

@@ -179,6 +179,110 @@ public class ProductionOrderMapperTests
     }
 
     [Test]
+    public void HeaderMatchesSap_is_true_when_the_mirror_already_holds_the_SAP_header()
+    {
+        var sap = SapHeader();
+        var local = new ProductionOrder();
+        ProductionOrderMapper.ApplyHeader(local, sap, SyncedAt);
+
+        ProductionOrderMapper.HeaderMatchesSap(local, sap).Should().BeTrue();
+    }
+
+    [Test]
+    public void HeaderMatchesSap_is_true_even_though_the_sync_stamps_moved_on()
+    {
+        var sap = SapHeader();
+        var local = new ProductionOrder();
+        ProductionOrderMapper.ApplyHeader(local, sap, SyncedAt);
+        local.SyncedAtUtc = SyncedAt.AddDays(2);
+        local.LastModifiedOn = SyncedAt.AddDays(2);
+        local.CreatedOn = SyncedAt.AddDays(-9);
+        local.Id = 42;
+        local.CompanyDb = "PBBPL_UAT";
+        // Resolved from master data, not from the SAP header.
+        local.CustomerName = "FORBESVYNCKE PRIVATE LIMITED";
+
+        ProductionOrderMapper.HeaderMatchesSap(local, sap).Should().BeTrue();
+    }
+
+    [Test]
+    public void HeaderMatchesSap_is_true_when_SAP_stopped_sending_the_project_name()
+    {
+        var sap = SapHeader();
+        var local = new ProductionOrder();
+        ProductionOrderMapper.ApplyHeader(local, sap, SyncedAt);
+        sap.ProjectName = null;
+
+        ProductionOrderMapper.HeaderMatchesSap(local, sap).Should().BeTrue();
+    }
+
+    [TestCaseSource(nameof(HeaderChanges))]
+    public void HeaderMatchesSap_is_false_when_SAP_moved_the_document(
+        string change,
+        Action<SapProductionOrdersResponse> apply)
+    {
+        var sap = SapHeader();
+        var local = new ProductionOrder();
+        ProductionOrderMapper.ApplyHeader(local, sap, SyncedAt);
+
+        apply(sap);
+
+        ProductionOrderMapper.HeaderMatchesSap(local, sap).Should().BeFalse(change);
+    }
+
+    private static IEnumerable<TestCaseData> HeaderChanges()
+    {
+        yield return new TestCaseData(
+            "status",
+            (Action<SapProductionOrdersResponse>)(sap => sap.Status = Constants.SapProductionOrderStatus.Closed));
+        yield return new TestCaseData(
+            "completed quantity",
+            (Action<SapProductionOrdersResponse>)(sap => sap.CompletedQuantity = 2));
+        yield return new TestCaseData(
+            "planned quantity",
+            (Action<SapProductionOrdersResponse>)(sap => sap.PlannedQuantity = 9));
+        yield return new TestCaseData(
+            "due date",
+            (Action<SapProductionOrdersResponse>)(sap =>
+                sap.DueDate = new DateTime(2026, 10, 5, 0, 0, 0, DateTimeKind.Utc)));
+        yield return new TestCaseData(
+            "closing date",
+            (Action<SapProductionOrdersResponse>)(sap =>
+                sap.ClosingDate = new DateTime(2026, 10, 9, 0, 0, 0, DateTimeKind.Utc)));
+        yield return new TestCaseData(
+            "warehouse",
+            (Action<SapProductionOrdersResponse>)(sap => sap.Warehouse = "FG"));
+        yield return new TestCaseData(
+            "drawing number",
+            (Action<SapProductionOrdersResponse>)(sap => sap.DrawingNo = "4354e"));
+        yield return new TestCaseData(
+            "remarks",
+            (Action<SapProductionOrdersResponse>)(sap => sap.Remarks = "Rework requested"));
+    }
+
+    private static SapProductionOrdersResponse SapHeader() => new()
+    {
+        AbsoluteEntry = 646,
+        DocumentNumber = 10,
+        Status = Constants.SapProductionOrderStatus.Released,
+        ItemNumber = "SF036770000",
+        ProductDescription = "MEMBRANE PANEL",
+        CustomerCode = "C000017",
+        Project = "PB/R&M/25262053",
+        ProjectName = "FORBESVYNCKE (PO NO:XX3824)",
+        SalesOrderDocEntry = 512,
+        SalesOrderDocNum = 252610128,
+        Warehouse = "WIP",
+        PlannedQuantity = 3,
+        CompletedQuantity = 1,
+        RejectedQuantity = 0,
+        InventoryUom = "SET",
+        DrawingNo = "4354d",
+        ProductionCategory = "INT",
+        DueDate = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+    };
+
+    [Test]
     public void ToSapResponse_omits_lines_for_list_rows()
     {
         var response = ProductionOrderMapper.ToSapResponse(
