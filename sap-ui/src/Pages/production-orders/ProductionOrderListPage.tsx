@@ -27,10 +27,12 @@ export function ProductionOrderListPage() {
 
   const {
     tableKey,
-    syncingAll,
+    startingSync,
+    refreshing,
     syncingKey,
     syncError,
-    syncProgress,
+    syncMessage,
+    handleRefresh,
     handleSyncAll,
     handleSyncRow,
   } = useDocumentSync({
@@ -142,8 +144,16 @@ export function ProductionOrderListPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
+              onClick={() => void handleRefresh()}
+              isLoading={refreshing}
+              disabled={syncingKey != null}
+            >
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => void handleSyncAll()}
-              isLoading={syncingAll}
+              isLoading={startingSync}
               disabled={syncingKey != null}
               leftIcon={<RefreshCw className="h-4 w-4" />}
             >
@@ -155,7 +165,11 @@ export function ProductionOrderListPage() {
           </div>
         )}
       />
-      {syncProgress && <p className="text-sm text-slate-500">{syncProgress}</p>}
+      {syncMessage && (
+        <p className="text-sm text-slate-500">
+          {syncMessage} Use Refresh to load the latest rows.
+        </p>
+      )}
       {syncError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
           {syncError}

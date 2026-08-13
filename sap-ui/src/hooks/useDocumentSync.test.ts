@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDocumentSync } from '@/hooks/useDocumentSync'
 
@@ -65,13 +65,9 @@ describe('useDocumentSync', () => {
     expect(result.current.handleSyncRow).toBe(first)
   })
 
-  it('shows progress while a queued full sync is running and refetches once it succeeds', async () => {
+  it('queues a full sync and then leaves the list alone', async () => {
     const enqueueFullSync = vi.fn(async () => ({ message: 'Full sync job queued.' }))
-    const getSyncStatus = vi
-      .fn()
-      .mockResolvedValueOnce({ status: 'Idle' })
-      .mockResolvedValueOnce({ status: 'Running', message: 'Running batch 1…' })
-      .mockResolvedValue({ status: 'Succeeded', message: 'Sync completed: 16 production order(s).' })
+    const getSyncStatus = vi.fn(async () => ({ status: 'Running', message: 'Running batch 1…' }))
 
     const { result } = renderHook(() =>
       useDocumentSync({ enqueueFullSync, getSyncStatus, syncRow: vi.fn(async () => ({ message: 'ok' })) }),
@@ -83,31 +79,103 @@ describe('useDocumentSync', () => {
     })
 
     expect(enqueueFullSync).toHaveBeenCalledTimes(1)
-    expect(result.current.syncingAll).toBe(true)
-    expect(result.current.syncProgress).toBe('Running batch 1…')
-
-    await waitFor(() => expect(result.current.syncingAll).toBe(false), { timeout: 5000 })
-    expect(result.current.tableKey).toBe(initialKey + 1)
-    expect(toastSuccess).toHaveBeenCalledWith('Sync completed: 16 production order(s).')
+    expect(result.current.syncMessage).toBe('Full sync job queued.')
+    expect(result.current.startingSync).toBe(false)
+    expect(toastSuccess).toHaveBeenCalledWith('Full sync job queued.')
+    expect(result.current.tableKey).toBe(initialKey)
+    expect(getSyncStatus).not.toHaveBeenCalled()
   })
 
-  it('reports a failed full sync instead of leaving the spinner running', async () => {
-    const enqueueFullSync = vi.fn(async () => ({ message: 'queued' }))
-    const getSyncStatus = vi
-      .fn()
-      .mockResolvedValueOnce({ status: 'Idle' })
-      .mockResolvedValue({ status: 'Failed', message: 'Full sync failed: SAP session expired.' })
+  it('never reads the sync status on its own, before or after queueing', async () => {
+    vi.useFakeTimers()
+    const getSyncStatus = vi.fn(async () => ({ status: 'Running', message: 'Running batch 1…' }))
 
     const { result } = renderHook(() =>
-      useDocumentSync({ enqueueFullSync, getSyncStatus, syncRow: vi.fn(async () => ({ message: 'ok' })) }),
+      useDocumentSync({
+        enqueueFullSync: vi.fn(async () => ({ message: 'queued' })),
+        getSyncStatus,
+        syncRow: vi.fn(async () => ({ message: 'ok' })),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.handleSyncAll()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+
+    expect(getSyncStatus).not.toHaveBeenCalled()
+    expect(result.current.tableKey).toBe(0)
+  })
+
+  it('reads the status once and reloads the rows when the user refreshes', async () => {
+    const getSyncStatus = vi.fn(async () => ({
+      status: 'Succeeded',
+      message: 'Sync completed: 16 production order(s).',
+    }))
+
+    const { result } = renderHook(() =>
+      useDocumentSync({
+        enqueueFullSync: vi.fn(async () => ({ message: 'queued' })),
+        getSyncStatus,
+        syncRow: vi.fn(async () => ({ message: 'ok' })),
+      }),
+    )
+    const initialKey = result.current.tableKey
+
+    await act(async () => {
+      await result.current.handleRefresh()
+    })
+
+    expect(getSyncStatus).toHaveBeenCalledTimes(1)
+    expect(result.current.syncMessage).toBe('Sync completed: 16 production order(s).')
+    expect(result.current.tableKey).toBe(initialKey + 1)
+    expect(result.current.refreshing).toBe(false)
+  })
+
+  it('shows a failed sync when the user refreshes, and still reloads the rows', async () => {
+    const getSyncStatus = vi.fn(async () => ({
+      status: 'Failed',
+      message: 'Full sync failed: SAP session expired.',
+    }))
+
+    const { result } = renderHook(() =>
+      useDocumentSync({
+        enqueueFullSync: vi.fn(async () => ({ message: 'queued' })),
+        getSyncStatus,
+        syncRow: vi.fn(async () => ({ message: 'ok' })),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.handleRefresh()
+    })
+
+    expect(result.current.syncError).toBe('Full sync failed: SAP session expired.')
+    expect(result.current.syncMessage).toBeNull()
+    expect(result.current.tableKey).toBe(1)
+  })
+
+  it('reports a full sync that could not be queued', async () => {
+    const enqueueFullSync = vi.fn(async () => {
+      throw new Error('Sync already running.')
+    })
+
+    const { result } = renderHook(() =>
+      useDocumentSync({
+        enqueueFullSync,
+        getSyncStatus: vi.fn(async () => null),
+        syncRow: vi.fn(async () => ({ message: 'ok' })),
+      }),
     )
 
     await act(async () => {
       await result.current.handleSyncAll()
     })
 
-    await waitFor(() => expect(result.current.syncingAll).toBe(false), { timeout: 5000 })
-    expect(result.current.syncError).toBe('Full sync failed: SAP session expired.')
-    expect(toastError).toHaveBeenCalledWith('Full sync failed: SAP session expired.')
+    expect(result.current.syncError).toBe('Sync already running.')
+    expect(result.current.startingSync).toBe(false)
+    expect(toastError).toHaveBeenCalledWith('Sync already running.')
   })
 })
