@@ -215,7 +215,7 @@ namespace SapApi.Shared
             public static string OrdersCollection = SapServiceLayerUrl + SapBaseUrl + "/Orders";
             public static string WithholdingTaxCodesCollection = SapServiceLayerUrl + SapBaseUrl + "/WithholdingTaxCodes";
             public static string IndiaHsnServiceGetList = SapServiceLayerUrl + SapBaseUrl + "/IndiaHsnService_GetList";
-            public static string IndiaSacServiceGetList = SapServiceLayerUrl + SapBaseUrl + "/IndiaSacService_GetList";
+            public static string IndiaSacCodeServiceGetList = SapServiceLayerUrl + SapBaseUrl + "/IndiaSacCodeService_GetList";
             public static string GetAllPurchaseDownPayment = SapServiceLayerUrl + SapBaseUrl + "/PurchaseDownPayments";
             public static string PurchaseDownPayment = SapServiceLayerUrl + SapBaseUrl + "/PurchaseDownPayments";
             public static string UpdatePurchaseDownPayment(string id) =>

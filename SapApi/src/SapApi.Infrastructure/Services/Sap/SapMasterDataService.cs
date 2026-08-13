@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Sap;
 using SapApi.Shared;
@@ -14,7 +15,8 @@ public class SapMasterDataService(
     IHttpRequestHandler http,
     ISapLoginService sapLogin,
     ISapMasterDataCache cache,
-    ICurrentCompanyDbAccessor companyDbAccessor)
+    ICurrentCompanyDbAccessor companyDbAccessor,
+    ILogger<SapMasterDataService>? logger = null)
 {
     private const int LookupBatchSize = 20;
 
@@ -206,9 +208,10 @@ public class SapMasterDataService(
                         cancellationToken);
                     return envelope?.Value ?? envelope?.IndiaHsn ?? [];
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     // Company may not expose India HSN service — UI still allows manual AbsEntry.
+                    LogLookupFailure("IndiaHsnService_GetList", ex);
                     return [];
                 }
             },
@@ -217,24 +220,37 @@ public class SapMasterDataService(
 
     private async Task<List<IndiaSacCodeResponse>> GetCachedIndiaSacListAsync(CancellationToken cancellationToken) =>
         await cache.GetOrCreateAsync(
-            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:IndiaSacService_GetList",
+            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:IndiaSacCodeService_GetList",
             async () =>
             {
                 try
                 {
                     var envelope = await http.PostAsync<object, IndiaSacListEnvelope>(
-                        Constants.SapApiUrls.IndiaSacServiceGetList,
+                        Constants.SapApiUrls.IndiaSacCodeServiceGetList,
                         new { },
                         cancellationToken);
                     return envelope?.Value ?? envelope?.IndiaSac ?? [];
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    LogLookupFailure("IndiaSacCodeService_GetList", ex);
                     return [];
                 }
             },
             MasterDataCacheTtl,
             cancellationToken) ?? [];
+
+    /// <summary>
+    /// These lookups degrade to an empty list so a company without the India localisation services
+    /// can still use the form, which means a wrong endpoint or a broken service looks identical to
+    /// "this company has no codes". Log it so the difference is visible.
+    /// </summary>
+    private void LogLookupFailure(string service, Exception ex) =>
+        logger?.LogWarning(
+            ex,
+            "SAP master data lookup {Service} failed for {CompanyDb}; returning an empty list",
+            service,
+            companyDbAccessor.GetCompanyDbName());
 
     private static PaginationResponse<List<TItem>> FilterAndPage<TItem>(
         IReadOnlyList<TItem> all,

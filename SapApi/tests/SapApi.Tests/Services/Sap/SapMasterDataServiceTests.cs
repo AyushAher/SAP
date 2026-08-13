@@ -119,4 +119,65 @@ public class SapMasterDataServiceTests
 
         _http.Verify(h => h.GetAsync<SapBusinessPartnerResponse>(It.IsAny<string>(), true, true, It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
+
+    /// <summary>
+    /// SAP names this function import IndiaSacCodeService_GetList; IndiaSacService_GetList answers
+    /// "Service Not Found", and the lookup swallows that into an empty SAC list, so the picker just
+    /// looks empty. Pin the endpoint.
+    /// </summary>
+    [Test]
+    public async Task SearchSacCodesAsync_PostsToTheIndiaSacCodeService()
+    {
+        string? capturedUrl = null;
+        _http
+            .Setup(h => h.PostAsync<object, IndiaSacListEnvelope>(It.IsAny<string>(), It.IsAny<object>(), It.IsAny<CancellationToken>()))
+            .Callback<string, object?, CancellationToken>((url, _, _) => capturedUrl = url)
+            .ReturnsAsync(new IndiaSacListEnvelope
+            {
+                Value = [new IndiaSacCodeResponse { AbsEntry = 11, ServiceCode = "998335" }],
+            });
+
+        var result = await _sut.SearchSacCodesAsync(new PaginationRequest { PageNumber = 1, PageSize = 20 });
+
+        capturedUrl.Should().EndWith("/IndiaSacCodeService_GetList");
+        result.Data.Should().HaveCount(1);
+        result.Data![0].DisplayLabel.Should().Be("998335");
+    }
+
+    [Test]
+    public async Task SearchSacCodesAsync_MatchesOnPartOfTheServiceCode()
+    {
+        _http
+            .Setup(h => h.PostAsync<object, IndiaSacListEnvelope>(It.IsAny<string>(), It.IsAny<object>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new IndiaSacListEnvelope
+            {
+                Value =
+                [
+                    new IndiaSacCodeResponse { AbsEntry = 11, ServiceCode = "998335" },
+                    new IndiaSacCodeResponse { AbsEntry = 12, ServiceCode = "997156" },
+                ],
+            });
+
+        var result = await _sut.SearchSacCodesAsync(new PaginationRequest
+        {
+            PageNumber = 1,
+            PageSize = 20,
+            Filters = [new FilterModel { Field = "__search", Value = "8335" }],
+        });
+
+        result.Data.Should().HaveCount(1);
+        result.Data![0].AbsEntry.Should().Be(11);
+    }
+
+    [Test]
+    public async Task SearchSacCodesAsync_SapFailure_ReturnsEmptyListInsteadOfThrowing()
+    {
+        _http
+            .Setup(h => h.PostAsync<object, IndiaSacListEnvelope>(It.IsAny<string>(), It.IsAny<object>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("Service Not Found"));
+
+        var result = await _sut.SearchSacCodesAsync(new PaginationRequest { PageNumber = 1, PageSize = 20 });
+
+        result.Data.Should().BeEmpty();
+    }
 }
