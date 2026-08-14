@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
 import {
@@ -6,14 +6,25 @@ import {
   RowActions,
   rowActionIconClassName,
 } from '@/Components/shared/RowActions'
-import { Button, Input, Modal, SearchableSelect, Select, Textarea } from '@/Components/ui'
+import { Button, Input, Modal, SearchableSelect, Textarea } from '@/Components/ui'
 import { formatCodeWithName } from '@/helpers/masterLookup'
-import { applyStockPurchaseQty, calculateLineTotals, calcItemsPerUnit, calcUseBaseUnits, resolveLineUoms, withPurchaseQty, withStockQty } from '@/helpers/purchaseOrderForm'
+import {
+  applyStockPurchaseQty,
+  calculateLineTotals,
+  calcItemsPerUnit,
+  calcUseBaseUnits,
+  resolveLineUoms,
+  resolvePurchaseUnit,
+  withItemsPerUnit,
+  withPurchaseQty,
+  withStockQty,
+} from '@/helpers/purchaseOrderForm'
 import { pickHsnFromChapterId } from '@/helpers/hsnResolve'
 import { isServicePoDocType, PO_TN } from '@/helpers/purchaseOrderTnValidation'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import {
+  listPurchaseUoms,
   lookupItem,
   searchGlAccounts,
   searchHsnCodes,
@@ -24,9 +35,18 @@ import {
   searchWarehouses,
   formatWarehouseOptionLabel,
   type MasterItem,
+  type MasterPurchaseUom,
+  type MasterWarehouse,
 } from '@/Requests/masters'
 import type { SelectOption } from '@/types'
 import type { PurchaseOrderLineItem } from '@/types/purchaseOrder'
+
+async function resolveWarehouseLocation(warehouseCode: string): Promise<number | undefined> {
+  const response = await searchWarehouses(warehouseCode, 20)
+  const match = (response.data ?? []).find((wh) => wh.WarehouseCode === warehouseCode)
+  const loc = match?.Location
+  return loc != null && Number.isFinite(loc) ? loc : undefined
+}
 
 interface PurchaseOrderLinesEditorProps {
   lines: PurchaseOrderLineItem[]
@@ -60,26 +80,14 @@ const emptyLine = (): PurchaseOrderLineItem => ({
   SACEntry: undefined,
 })
 
-function purchaseUomOptionsFromItem(meta?: Pick<MasterItem, 'PurchaseUnit' | 'InventoryUom'> | null): SelectOption[] {
-  const purchase = (meta?.PurchaseUnit ?? '').trim()
-  const inventory = (meta?.InventoryUom ?? '').trim()
-  const options: SelectOption[] = []
-  const seen = new Set<string>()
-
-  const push = (code: string, label: string) => {
-    const key = code.toUpperCase()
-    if (!code || seen.has(key)) return
-    seen.add(key)
-    options.push({ value: code, label })
+function purchaseUomOption(uom: MasterPurchaseUom): SelectOption {
+  const code = (uom.Code ?? '').trim()
+  const name = (uom.Name ?? '').trim()
+  return {
+    value: code,
+    label: name && name.toUpperCase() !== code.toUpperCase() ? `${code} - ${name}` : code,
+    meta: uom,
   }
-
-  if (purchase && inventory && purchase.toUpperCase() === inventory.toUpperCase()) {
-    push(purchase, `${purchase} (Purchase / Inventory)`)
-  } else {
-    push(purchase, `${purchase} (Purchase)`)
-    push(inventory, `${inventory} (Inventory)`)
-  }
-  return options
 }
 
 async function resolveHsnFromChapterId(chapterId: string | undefined): Promise<{
@@ -119,8 +127,18 @@ export function PurchaseOrderLinesEditor({
   const [hsnLabel, setHsnLabel] = useState('')
   const [sacLabel, setSacLabel] = useState('')
   const [projectLabel, setProjectLabel] = useState('')
-  const [purchaseUomOptions, setPurchaseUomOptions] = useState<SelectOption[]>([])
+  const [uomLabel, setUomLabel] = useState('')
+  /**
+   * Items per unit is typed as text so a decimal like 0.075 survives keystroke-by-keystroke
+   * rounding. null means "show the factor derived from the quantities".
+   */
+  const [itemsPerUnitText, setItemsPerUnitText] = useState<string | null>(null)
   const taxRatesRef = useRef<Record<string, number>>({})
+  // The UoM list is per item, but onSearch must stay stable or SearchableSelect refetches forever.
+  const draftItemCodeRef = useRef('')
+  useEffect(() => {
+    draftItemCodeRef.current = draft.ItemCode ?? ''
+  }, [draft.ItemCode])
 
   const itemCodes = useMemo(() => lines.map((line) => line.ItemCode), [lines])
   const itemMap = useItemMasterMap(itemCodes)
@@ -139,7 +157,7 @@ export function PurchaseOrderLinesEditor({
         UoMCode: purchaseUom,
         UomName: purchaseUom,
         StockUom: stockUom,
-        ItemDescription: line.ItemDescription ?? item?.name,
+        ItemDescription: line.ItemDescription?.trim() || item?.name,
       },
       rate,
     )
@@ -171,11 +189,17 @@ export function PurchaseOrderLinesEditor({
       .filter((o) => o.value)
   }, [])
 
+  const searchPurchaseUomOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
+    const uoms = await listPurchaseUoms(draftItemCodeRef.current, search)
+    return uoms.map(purchaseUomOption).filter((o) => o.value)
+  }, [])
+
   const searchWarehouseOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
     const response = await searchWarehouses(search)
     return (response.data ?? []).map((wh) => ({
       value: wh.WarehouseCode ?? '',
       label: formatWarehouseOptionLabel(wh),
+      meta: wh,
     })).filter((o) => o.value)
   }, [])
 
@@ -225,7 +249,8 @@ export function PurchaseOrderLinesEditor({
     setHsnLabel('')
     setSacLabel('')
     setProjectLabel('')
-    setPurchaseUomOptions([])
+    setUomLabel('')
+    setItemsPerUnitText(null)
   }
 
   const closeDialog = () => {
@@ -254,29 +279,24 @@ export function PurchaseOrderLinesEditor({
     setEditingIndex(index)
     setDraft(enrichLine(line))
     const itemCode = line.ItemCode?.trim()
+    setUomLabel(resolvePurchaseUnit(line))
+    setItemsPerUnitText(null)
     if (itemCode) {
       void (async () => {
         const meta = await lookupItem(itemCode)
         const stockUom = meta?.InventoryUom || meta?.PurchaseUnit
-        const uomOptions = purchaseUomOptionsFromItem(meta)
-        setPurchaseUomOptions(uomOptions)
         setDraft((prev) => {
           if (prev.ItemCode !== itemCode) return prev
-          const purchaseUom = prev.UoMCode || meta?.PurchaseUnit || uomOptions[0]?.value || prev.UomName
+          const purchaseUnit = resolvePurchaseUnit(prev) || meta?.PurchaseUnit || ''
           return {
             ...prev,
             StockUom: stockUom || prev.StockUom,
-            UoMCode: purchaseUom,
-            UomName: purchaseUom,
+            UoMCode: purchaseUnit || prev.UoMCode,
+            UomName: purchaseUnit || prev.UomName,
+            MeasureUnit: purchaseUnit || prev.MeasureUnit,
           }
         })
       })()
-    } else {
-      setPurchaseUomOptions(
-        line.UoMCode || line.UomName
-          ? [{ value: line.UoMCode || line.UomName || '', label: line.UoMCode || line.UomName || '' }]
-          : [],
-      )
     }
     setItemLabel(formatCodeWithName(line.ItemCode, line.ItemDescription))
     setAccountLabel(line.AccountLabel ?? line.AccountCode ?? '')
@@ -315,8 +335,11 @@ export function PurchaseOrderLinesEditor({
     } else if (!(draft.StockQty != null && draft.StockQty > 0)) {
       toast.error('Stock Qty must be greater than zero.')
       return
-    } else if (!(draft.UoMCode ?? draft.UomName)?.trim()) {
-      toast.error('Select Purchase UoM from the item master.')
+    } else if (!resolvePurchaseUnit(draft)) {
+      toast.error('Select Purchase UoM.')
+      return
+    } else if (draft.AccountCode?.trim() === PO_TN.forbiddenGlAccount) {
+      toast.error('Selection of G/L Account _SYS00000001265 is not allowed in Purchase Order rows.')
       return
     }
 
@@ -331,11 +354,13 @@ export function PurchaseOrderLinesEditor({
       WarehouseCode: isService ? undefined : (draft.WarehouseCode || defaultWarehouse),
       UoMCode: isService ? undefined : draft.UoMCode,
       UomName: isService ? undefined : draft.UomName,
+      MeasureUnit: isService ? undefined : (resolvePurchaseUnit(draft) || undefined),
+      UoMEntry: isService ? undefined : draft.UoMEntry,
       StockUom: isService ? undefined : draft.StockUom,
       StockQty: isService ? undefined : draft.StockQty,
       UnitsOfMeasurment: isService ? undefined : draft.UnitsOfMeasurment,
       HSNEntry: isService ? undefined : draft.HSNEntry,
-      AccountCode: isService ? draft.AccountCode : undefined,
+      AccountCode: draft.AccountCode?.trim() || undefined,
       ProjectCode: draft.ProjectCode || defaultProject || undefined,
       FreeText: draft.FreeText?.trim() || undefined,
     }))
@@ -362,8 +387,9 @@ export function PurchaseOrderLinesEditor({
     },
     { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
     { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
+    { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationCode != null ? String(r.LocationCode) : '—' },
     { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => r.Quantity },
-    { key: 'UoMCode', header: 'Purchase UoM', accessor: (r) => r.UoMCode ?? r.UomName ?? '—' },
+    { key: 'UoMCode', header: 'Purchase UoM', accessor: (r) => resolvePurchaseUnit(r) || '—' },
     { key: 'StockQty', header: 'Stock Qty', accessor: (r) => r.StockQty ?? '—' },
     { key: 'StockUom', header: 'Stock UoM', accessor: (r) => r.StockUom ?? '—' },
     {
@@ -388,6 +414,11 @@ export function PurchaseOrderLinesEditor({
     { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice) },
     { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => r.DiscountPercent ?? '—' },
     { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
+    {
+      key: 'AccountCode',
+      header: 'G/L Account',
+      accessor: (r) => r.AccountLabel ?? r.AccountCode ?? '—',
+    },
     { key: 'HSNEntry', header: 'HSN', accessor: (r) => r.HsnLabel ?? (r.HSNEntry != null ? String(r.HSNEntry) : '—') },
     { key: 'ProjectCode', header: 'Project', accessor: (r) => r.ProjectCode ?? '—' },
     { key: 'TaxableAmount', header: 'Taxable', accessor: (r) => formatPoCell(r.TaxableAmount ?? r.LineTotal) },
@@ -504,42 +535,61 @@ export function PurchaseOrderLinesEditor({
                 onSearch={searchItemOptions}
                 onChange={(code, option) => {
                   const label = option?.label ?? code
-                  const description = label.includes(' - ') ? label.split(' - ').slice(1).join(' - ') : ''
+                  const metaItem = option?.meta as MasterItem | undefined
+                  const fromMeta = (metaItem?.ItemName ?? '').trim()
+                  const fromLabel = label.includes(' - ') ? label.split(' - ').slice(1).join(' - ').trim() : ''
+                  const description = fromMeta || fromLabel
                   setItemLabel(label)
                   setDraft({
                     ...draft,
                     ItemCode: code,
-                    ItemDescription: description,
+                    ItemDescription: description || undefined,
                     // UoMs are master-driven; drop the previous item's values before refetching.
                     UoMCode: undefined,
                     UomName: undefined,
+                    MeasureUnit: undefined,
+                    UoMEntry: undefined,
                     StockUom: undefined,
                     WarehouseCode: draft.WarehouseCode || defaultWarehouse,
                     ProjectCode: draft.ProjectCode || defaultProject,
                   })
-                  setPurchaseUomOptions([])
+                  setUomLabel('')
+                  setItemsPerUnitText(null)
                   void (async () => {
-                    const meta = (await lookupItem(code)) ?? (option?.meta as MasterItem | undefined)
+                    const [meta, uoms] = await Promise.all([
+                      lookupItem(code).then((found) => found ?? (option?.meta as MasterItem | undefined)),
+                      listPurchaseUoms(code),
+                    ])
                     if (!meta) return
                     const purchaseUom = meta.PurchaseUnit || meta.InventoryUom || ''
                     const stockUom = meta.InventoryUom || meta.PurchaseUnit || ''
-                    const uomOptions = purchaseUomOptionsFromItem(meta)
-                    setPurchaseUomOptions(uomOptions)
-                    const itemsPerUnit = meta.PurchaseItemsPerUnit != null && meta.PurchaseItemsPerUnit > 0
+                    // The default unit must come from the list so items on a real UoM group keep the
+                    // UoMEntry SAP expects; the item master alone cannot supply it.
+                    const defaultUom = uoms.find((uom) => uom.IsDefault)
+                      ?? uoms.find((uom) => (uom.Code ?? '').toUpperCase() === purchaseUom.toUpperCase())
+                    const unit = defaultUom?.Code || purchaseUom
+                    const masterItemsPerUnit = meta.PurchaseItemsPerUnit != null && meta.PurchaseItemsPerUnit > 0
                       ? meta.PurchaseItemsPerUnit
                       : 1
+                    const itemsPerUnit = defaultUom?.ItemsPerUnit != null && defaultUom.ItemsPerUnit > 0
+                      ? defaultUom.ItemsPerUnit
+                      : masterItemsPerUnit
                     const purchaseQty = draft.Quantity && draft.Quantity > 0 ? draft.Quantity : 1
                     const stockQty = purchaseQty * itemsPerUnit
                     const taxCode = draft.TaxCode || meta.PurchaseVatGroup || ''
                     const warehouse = draft.WarehouseCode || meta.DefaultWarehouse || defaultWarehouse || ''
                     if (warehouse) setWarehouseLabel(warehouse)
+                    if (defaultUom) setUomLabel(purchaseUomOption(defaultUom).label)
+                    else if (unit) setUomLabel(unit)
                     setDraft((prev) => (
                       prev.ItemCode === code
                         ? applyStockPurchaseQty({
                             ...prev,
                             ItemDescription: prev.ItemDescription || meta.ItemName || description,
-                            UoMCode: purchaseUom || uomOptions[0]?.value || prev.UoMCode,
-                            UomName: purchaseUom || uomOptions[0]?.value || prev.UomName,
+                            UoMCode: unit || prev.UoMCode,
+                            UomName: unit || prev.UomName,
+                            MeasureUnit: unit || prev.MeasureUnit,
+                            UoMEntry: defaultUom?.UoMEntry,
                             StockUom: stockUom || prev.StockUom,
                             Quantity: purchaseQty,
                             StockQty: stockQty,
@@ -550,6 +600,12 @@ export function PurchaseOrderLinesEditor({
                           })
                         : prev
                     ))
+                    if (warehouse) {
+                      const loc = await resolveWarehouseLocation(warehouse)
+                      if (loc != null) {
+                        setDraft((prev) => (prev.ItemCode === code ? { ...prev, LocationCode: loc } : prev))
+                      }
+                    }
                     if (meta.PurchaseVatGroup) setTaxLabel(meta.PurchaseVatGroup)
                     const chapterId = meta.ChapterID?.trim()
                     if (chapterId) {
@@ -584,8 +640,13 @@ export function PurchaseOrderLinesEditor({
                 placeholder="Search warehouse..."
                 onSearch={searchWarehouseOptions}
                 onChange={(code, option) => {
+                  const loc = (option?.meta as MasterWarehouse | undefined)?.Location
                   setWarehouseLabel(option?.label ?? code)
-                  setDraft({ ...draft, WarehouseCode: code })
+                  setDraft({
+                    ...draft,
+                    WarehouseCode: code,
+                    LocationCode: loc != null && Number.isFinite(loc) ? loc : undefined,
+                  })
                 }}
               />
               <Input
@@ -594,16 +655,37 @@ export function PurchaseOrderLinesEditor({
                 min="0"
                 nonNegative
                 value={String(draft.Quantity ?? 0)}
-                onChange={(e) => setDraft(withPurchaseQty(draft, Number(e.target.value)))}
+                onChange={(e) => {
+                  setItemsPerUnitText(null)
+                  setDraft(withPurchaseQty(draft, Number(e.target.value)))
+                }}
                 required
               />
-              <Select
+              <SearchableSelect
                 label="Purchase UoM *"
-                options={purchaseUomOptions}
-                value={draft.UoMCode ?? draft.UomName ?? ''}
-                onChange={(value) => setDraft({ ...draft, UoMCode: value, UomName: value })}
-                placeholder={draft.ItemCode ? 'Select purchase UoM' : 'Select an item first'}
-                disabled={!draft.ItemCode || purchaseUomOptions.length === 0}
+                value={resolvePurchaseUnit(draft)}
+                selectedLabel={uomLabel}
+                placeholder={draft.ItemCode ? 'Search purchase UoM...' : 'Select an item first'}
+                onSearch={searchPurchaseUomOptions}
+                disabled={!draft.ItemCode}
+                onChange={(value, option) => {
+                  const uom = option?.meta as MasterPurchaseUom | undefined
+                  setUomLabel(option?.label ?? value)
+                  setItemsPerUnitText(null)
+                  setDraft((prev) => {
+                    const next = {
+                      ...prev,
+                      UoMCode: value,
+                      UomName: value,
+                      MeasureUnit: value,
+                      UoMEntry: uom?.UoMEntry,
+                    }
+                    // A unit from a UoM group brings its own conversion; otherwise keep what is there.
+                    return uom?.ItemsPerUnit != null && uom.ItemsPerUnit > 0
+                      ? withItemsPerUnit(next, uom.ItemsPerUnit)
+                      : next
+                  })
+                }}
               />
               <Input
                 label="Stock Qty *"
@@ -611,7 +693,10 @@ export function PurchaseOrderLinesEditor({
                 min="0"
                 nonNegative
                 value={String(draft.StockQty ?? 0)}
-                onChange={(e) => setDraft(withStockQty(draft, Number(e.target.value)))}
+                onChange={(e) => {
+                  setItemsPerUnitText(null)
+                  setDraft(withStockQty(draft, Number(e.target.value)))
+                }}
                 required
               />
               <Input
@@ -622,11 +707,19 @@ export function PurchaseOrderLinesEditor({
               <Input
                 label="Items per Unit"
                 type="number"
-                value={(() => {
+                min="0"
+                step="any"
+                nonNegative
+                value={itemsPerUnitText ?? (() => {
                   const factor = draft.UnitsOfMeasurment ?? calcItemsPerUnit(draft.StockQty, draft.Quantity)
                   return factor != null ? String(Number(factor.toFixed(6))) : ''
                 })()}
-                readOnly
+                onChange={(e) => {
+                  const text = e.target.value
+                  setItemsPerUnitText(text)
+                  const factor = Number(text)
+                  if (text !== '' && Number.isFinite(factor)) setDraft(withItemsPerUnit(draft, factor))
+                }}
               />
               <Input
                 label="Inventory UoM"
@@ -638,6 +731,15 @@ export function PurchaseOrderLinesEditor({
                   return ''
                 })()}
                 readOnly
+              />
+              <SearchableSelect
+                label="G/L Account"
+                value={draft.AccountCode ?? ''}
+                selectedLabel={accountLabel}
+                placeholder="Determined by SAP"
+                onSearch={searchAccountOptions}
+                disabled
+                onChange={() => undefined}
               />
             </>
           )}

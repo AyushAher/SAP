@@ -38,6 +38,8 @@ import {
   readLogisticsFromPo,
   readOtherTermsFromPo,
   resolvePaymentTermPercent,
+  resolvePurchaseUnit,
+  toSapDocumentLine,
   usesPbbplDispatchLocationMapping,
   warehouseForDispatchLocation,
   type PaymentPercentBasis,
@@ -58,6 +60,8 @@ import {
   formatEmployeeShipToLabel,
   lookupBusinessPartner,
   lookupEmployee,
+  lookupHsnLabels,
+  lookupSacLabels,
   lookupSalesPerson,
   type BusinessPartnerAddressOption,
   type MasterBusinessPartner,
@@ -331,6 +335,23 @@ export function PurchaseOrderFormPage() {
     setLines((prev) => prev.map((line) => ({ ...line, WarehouseCode: warehouse })))
   }, [form.DocType])
 
+  /** A saved document only stores HSN/SAC entry numbers, so fetch the code+description to show. */
+  const resolveIndiaCodeLabels = useCallback(async (loaded: PurchaseOrderLineItem[]) => {
+    const hsnEntries = loaded.filter((line) => !line.HsnLabel && line.HSNEntry != null).map((line) => line.HSNEntry!)
+    const sacEntries = loaded.filter((line) => !line.SacLabel && line.SACEntry != null).map((line) => line.SACEntry!)
+    if (hsnEntries.length === 0 && sacEntries.length === 0) return
+    const empty: Record<number, string> = {}
+    const [hsnLabels, sacLabels] = await Promise.all([
+      hsnEntries.length > 0 ? lookupHsnLabels(hsnEntries) : Promise.resolve(empty),
+      sacEntries.length > 0 ? lookupSacLabels(sacEntries) : Promise.resolve(empty),
+    ])
+    setLines((prev) => prev.map((line) => ({
+      ...line,
+      HsnLabel: line.HsnLabel ?? (line.HSNEntry != null ? hsnLabels[line.HSNEntry] : undefined),
+      SacLabel: line.SacLabel ?? (line.SACEntry != null ? sacLabels[line.SACEntry] : undefined),
+    })))
+  }, [])
+
   useEffect(() => {
     getBranchesApi()
       .then((items) => setBranchOptions(items.map((b) => ({ value: String(b.id), label: b.name }))))
@@ -354,7 +375,7 @@ export function PurchaseOrderFormPage() {
         ...record,
         DocType: record.DocType || PO_DOC_TYPE.items,
       })
-      setLines(((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? []).map((line) => {
+      const loadedLines = ((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? []).map((line) => {
         const purchaseQty = line.Quantity ?? 0
         const unitsPer = line.UnitsOfMeasurment
         const stockQty = line.StockQty
@@ -365,9 +386,11 @@ export function PurchaseOrderFormPage() {
           StockQty: stockQty,
           UnitsOfMeasurment: unitsPer ?? (stockQty != null && purchaseQty > 0 ? stockQty / purchaseQty : undefined),
           StockUom: line.StockUom,
-          UoMCode: line.UoMCode ?? line.UomName,
+          UoMCode: resolvePurchaseUnit(line) || line.UoMCode,
         }
-      }))
+      })
+      setLines(loadedLines)
+      void resolveIndiaCodeLabels(loadedLines)
       setPaymentTerms(parsePaymentTermsFromPo(record))
       const loadedLogistics = readLogisticsFromPo(record)
       setLogistics(loadedLogistics)
@@ -442,7 +465,7 @@ export function PurchaseOrderFormPage() {
     return () => {
       cancelled = true
     }
-  }, [id, purchaseOrder, queryLoading, authBranchId, loadDispatchLogisticsOptions])
+  }, [id, purchaseOrder, queryLoading, authBranchId, loadDispatchLogisticsOptions, resolveIndiaCodeLabels])
 
   const handleAddPaymentTerm = () => {
     const basis: PaymentPercentBasis =
@@ -505,50 +528,10 @@ export function PurchaseOrderFormPage() {
     const taxDate = docDate
     let payload: Record<string, unknown> = {
       ...form,
-      DocumentLines: lines.map((line) => (
-        isServiceDoc
-          ? {
-              ItemDescription: line.ItemDescription,
-              AccountCode: line.AccountCode,
-              Quantity: line.Quantity,
-              UnitPrice: line.UnitPrice,
-              DiscountPercent: line.DiscountPercent,
-              TaxCode: line.TaxCode,
-              SACEntry: line.SACEntry,
-              ProjectCode: line.ProjectCode || form.Project || undefined,
-              FreeText: line.FreeText || undefined,
-              LineNum: line.LineNum,
-            }
-          : {
-              ItemCode: line.ItemCode,
-              ItemDescription: line.ItemDescription,
-              FreeText: line.FreeText || undefined,
-              Quantity: line.Quantity,
-              UnitPrice: line.UnitPrice,
-              DiscountPercent: line.DiscountPercent,
-              WarehouseCode: line.WarehouseCode,
-              TaxCode: line.TaxCode,
-              HSNEntry: line.HSNEntry,
-              SACEntry: line.SACEntry,
-              UoMCode: line.UoMCode ?? line.UomName,
-              UnitsOfMeasurment: line.UnitsOfMeasurment
-                ?? (line.StockQty != null && line.Quantity != null && line.Quantity > 0
-                  ? line.StockQty / line.Quantity
-                  : undefined),
-              InventoryQuantity: line.StockQty,
-              UseBaseUnits: line.UseBaseUnits
-                ?? (() => {
-                  const factor = line.UnitsOfMeasurment
-                    ?? (line.StockQty != null && line.Quantity != null && line.Quantity > 0
-                      ? line.StockQty / line.Quantity
-                      : undefined)
-                  if (factor == null || !Number.isFinite(factor)) return undefined
-                  return Math.abs(factor - 1) < 1e-9 ? 'tYES' : 'tNO'
-                })(),
-              ProjectCode: line.ProjectCode || form.Project || undefined,
-              LineNum: line.LineNum,
-            }
-      )),
+      DocumentLines: lines.map((line) => toSapDocumentLine(line, {
+        isService: isServiceDoc,
+        fallbackProject: form.Project ? String(form.Project) : undefined,
+      })),
       DocType: docType,
       DocDate: docDate,
       DocDueDate: docDue,

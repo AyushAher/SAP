@@ -82,6 +82,25 @@ describe('validatePurchaseOrderAgainstTn', () => {
     })).toContain('_SYS00000001265')
   })
 
+  it('blocks forbidden G/L on item docs too, where the account is optional', () => {
+    expect(validatePurchaseOrderAgainstTn({
+      ...base,
+      lines: [{
+        ItemCode: 'RM-1',
+        AccountCode: PO_TN.forbiddenGlAccount,
+        Quantity: 1,
+        UnitPrice: 1,
+      }],
+    })).toContain('_SYS00000001265')
+  })
+
+  it('accepts an item line with no G/L account, since SAP determines it', () => {
+    expect(validatePurchaseOrderAgainstTn({
+      ...base,
+      lines: [{ ItemCode: 'RM-1', Quantity: 1, UnitPrice: 1 }],
+    })).toBeNull()
+  })
+
   it('passes when TN rules satisfied', () => {
     expect(validatePurchaseOrderAgainstTn({
       ...base,

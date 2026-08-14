@@ -214,8 +214,22 @@ namespace SapApi.Shared
             public static string ChartOfAccountsCollection = SapServiceLayerUrl + SapBaseUrl + "/ChartOfAccounts";
             public static string OrdersCollection = SapServiceLayerUrl + SapBaseUrl + "/Orders";
             public static string WithholdingTaxCodesCollection = SapServiceLayerUrl + SapBaseUrl + "/WithholdingTaxCodes";
-            public static string IndiaHsnServiceGetList = SapServiceLayerUrl + SapBaseUrl + "/IndiaHsnService_GetList";
-            public static string IndiaSacCodeServiceGetList = SapServiceLayerUrl + SapBaseUrl + "/IndiaSacCodeService_GetList";
+            /// <summary>
+            /// India HSN master. The IndiaHsnService_GetList function import only returns
+            /// AbsEntry + ChapterID, so the pickers read the entity set instead — it carries
+            /// Description. Both entity sets are missing from $metadata but are queryable, and only
+            /// the singular names work ("/IndiaHsns" answers "Unrecognized resource path").
+            /// </summary>
+            public static string IndiaHsnCollection = SapServiceLayerUrl + SapBaseUrl + "/IndiaHsn";
+
+            /// <summary>India SAC master; the description field here is named ServiceName.</summary>
+            public static string IndiaSacCodeCollection = SapServiceLayerUrl + SapBaseUrl + "/IndiaSacCode";
+
+            /// <summary>UoM master (AbsEntry/Code/Name) behind the purchase-UoM picker.</summary>
+            public static string UnitOfMeasurementsCollection = SapServiceLayerUrl + SapBaseUrl + "/UnitOfMeasurements";
+
+            /// <summary>UoM groups; UoMGroupDefinitionCollection holds the alternate-unit factors.</summary>
+            public static string UnitOfMeasurementGroupsCollection = SapServiceLayerUrl + SapBaseUrl + "/UnitOfMeasurementGroups";
             public static string GetAllPurchaseDownPayment = SapServiceLayerUrl + SapBaseUrl + "/PurchaseDownPayments";
             public static string PurchaseDownPayment = SapServiceLayerUrl + SapBaseUrl + "/PurchaseDownPayments";
             public static string UpdatePurchaseDownPayment(string id) =>

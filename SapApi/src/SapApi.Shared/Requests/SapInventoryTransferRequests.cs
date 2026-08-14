@@ -49,6 +49,10 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("WarehouseCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? WarehouseCode { get; set; }
 
+        /// <summary>SAP DocumentLines.LocationCode — warehouse location (OWHS.Location / OLCT).</summary>
+        [JsonPropertyName("LocationCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? LocationCode { get; set; }
+
         [JsonPropertyName("FromWarehouseCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? FromWarehouseCode { get; set; }
 
@@ -75,6 +79,14 @@ namespace SapApi.Shared.Requests
 
         [JsonPropertyName("UoMEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? UoMEntry { get; set; }
+
+        /// <summary>
+        /// SAP DocumentLines.MeasureUnit — the human-readable purchase unit SAP shows on the row
+        /// (e.g. "KGS", "MTR"). Items on SAP's "Manual" UoM group store their unit here, with
+        /// UoMCode "Manual" / UoMEntry -1, so this is the unit text for both reads and writes.
+        /// </summary>
+        [JsonPropertyName("MeasureUnit"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? MeasureUnit { get; set; }
 
         /// <summary>SAP NumPerMsr — items per purchase unit (Inventory qty ÷ Purchase qty).</summary>
         [JsonPropertyName("UnitsOfMeasurment"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

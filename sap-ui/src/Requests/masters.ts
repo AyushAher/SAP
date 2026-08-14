@@ -21,6 +21,8 @@ export interface MasterWarehouse {
   WarehouseName?: string
   City?: string
   State?: string
+  /** SAP OWHS.Location / OLCT AbsEntry. */
+  Location?: number
 }
 
 export interface MasterTaxCode {
@@ -54,6 +56,20 @@ export interface MasterSacCode {
   ServiceCode?: string
   Description?: string
   DisplayLabel?: string
+}
+
+/** A unit the user may buy an item in, from the item's UoM group or from the UoM master. */
+export interface MasterPurchaseUom {
+  Code?: string
+  Name?: string
+  /** Inventory units per purchase unit. Null when SAP cannot know it and the user must type it. */
+  ItemsPerUnit?: number
+  /** Set only for units that come from a real UoM group. */
+  UoMEntry?: number
+  /** The item master's own purchase unit. */
+  IsDefault?: boolean
+  /** 'group' — from the item's UoM group; 'master' — from the UoM master (Manual UoM group). */
+  Source?: 'group' | 'master'
 }
 
 export interface MasterBusinessPartner {
@@ -162,13 +178,20 @@ function normalizeHsn(raw: Record<string, unknown> | MasterHsnCode | undefined):
   }
 }
 
+function optionalNumber(value: unknown): number | undefined {
+  if (value == null || value === '') return undefined
+  const n = Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
 function normalizeSac(raw: Record<string, unknown> | MasterSacCode | undefined): MasterSacCode | undefined {
   if (!raw) return undefined
   const source = raw as Record<string, unknown>
   const abs = Number(source.AbsEntry ?? source.absEntry)
   if (!Number.isFinite(abs)) return undefined
   const serviceCode = String(source.ServiceCode ?? source.serviceCode ?? '')
-  const desc = String(source.Description ?? source.description ?? '')
+  // SAP names the SAC description ServiceName on the IndiaSacCode entity.
+  const desc = String(source.Description ?? source.description ?? source.ServiceName ?? source.serviceName ?? '')
   return {
     AbsEntry: abs,
     ServiceCode: serviceCode || undefined,
@@ -243,7 +266,7 @@ export const ITEM_DETAIL_FIELDS = [
   'ChapterID',
   'DefaultWarehouse',
 ]
-export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'WarehouseName']
+export const WAREHOUSE_DROPDOWN_FIELDS = ['WarehouseCode', 'WarehouseName', 'Location']
 export const TAX_CODE_DROPDOWN_FIELDS = ['Code', 'Name', 'Rate']
 export const PROJECT_DROPDOWN_FIELDS = ['Code', 'Name']
 export const GL_ACCOUNT_DROPDOWN_FIELDS = ['Code', 'Name']
@@ -308,6 +331,70 @@ export function searchSacCodes(search: string, pageSize = 20) {
     ...res,
     data: (res.data ?? []).map((row) => normalizeSac(row as MasterSacCode)).filter(Boolean) as MasterSacCode[],
   }))
+}
+
+/**
+ * Labels for HSN/SAC entries a saved document only stores as AbsEntry, so a reopened document shows
+ * "72.16.32 - ANGLES, BEAMS" instead of the bare entry number. The search text includes AbsEntry,
+ * so each entry is looked up by its own number and matched exactly.
+ */
+async function lookupIndiaCodeLabels<T extends { AbsEntry?: number; DisplayLabel?: string }>(
+  entries: number[],
+  search: (term: string, pageSize?: number) => Promise<{ data?: T[] }>,
+): Promise<Record<number, string>> {
+  const wanted = [...new Set(entries.filter((entry) => Number.isFinite(entry)))]
+  if (wanted.length === 0) return {}
+  const found = await Promise.all(wanted.map(async (entry) => {
+    try {
+      const response = await search(String(entry), 50)
+      const match = (response.data ?? []).find((row) => row.AbsEntry === entry)
+      return match?.DisplayLabel ? ([entry, match.DisplayLabel] as const) : null
+    } catch {
+      return null
+    }
+  }))
+  return Object.fromEntries(found.filter(Boolean) as Array<readonly [number, string]>)
+}
+
+export function lookupHsnLabels(entries: number[]) {
+  return lookupIndiaCodeLabels(entries, searchHsnCodes)
+}
+
+export function lookupSacLabels(entries: number[]) {
+  return lookupIndiaCodeLabels(entries, searchSacCodes)
+}
+
+/**
+ * Units the user may pick as Purchase UoM for an item. SAP derives them from the item's UoM group,
+ * falling back to the UoM master for items on the "Manual" group.
+ */
+export async function listPurchaseUoms(itemCode: string, search = ''): Promise<MasterPurchaseUom[]> {
+  const code = itemCode.trim()
+  if (!code) return []
+  const { apiGet } = await import('@/helpers/api/client')
+  const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : ''
+  try {
+    const raw = await apiGet<Array<Record<string, unknown>>>(
+      `/masters/items/${encodeURIComponent(code)}/purchase-uoms${query}`,
+    )
+    return (Array.isArray(raw) ? raw : []).map((row) => {
+      const uomCode = String(row.Code ?? row.code ?? '').trim()
+      if (!uomCode) return undefined
+      // JSON null must stay unset: Number(null) is 0, which would look like a real UoMEntry.
+      const itemsPerUnit = optionalNumber(row.ItemsPerUnit ?? row.itemsPerUnit)
+      const uomEntry = optionalNumber(row.UoMEntry ?? row.uoMEntry ?? row.uomEntry)
+      return {
+        Code: uomCode,
+        Name: String(row.Name ?? row.name ?? '').trim() || undefined,
+        ItemsPerUnit: itemsPerUnit,
+        UoMEntry: uomEntry,
+        IsDefault: Boolean(row.IsDefault ?? row.isDefault),
+        Source: (row.Source ?? row.source) === 'group' ? 'group' : 'master',
+      } satisfies MasterPurchaseUom
+    }).filter(Boolean) as MasterPurchaseUom[]
+  } catch {
+    return []
+  }
 }
 
 export const BUSINESS_PARTNER_DROPDOWN_FIELDS = ['CardCode', 'CardName', 'Series']

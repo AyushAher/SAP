@@ -386,7 +386,7 @@ export function resolveLineUoms(
   line: PurchaseOrderLineItem,
   master?: ItemMasterUoms,
 ): { purchaseUom?: string; stockUom?: string } {
-  const purchaseUom = line.UoMCode ?? line.UomName ?? master?.purchaseUom ?? ''
+  const purchaseUom = resolvePurchaseUnit(line) || master?.purchaseUom || ''
   const stockUom = master?.stockUom ?? line.StockUom ?? ''
   return {
     purchaseUom: purchaseUom || undefined,
@@ -423,6 +423,95 @@ export function withPurchaseQty(line: PurchaseOrderLineItem, purchaseQty: number
     ...line,
     Quantity: purchaseQty,
   })
+}
+
+/**
+ * Items per unit is editable, so it drives Stock Qty rather than being derived from it.
+ * With no purchase quantity to multiply there is nothing to derive, so keep the factor as typed.
+ */
+export function withItemsPerUnit(line: PurchaseOrderLineItem, itemsPerUnit: number): PurchaseOrderLineItem {
+  const purchaseQty = line.Quantity ?? 0
+  if (!Number.isFinite(itemsPerUnit) || purchaseQty <= 0) {
+    return {
+      ...line,
+      UnitsOfMeasurment: Number.isFinite(itemsPerUnit) ? itemsPerUnit : undefined,
+      UseBaseUnits: calcUseBaseUnits(itemsPerUnit),
+    }
+  }
+  return applyStockPurchaseQty({
+    ...line,
+    StockQty: purchaseQty * itemsPerUnit,
+  })
+}
+
+/** SAP's placeholder UoM code for items that are not on a real UoM group. */
+export const MANUAL_UOM_CODE = 'Manual'
+
+/**
+ * The unit a purchase line is bought in. SAP stores UoMCode as "Manual" for items on the Manual
+ * UoM group and keeps the readable unit in MeasureUnit, so MeasureUnit wins when both are present.
+ */
+export function resolvePurchaseUnit(line: Pick<PurchaseOrderLineItem, 'MeasureUnit' | 'UoMCode' | 'UomName'>): string {
+  const measure = (line.MeasureUnit ?? '').trim()
+  if (measure) return measure
+  const uomCode = (line.UoMCode ?? '').trim()
+  if (uomCode && uomCode.toLowerCase() !== MANUAL_UOM_CODE.toLowerCase()) return uomCode
+  return (line.UomName ?? '').trim()
+}
+
+/**
+ * Maps a form line onto the SAP DocumentLine shape the API expects.
+ * Item-line AccountCode and MeasureUnit are display-only: Service Layer rejects MeasureUnit on
+ * create/update (ODBC -1029) and overwrites AccountCode from G/L determination. The readable unit
+ * is derived by SAP from UseBaseUnits / UnitsOfMeasurment. UoMCode/UoMEntry are sent only for items
+ * on a real UoM group.
+ */
+export function toSapDocumentLine(
+  line: PurchaseOrderLineItem,
+  options: { isService: boolean; fallbackProject?: string },
+): Record<string, unknown> {
+  const { isService, fallbackProject } = options
+  const projectCode = line.ProjectCode || fallbackProject || undefined
+  const accountCode = line.AccountCode?.trim() || undefined
+
+  if (isService) {
+    return {
+      ItemDescription: line.ItemDescription,
+      AccountCode: accountCode,
+      Quantity: line.Quantity,
+      UnitPrice: line.UnitPrice,
+      DiscountPercent: line.DiscountPercent,
+      TaxCode: line.TaxCode,
+      SACEntry: line.SACEntry,
+      ProjectCode: projectCode,
+      FreeText: line.FreeText || undefined,
+      LineNum: line.LineNum,
+    }
+  }
+
+  const unit = resolvePurchaseUnit(line)
+  const itemsPerUnit = line.UnitsOfMeasurment ?? calcItemsPerUnit(line.StockQty, line.Quantity)
+  const hasUomGroup = line.UoMEntry != null && Number.isFinite(line.UoMEntry)
+  return {
+    ItemCode: line.ItemCode,
+    ItemDescription: line.ItemDescription,
+    FreeText: line.FreeText || undefined,
+    Quantity: line.Quantity,
+    UnitPrice: line.UnitPrice,
+    DiscountPercent: line.DiscountPercent,
+    WarehouseCode: line.WarehouseCode,
+    LocationCode: line.LocationCode,
+    TaxCode: line.TaxCode,
+    HSNEntry: line.HSNEntry,
+    SACEntry: line.SACEntry,
+    UoMCode: hasUomGroup ? unit || undefined : undefined,
+    UoMEntry: hasUomGroup ? line.UoMEntry : undefined,
+    UnitsOfMeasurment: itemsPerUnit,
+    InventoryQuantity: line.StockQty,
+    UseBaseUnits: line.UseBaseUnits ?? calcUseBaseUnits(itemsPerUnit),
+    ProjectCode: projectCode,
+    LineNum: line.LineNum,
+  }
 }
 
 export function withStockQty(line: PurchaseOrderLineItem, stockQty: number): PurchaseOrderLineItem {

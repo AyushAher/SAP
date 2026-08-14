@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared.Models;
+using SapApi.Shared.Responses.Sap;
 
 namespace SapApi.Api.Controllers;
 
@@ -22,6 +23,18 @@ public class MastersController(SapMasterDataService masterDataService) : Control
             ? NotFound(ApiResponse<object>.Fail("SYS-02", "Item not found"))
             : Ok(ApiResponse<object>.Ok(item));
     }
+
+    /// <summary>
+    /// Purchase UoM options for a line of this item: the item's UoM group when it has one, otherwise
+    /// the UoM master (SAP's "Manual" group defines no per-item units).
+    /// </summary>
+    [HttpGet("items/{itemCode}/purchase-uoms")]
+    public async Task<IActionResult> GetItemPurchaseUoms(
+        string itemCode,
+        [FromQuery] string? search,
+        CancellationToken cancellationToken) =>
+        Ok(ApiResponse<List<PurchaseUomOptionResponse>>.Ok(
+            await masterDataService.GetPurchaseUomOptionsAsync(itemCode, search, cancellationToken)));
 
     [HttpPost("warehouses/list")]
     public async Task<IActionResult> ListWarehouses([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>

@@ -68,6 +68,7 @@ export interface DocumentLineItem {
   UnitPrice?: number
   TaxCode?: string
   WarehouseCode?: string
+  LocationCode?: number
   FromWarehouseCode?: string
   LineTotal?: number
   TaxTotal?: number

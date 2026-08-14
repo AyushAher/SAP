@@ -125,4 +125,52 @@ public class DownPaymentLineAllocationTests
         lines[0].LineTotal.Should().Be(50);
         lines[0].WTLiable.Should().Be(Constants.SapBoolean.SapFalse);
     }
+
+    [Test]
+    public void BuildDownPaymentDocumentLines_SendsQuantityUnitPriceAndZeroDiscount()
+    {
+        var po = new SapPurchaseOrdersResponse
+        {
+            DocEntry = 1,
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    ItemCode = "A",
+                    LineNum = 0,
+                    LineTotal = 1000,
+                    Quantity = 10,
+                    UnitPrice = 100,
+                    WarehouseCode = "01",
+                },
+            ],
+        };
+
+        var lines = StageWisePaymentService.BuildDownPaymentDocumentLines(
+            po, po.DocumentLines!, amount: 800, isGst: false);
+
+        lines.Should().ContainSingle();
+        lines[0].LineTotal.Should().Be(800);
+        lines[0].Quantity.Should().Be(8);
+        lines[0].UnitPrice.Should().Be(100);
+        lines[0].DiscountPercent.Should().Be(0);
+    }
+
+    [Test]
+    public void BuildDownPaymentDocumentLines_SkipsWtWhenTdsAlreadyTaken()
+    {
+        var po = new SapPurchaseOrdersResponse
+        {
+            DocEntry = 1,
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests { ItemCode = "A", LineNum = 0, LineTotal = 100 },
+            ],
+        };
+
+        var lines = StageWisePaymentService.BuildDownPaymentDocumentLines(
+            po, po.DocumentLines!, amount: 50, isGst: false, hadTdsDeducted: true);
+
+        lines[0].WTLiable.Should().Be(Constants.SapBoolean.SapFalse);
+    }
 }

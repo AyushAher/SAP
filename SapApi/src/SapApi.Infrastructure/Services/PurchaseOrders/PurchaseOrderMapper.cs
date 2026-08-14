@@ -93,7 +93,7 @@ public static class PurchaseOrderMapper
             WarehouseCode = line.WarehouseCode,
             HSNEntry = line.HSNEntry,
             SACEntry = line.SACEntry,
-            UoMCode = line.UoMCode,
+            UoMCode = ResolveUnitText(line),
             UoMEntry = line.UoMEntry,
             UnitsOfMeasurment = line.UnitsOfMeasurment,
             InventoryQuantity = line.InventoryQuantity,
@@ -222,6 +222,7 @@ public static class PurchaseOrderMapper
                     SACEntry = l.SACEntry,
                     UoMCode = l.UoMCode,
                     UoMEntry = l.UoMEntry,
+                    MeasureUnit = l.UoMEntry is null ? l.UoMCode : null,
                     UnitsOfMeasurment = l.UnitsOfMeasurment,
                     InventoryQuantity = l.InventoryQuantity,
                     UseBaseUnits = l.UseBaseUnits,
@@ -296,6 +297,19 @@ public static class PurchaseOrderMapper
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// The mirror has a single UoM column, and SAP stores Manual-group rows as UoMCode "Manual" with
+    /// the readable unit in MeasureUnit. Keep the readable unit in that column so list views show
+    /// "KGS" rather than "Manual"; no new column or migration is introduced for this.
+    /// </summary>
+    private static string? ResolveUnitText(SapInventoryTransferItemsRequests line)
+    {
+        var uomCode = line.UoMCode?.Trim();
+        var isPlaceholder = string.IsNullOrEmpty(uomCode)
+                            || uomCode.Equals("Manual", StringComparison.OrdinalIgnoreCase);
+        return isPlaceholder ? line.MeasureUnit?.Trim() ?? uomCode : uomCode;
     }
 
     private static int? TryToInt(object? value)

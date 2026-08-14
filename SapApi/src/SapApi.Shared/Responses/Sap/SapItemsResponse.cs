@@ -30,6 +30,10 @@ namespace SapApi.Shared.Responses.Sap
         /// <summary>Items per purchase unit (NumInBuy) — used as default UnitsOfMeasurment on PO lines.</summary>
         [JsonPropertyName("PurchaseItemsPerUnit"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double? PurchaseItemsPerUnit { get; set; }
         [JsonPropertyName("InventoryWeight"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double? InventoryWeight { get; set; }
+        /// <summary>UoM group AbsEntry; -1 is SAP's "Manual" group, which has no per-item unit list.</summary>
+        [JsonPropertyName("UoMGroupEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? UoMGroupEntry { get; set; }
+        [JsonPropertyName("InventoryUoMEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? InventoryUoMEntry { get; set; }
+        [JsonPropertyName("DefaultPurchasingUoMEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? DefaultPurchasingUoMEntry { get; set; }
         /// <summary>
         /// India GST — on Items this is typically the HSN AbsEntry (number in SL JSON).
         /// Stored as string so UI can resolve label via IndiaHsnService.

@@ -47,9 +47,6 @@ public record IndiaHsnListEnvelope
 {
     [JsonPropertyName("value"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<IndiaHsnCodeResponse>? Value { get; set; }
-
-    [JsonPropertyName("IndiaHsn"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IndiaHsnCodeResponse>? IndiaHsn { get; set; }
 }
 
 public record IndiaSacCodeResponse
@@ -63,18 +60,24 @@ public record IndiaSacCodeResponse
     [JsonPropertyName("Description"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Description { get; set; }
 
+    /// <summary>SAP names the SAC description ServiceName (not Description) on the IndiaSacCode entity set.</summary>
+    [JsonPropertyName("ServiceName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ServiceName { get; set; }
+
     [JsonIgnore]
-    public string DisplayLabel =>
-        string.IsNullOrWhiteSpace(Description)
-            ? (ServiceCode ?? AbsEntry?.ToString() ?? "")
-            : $"{ServiceCode ?? AbsEntry?.ToString()} - {Description}";
+    public string DisplayLabel
+    {
+        get
+        {
+            var desc = string.IsNullOrWhiteSpace(Description) ? ServiceName : Description;
+            var code = ServiceCode ?? AbsEntry?.ToString() ?? "";
+            return string.IsNullOrWhiteSpace(desc) ? code : $"{code} - {desc}";
+        }
+    }
 }
 
 public record IndiaSacListEnvelope
 {
     [JsonPropertyName("value"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<IndiaSacCodeResponse>? Value { get; set; }
-
-    [JsonPropertyName("IndiaSac"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IndiaSacCodeResponse>? IndiaSac { get; set; }
 }

@@ -66,6 +66,10 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("DocumentLines"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<SapInventoryTransferItemsRequests>? DocumentLines { get; set; } = [];
 
+        /// <summary>SAP text/subtotal rows inserted after item lines (POR12). Filled from line FreeText.</summary>
+        [JsonPropertyName("DocumentSpecialLines"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<SapDocumentSpecialLine>? DocumentSpecialLines { get; set; }
+
 
         [JsonPropertyName("DocDate"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DateTime? DocDate { get; set; }
@@ -506,6 +510,22 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("value"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<SapPurchaseOrdersResponse>? Value { get; set; }
 
+    }
+
+    public class SapDocumentSpecialLine
+    {
+        [JsonPropertyName("LineNum"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? LineNum { get; set; }
+
+        /// <summary>0-based item line to insert this text after.</summary>
+        [JsonPropertyName("AfterLineNumber"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? AfterLineNumber { get; set; }
+
+        [JsonPropertyName("LineType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? LineType { get; set; }
+
+        [JsonPropertyName("LineText"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? LineText { get; set; }
     }
 
     public class PaymentTermsUdf

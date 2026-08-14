@@ -15,8 +15,11 @@ import {
   readOtherTermsFromPo,
   resolveLineUoms,
   resolvePaymentTermPercent,
+  resolvePurchaseUnit,
+  toSapDocumentLine,
   usesPbbplDispatchLocationMapping,
   warehouseForDispatchLocation,
+  withItemsPerUnit,
 } from './purchaseOrderForm'
 
 describe('resolveLineUoms', () => {
@@ -330,5 +333,101 @@ describe('PBBPL dispatch location ↔ warehouse', () => {
     expect(usesPbbplDispatchLocationMapping('PBBPL_UAT')).toBe(true)
     expect(usesPbbplDispatchLocationMapping('PBBPL_LIVE')).toBe(true)
     expect(usesPbbplDispatchLocationMapping('OTHER_DB')).toBe(false)
+  })
+})
+
+describe('resolvePurchaseUnit', () => {
+  it('prefers the unit text SAP stores in MeasureUnit', () => {
+    expect(resolvePurchaseUnit({ MeasureUnit: 'KGS', UoMCode: 'Manual' })).toBe('KGS')
+  })
+
+  it('ignores the Manual placeholder SAP uses for items without a UoM group', () => {
+    expect(resolvePurchaseUnit({ UoMCode: 'Manual', UomName: 'NOS' })).toBe('NOS')
+    expect(resolvePurchaseUnit({ UoMCode: 'Manual' })).toBe('')
+  })
+
+  it('falls back to a real UoM group code', () => {
+    expect(resolvePurchaseUnit({ UoMCode: 'BOX' })).toBe('BOX')
+  })
+})
+
+describe('withItemsPerUnit', () => {
+  it('drives stock qty from the factor the user typed', () => {
+    const line = withItemsPerUnit({ Quantity: 1600, StockQty: 43.2 }, 0.075)
+    expect(line.StockQty).toBe(120)
+    expect(line.UnitsOfMeasurment).toBeCloseTo(0.075, 10)
+    expect(line.UseBaseUnits).toBe('tNO')
+  })
+
+  it('marks the line as inventory UoM when one purchase unit is one stock unit', () => {
+    expect(withItemsPerUnit({ Quantity: 5, StockQty: 20 }, 1).UseBaseUnits).toBe('tYES')
+  })
+
+  it('keeps the typed factor when there is no purchase qty to multiply', () => {
+    const line = withItemsPerUnit({ Quantity: 0 }, 2.5)
+    expect(line.UnitsOfMeasurment).toBe(2.5)
+    expect(line.StockQty).toBeUndefined()
+  })
+})
+
+describe('toSapDocumentLine', () => {
+  const itemLine = {
+    ItemCode: 'RM5703813500380',
+    ItemDescription: 'BEAM 250 MM',
+    Quantity: 1600,
+    StockQty: 120,
+    UnitsOfMeasurment: 0.075,
+    MeasureUnit: 'KGS',
+    UoMCode: 'KGS',
+    WarehouseCode: 'Store1',
+    TaxCode: 'IGST18',
+    HSNEntry: 19,
+    AccountCode: '_SYS00000000893',
+  }
+
+  it('sends the unit as MeasureUnit and withholds UoMCode for Manual UoM group items', () => {
+    const payload = toSapDocumentLine(itemLine, { isService: false })
+    expect(payload.MeasureUnit).toBeUndefined()
+    expect(payload.AccountCode).toBeUndefined()
+    expect(payload.UoMCode).toBeUndefined()
+    expect(payload.UoMEntry).toBeUndefined()
+    expect(payload.InventoryQuantity).toBe(120)
+    expect(payload.UnitsOfMeasurment).toBe(0.075)
+    expect(payload.UseBaseUnits).toBe('tNO')
+  })
+
+  it('sends warehouse LocationCode on item lines', () => {
+    const payload = toSapDocumentLine({ ...itemLine, LocationCode: 4 }, { isService: false })
+    expect(payload.WarehouseCode).toBe('Store1')
+    expect(payload.LocationCode).toBe(4)
+  })
+
+  it('sends UoMCode with its entry when the item is on a real UoM group', () => {
+    const payload = toSapDocumentLine({ ...itemLine, UoMEntry: 4, MeasureUnit: 'BOX' }, { isService: false })
+    expect(payload.UoMCode).toBe('BOX')
+    expect(payload.UoMEntry).toBe(4)
+    expect(payload.MeasureUnit).toBeUndefined()
+  })
+
+  it('does not send a G/L account on item lines, so SAP keeps determining it', () => {
+    expect(toSapDocumentLine(itemLine, { isService: false }).AccountCode).toBeUndefined()
+    expect(toSapDocumentLine({ ...itemLine, AccountCode: '   ' }, { isService: false }).AccountCode).toBeUndefined()
+  })
+
+  it('falls back to the header project when the line has none', () => {
+    const payload = toSapDocumentLine(itemLine, { isService: false, fallbackProject: 'PRJ-9' })
+    expect(payload.ProjectCode).toBe('PRJ-9')
+  })
+
+  it('keeps service lines to account, SAC and amounts', () => {
+    const payload = toSapDocumentLine(
+      { ItemDescription: 'Engineering', AccountCode: '_SYS00000000677', Quantity: 1, SACEntry: 11, MeasureUnit: 'NOS' },
+      { isService: true },
+    )
+    expect(payload.AccountCode).toBe('_SYS00000000677')
+    expect(payload.SACEntry).toBe(11)
+    expect(payload.MeasureUnit).toBeUndefined()
+    expect(payload.ItemCode).toBeUndefined()
+    expect(payload.WarehouseCode).toBeUndefined()
   })
 })

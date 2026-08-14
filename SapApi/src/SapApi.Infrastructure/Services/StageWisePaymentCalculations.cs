@@ -40,6 +40,75 @@ public static class StageWisePaymentCalculations
         string.Equals(record.StageDesc, "Batch AP payment", StringComparison.OrdinalIgnoreCase)
         || string.Equals(record.StageDesc, "Batch down payment", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>GST-only terms never take TDS (no withholding collection, no invoice WTAmount).</summary>
+    public static bool IsGstOnlyTerm(PaymentTermsUdf? term) =>
+        term is not null
+        && term.Basic is not > 0
+        && (term.Gst is > 0
+            || string.Equals(term.Type, "GstProforma", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(term.Type, "TaxInvoice", StringComparison.OrdinalIgnoreCase));
+
+    public static bool IsGstOnlyTerms(
+        IReadOnlyList<PaymentTermsUdf> paymentTerms,
+        IReadOnlyList<int> selectedTermIds)
+    {
+        var selected = selectedTermIds
+            .Select(id => paymentTerms.FirstOrDefault(t => t.Id == id))
+            .Where(t => t is not null)
+            .ToList();
+        return selected.Count > 0 && selected.All(t => IsGstOnlyTerm(t));
+    }
+
+    /// <summary>
+    /// TDS is taken once per purchase order: the first active request that deducted it.
+    /// Cancelled rows and later requests must not withhold again.
+    /// </summary>
+    public static bool TdsAlreadyTaken(IEnumerable<StageWisePayment> records) =>
+        records.Any(r =>
+            r.Status != StageWisePaymentStatus.Cancelled
+            && r.Tds is > 0);
+
+    /// <summary>
+    /// Any earlier non-cancelled request on this PO. TDS is only applied on the first request
+    /// (and only when that request is not GST-only).
+    /// </summary>
+    public static bool HasPriorActivePayment(IEnumerable<StageWisePayment> records) =>
+        records.Any(r => r.Status != StageWisePaymentStatus.Cancelled);
+
+    /// <summary>
+    /// Skip invoice WTAmount: GST-only term, TDS already taken, a prior request exists, or this
+    /// invoice already had TDS applied earlier in the same batch.
+    /// </summary>
+    public static bool SkipInvoiceWithholding(
+        IReadOnlyList<StageWisePayment> activeRecords,
+        IReadOnlyList<PaymentTermsUdf> paymentTerms,
+        IReadOnlyList<int> selectedTermIds,
+        string? apInvoiceDocEntry,
+        ISet<string> tdsAppliedInBatch)
+    {
+        if (IsGstOnlyTerms(paymentTerms, selectedTermIds))
+            return true;
+        if (HasPriorActivePayment(activeRecords) || TdsAlreadyTaken(activeRecords))
+            return true;
+        if (string.IsNullOrWhiteSpace(apInvoiceDocEntry))
+            return false;
+        if (activeRecords.Any(r =>
+                r.Status != StageWisePaymentStatus.Cancelled
+                && r.Tds is > 0
+                && InvoiceKeysOverlap(r.ApInvoiceDocEntry, apInvoiceDocEntry)))
+            return true;
+        return !tdsAppliedInBatch.Add(apInvoiceDocEntry);
+    }
+
+    public static bool InvoiceKeysOverlap(string? stored, string? candidate)
+    {
+        if (string.IsNullOrWhiteSpace(stored) || string.IsNullOrWhiteSpace(candidate))
+            return false;
+        var left = stored.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var right = candidate.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return left.Intersect(right, StringComparer.OrdinalIgnoreCase).Any();
+    }
+
     /// <summary>
     /// Batch payments store combined Gross/Gst with PaymentTermsType unset.
     /// Expand them into per-term records so stage payable subtracts prior batch pays
@@ -791,8 +860,12 @@ public static class StageWisePaymentCalculations
         string apInvoiceDocEntry,
         ISet<string> tdsAppliedApInvoices)
     {
-        var hadTdsDeducted = activeRecords.Any(x =>
-            x.ApInvoiceDocEntry == apInvoiceDocEntry && (x.Tds ?? 0) != 0);
+        var hadTdsDeducted = TdsAlreadyTaken(activeRecords)
+            || HasPriorActivePayment(activeRecords)
+            || activeRecords.Any(x =>
+                x.Status != StageWisePaymentStatus.Cancelled
+                && InvoiceKeysOverlap(x.ApInvoiceDocEntry, apInvoiceDocEntry)
+                && x.Tds is > 0);
         if (hadTdsDeducted || !tdsAppliedApInvoices.Add(apInvoiceDocEntry))
             return 0;
 

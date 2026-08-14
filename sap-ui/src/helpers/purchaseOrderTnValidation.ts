@@ -79,12 +79,14 @@ export function validatePurchaseOrderAgainstTn(input: PoTnValidationInput): stri
     const line = input.lines[i]
     const tax = (line.TaxCode ?? '').trim()
 
+    // The account is optional on item lines (SAP determines it) but the ban applies to every row.
+    if (line.AccountCode?.trim() === PO_TN.forbiddenGlAccount) {
+      return 'Selection of G/L Account _SYS00000001265 is not allowed in Purchase Order rows.'
+    }
+
     if (isService) {
       if (!line.AccountCode?.trim()) {
         return `Select G/L Account in line ${i + 1}.`
-      }
-      if (line.AccountCode.trim() === PO_TN.forbiddenGlAccount) {
-        return 'Selection of G/L Account _SYS00000001265 is not allowed in Purchase Order rows.'
       }
       if (tax && (line.SACEntry == null || !Number.isFinite(line.SACEntry))) {
         return `You must select SAC in line ${i + 1}, since GST tax code is selected`

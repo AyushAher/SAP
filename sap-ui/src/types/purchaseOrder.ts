@@ -2,9 +2,16 @@ import type { DocumentLineItem } from '@/types/production'
 
 export interface PurchaseOrderLineItem extends DocumentLineItem {
   UomName?: string
-  /** Purchase UoM (sent to SAP as UoMCode). Defaults from item master PurchaseUnit. */
+  /**
+   * Purchase unit the user picked. Defaults from item master PurchaseUnit and stays editable.
+   * SAP only accepts this as UoMCode when the item belongs to a real UoM group; items on the
+   * "Manual" group carry the unit as MeasureUnit instead (see MeasureUnit below).
+   */
   UoMCode?: string
+  /** SAP UoM group entry. Set only for items on a real UoM group, never for the Manual group. */
   UoMEntry?: number
+  /** SAP MeasureUnit — the unit text SAP shows on the row (KGS, NOS, MTR). */
+  MeasureUnit?: string
   /** Stock / inventory UoM (from item master; display). */
   StockUom?: string
   /** Stock / inventory quantity. ItemsPerUnit = StockQty / PurchaseQty. */
@@ -29,12 +36,17 @@ export interface PurchaseOrderLineItem extends DocumentLineItem {
   /** India GST SAC AbsEntry. */
   SACEntry?: number
   SacLabel?: string
-  /** G/L account — required on service document lines. */
+  /**
+   * G/L account. Required on service lines. On item lines SAP fills it from G/L account
+   * determination, and sending a value overrides that determination for the row.
+   */
   AccountCode?: string
   AccountLabel?: string
   ProjectCode?: string
   /** SAP DocumentLines.FreeText. */
   FreeText?: string
+  /** SAP DocumentLines.LocationCode (OWHS.Location). */
+  LocationCode?: number
 }
 
 export interface PaymentTermRow {

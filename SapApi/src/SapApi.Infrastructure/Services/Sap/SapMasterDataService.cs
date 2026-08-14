@@ -20,6 +20,20 @@ public class SapMasterDataService(
 {
     private const int LookupBatchSize = 20;
 
+    /// <summary>Rows per SAP request when walking a whole master-data collection (Prefer: odata.maxpagesize).</summary>
+    private const int MasterListPageSize = 200;
+
+    /// <summary>Hard cap on rows pulled into a cached master-data list, so memory stays bounded.</summary>
+    private const int MasterListMaxRows = 5000;
+
+    /// <summary>SAP's pseudo UoM group / unit: items on it have no group-defined unit list.</summary>
+    private const int ManualUoMEntry = -1;
+
+    private const string ManualUoMCode = "Manual";
+
+    /// <summary>Most UoM pickers show a handful of units; cap what a single response can carry.</summary>
+    private const int PurchaseUomOptionLimit = 50;
+
     /// <summary>
     /// Master data (vendors, items, warehouses, projects, tax codes, business places) changes rarely
     /// enough that a 1-hour cache is safe. Transactional documents (sales orders, PO/payment lookups)
@@ -192,53 +206,93 @@ public class SapMasterDataService(
         return FilterAndPage(
             all,
             normalized,
-            item => string.Join(' ', item.AbsEntry, item.ServiceCode, item.Description));
+            item => string.Join(' ', item.AbsEntry, item.ServiceCode, item.Description, item.ServiceName));
     }
 
+    /// <summary>
+    /// Reads the IndiaHsn entity set rather than IndiaHsnService_GetList: the function import's return
+    /// type only carries AbsEntry + ChapterID, so descriptions can never come from it. The entity set
+    /// is absent from $metadata but is queryable (singular name only — "/IndiaHsns" is rejected).
+    /// </summary>
     private async Task<List<IndiaHsnCodeResponse>> GetCachedIndiaHsnListAsync(CancellationToken cancellationToken) =>
         await cache.GetOrCreateAsync(
-            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:IndiaHsnService_GetList",
-            async () =>
-            {
-                try
-                {
-                    var envelope = await http.PostAsync<object, IndiaHsnListEnvelope>(
-                        Constants.SapApiUrls.IndiaHsnServiceGetList,
-                        new { },
-                        cancellationToken);
-                    return envelope?.Value ?? envelope?.IndiaHsn ?? [];
-                }
-                catch (Exception ex)
-                {
-                    // Company may not expose India HSN service — UI still allows manual AbsEntry.
-                    LogLookupFailure("IndiaHsnService_GetList", ex);
-                    return [];
-                }
-            },
+            // Key is versioned so entries cached from the old function-import shape (no Description)
+            // are not reused after a deploy.
+            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:india-hsn-entityset:v2",
+            () => FetchAllRowsAsync<IndiaHsnListEnvelope, IndiaHsnCodeResponse>(
+                Constants.SapApiUrls.IndiaHsnCollection,
+                "AbsEntry,Chapter,Heading,SubHeading,ChapterID,Description",
+                envelope => envelope?.Value,
+                // Company may not expose the India localisation — UI still allows manual AbsEntry.
+                "IndiaHsn",
+                cancellationToken),
             MasterDataCacheTtl,
             cancellationToken) ?? [];
 
+    /// <summary>Reads the IndiaSacCode entity set; its description field is named ServiceName.</summary>
     private async Task<List<IndiaSacCodeResponse>> GetCachedIndiaSacListAsync(CancellationToken cancellationToken) =>
         await cache.GetOrCreateAsync(
-            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:IndiaSacCodeService_GetList",
-            async () =>
-            {
-                try
-                {
-                    var envelope = await http.PostAsync<object, IndiaSacListEnvelope>(
-                        Constants.SapApiUrls.IndiaSacCodeServiceGetList,
-                        new { },
-                        cancellationToken);
-                    return envelope?.Value ?? envelope?.IndiaSac ?? [];
-                }
-                catch (Exception ex)
-                {
-                    LogLookupFailure("IndiaSacCodeService_GetList", ex);
-                    return [];
-                }
-            },
+            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:india-sac-entityset:v2",
+            () => FetchAllRowsAsync<IndiaSacListEnvelope, IndiaSacCodeResponse>(
+                Constants.SapApiUrls.IndiaSacCodeCollection,
+                "AbsEntry,ServiceCode,ServiceName",
+                envelope => envelope?.Value,
+                "IndiaSacCode",
+                cancellationToken),
             MasterDataCacheTtl,
             cancellationToken) ?? [];
+
+    /// <summary>
+    /// Walks a whole master-data collection. Service Layer pages at 20 rows by default and clamps
+    /// $top to its page size, so each request asks for a bigger page via Prefer: odata.maxpagesize
+    /// and moves forward with $skip. Stops at <see cref="MasterListMaxRows"/> so a large master
+    /// (HSN can hold thousands of rows) cannot grow the cached list without bound.
+    /// Degrades to an empty list on SAP failure — see <see cref="LogLookupFailure"/>.
+    /// </summary>
+    private async Task<List<TItem>> FetchAllRowsAsync<TEnvelope, TItem>(
+        string collectionUrl,
+        string select,
+        Func<TEnvelope?, List<TItem>?> getItems,
+        string lookupName,
+        CancellationToken cancellationToken)
+        where TEnvelope : class
+    {
+        var all = new List<TItem>();
+        try
+        {
+            var skip = 0;
+            while (all.Count < MasterListMaxRows)
+            {
+                var pageSize = Math.Min(MasterListPageSize, MasterListMaxRows - all.Count);
+                var queries = new SapQueries
+                {
+                    Select = select,
+                    Skip = skip > 0 ? skip.ToString(CultureInfo.InvariantCulture) : null,
+                    Top = pageSize.ToString(CultureInfo.InvariantCulture),
+                };
+                var envelope = await http.GetPageOrThrowAsync<TEnvelope>(
+                    collectionUrl + queries.GetQueryValue(),
+                    pageSize,
+                    cancellationToken);
+
+                var rows = getItems(envelope) ?? [];
+                all.AddRange(rows);
+
+                // A short page means SAP has nothing left to give.
+                if (rows.Count < pageSize)
+                    break;
+
+                skip += rows.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogLookupFailure(lookupName, ex);
+            return [];
+        }
+
+        return all;
+    }
 
     /// <summary>
     /// These lookups degrade to an empty list so a company without the India localisation services
@@ -728,6 +782,225 @@ public class SapMasterDataService(
         return response?.Value?.FirstOrDefault();
     }
 
+    /// <summary>
+    /// Units the user may pick as the Purchase UoM of a line for <paramref name="itemCode"/>.
+    /// Items on a real UoM group get that group's units (with SAP's conversion factors and UoMEntry).
+    /// Items on SAP's "Manual" group only honour the item's purchase unit and inventory unit, so those
+    /// two are returned. Unknown item ⇒ empty list, not an error.
+    /// </summary>
+    public async Task<List<PurchaseUomOptionResponse>> GetPurchaseUomOptionsAsync(
+        string itemCode,
+        string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(itemCode))
+            return [];
+
+        await sapLogin.SapLoginAsync(cancellationToken);
+
+        var item = await GetItemUomProfileAsync(itemCode.Trim(), cancellationToken);
+        if (item is null)
+            return [];
+
+        var master = await GetCachedUnitOfMeasurementsAsync(cancellationToken);
+
+        List<PurchaseUomOptionResponse> options = [];
+        if (item.UoMGroupEntry is int groupEntry && groupEntry != ManualUoMEntry)
+            options = await BuildGroupUomOptionsAsync(groupEntry, item, master, cancellationToken);
+
+        // Manual-group items, and group items whose group is unreadable or has no active unit, fall
+        // back to the UoM master so the picker is never empty.
+        if (options.Count == 0)
+            options = BuildMasterUomOptions(item, master);
+
+        return FilterPurchaseUomOptions(options, search);
+    }
+
+    private async Task<ItemsResponse?> GetItemUomProfileAsync(string itemCode, CancellationToken cancellationToken)
+    {
+        var safeCode = SapPaginationBuilder.EscapeODataString(itemCode);
+        var queries = new SapQueries
+        {
+            Filter = $"ItemCode eq '{safeCode}'",
+            Select = "ItemCode,PurchaseUnit,PurchaseItemsPerUnit,InventoryUOM,UoMGroupEntry,InventoryUoMEntry,DefaultPurchasingUoMEntry",
+            Top = "1",
+        };
+        var response = await GetCachedAsync<SapItemsResponse>(
+            Constants.SapApiUrls.ItemsCollection + queries.GetQueryValue(),
+            cancellationToken);
+        return response?.Value?.FirstOrDefault();
+    }
+
+    private async Task<List<SapUnitOfMeasurementResponse>> GetCachedUnitOfMeasurementsAsync(
+        CancellationToken cancellationToken) =>
+        await cache.GetOrCreateAsync(
+            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:uom-master:v1",
+            () => FetchAllRowsAsync<SapUnitOfMeasurementsResponse, SapUnitOfMeasurementResponse>(
+                Constants.SapApiUrls.UnitOfMeasurementsCollection,
+                "AbsEntry,Code,Name",
+                envelope => envelope?.Value,
+                "UnitOfMeasurements",
+                cancellationToken),
+            MasterDataCacheTtl,
+            cancellationToken) ?? [];
+
+    private async Task<SapUnitOfMeasurementGroupResponse?> GetCachedUomGroupAsync(
+        int groupEntry,
+        CancellationToken cancellationToken) =>
+        await cache.GetOrCreateAsync(
+            $"masterdata:{companyDbAccessor.GetCompanyDbName()}:uom-group:{groupEntry}:v1",
+            async () =>
+            {
+                try
+                {
+                    // Read the whole group entity: the factors live in UoMGroupDefinitionCollection,
+                    // which a $select on scalar fields would drop.
+                    var queries = new SapQueries
+                    {
+                        Filter = $"AbsEntry eq {groupEntry.ToString(CultureInfo.InvariantCulture)}",
+                        Top = "1",
+                    };
+                    var response = await http.GetOrThrowAsync<SapUnitOfMeasurementGroupsResponse>(
+                        Constants.SapApiUrls.UnitOfMeasurementGroupsCollection + queries.GetQueryValue(),
+                        cancellationToken);
+                    return response?.Value?.FirstOrDefault();
+                }
+                catch (Exception ex)
+                {
+                    LogLookupFailure("UnitOfMeasurementGroups", ex);
+                    return null;
+                }
+            },
+            MasterDataCacheTtl,
+            cancellationToken);
+
+    private async Task<List<PurchaseUomOptionResponse>> BuildGroupUomOptionsAsync(
+        int groupEntry,
+        ItemsResponse item,
+        IReadOnlyList<SapUnitOfMeasurementResponse> master,
+        CancellationToken cancellationToken)
+    {
+        var group = await GetCachedUomGroupAsync(groupEntry, cancellationToken);
+        if (group?.UoMGroupDefinitionCollection is null)
+            return [];
+
+        var unitsByEntry = new Dictionary<int, SapUnitOfMeasurementResponse>();
+        foreach (var unit in master)
+        {
+            if (unit.AbsEntry is int entry)
+                unitsByEntry[entry] = unit;
+        }
+
+        var purchaseUnit = NullIfWhiteSpace(item.PurchaseUnit);
+        var options = new List<PurchaseUomOptionResponse>();
+
+        foreach (var definition in group.UoMGroupDefinitionCollection)
+        {
+            if (definition.AlternateUoM is not int alternateEntry)
+                continue;
+
+            // Only tYES rows are usable; an absent flag is treated as active (older SL builds omit it).
+            if (!string.IsNullOrWhiteSpace(definition.Active)
+                && !string.Equals(definition.Active, Constants.SapBoolean.SapTrue, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!unitsByEntry.TryGetValue(alternateEntry, out var unit) || string.IsNullOrWhiteSpace(unit.Code))
+                continue;
+
+            var code = unit.Code.Trim();
+            options.Add(new PurchaseUomOptionResponse
+            {
+                Code = code,
+                Name = NullIfWhiteSpace(unit.Name) ?? code,
+                UoMEntry = alternateEntry,
+                // A group row reads "AlternateQuantity of the alternate unit = BaseQuantity of the base
+                // (inventory) unit", e.g. 1 BOX = 12 EA. The PO line needs inventory units per purchase
+                // unit, so that is BaseQuantity / AlternateQuantity — 12, not 1/12.
+                ItemsPerUnit = definition.AlternateQuantity is > 0 && definition.BaseQuantity is not null
+                    ? definition.BaseQuantity / definition.AlternateQuantity
+                    : null,
+                IsDefault = item.DefaultPurchasingUoMEntry is int defaultEntry
+                    ? defaultEntry == alternateEntry
+                    : CodeMatches(code, purchaseUnit),
+                Source = PurchaseUomOptionSources.Group,
+            });
+        }
+
+        return options;
+    }
+
+    /// <summary>
+    /// The Manual UoM group carries no per-item units. Service Layer still only honours the item's
+    /// purchase unit (UseBaseUnits = tNO) and inventory unit (UseBaseUnits = tYES); an arbitrary
+    /// UoM-master code is ignored. Offer those two, with the factor SAP already knows.
+    /// </summary>
+    private static List<PurchaseUomOptionResponse> BuildMasterUomOptions(
+        ItemsResponse item,
+        IReadOnlyList<SapUnitOfMeasurementResponse> master)
+    {
+        var purchaseUnit = NullIfWhiteSpace(item.PurchaseUnit);
+        var inventoryUnit = NullIfWhiteSpace(item.InventoryUom);
+        var names = master
+            .Where(unit => !string.IsNullOrWhiteSpace(unit.Code))
+            .GroupBy(unit => unit.Code!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => NullIfWhiteSpace(group.First().Name), StringComparer.OrdinalIgnoreCase);
+
+        var options = new List<PurchaseUomOptionResponse>();
+
+        void Add(string? code, double? itemsPerUnit, bool isDefault)
+        {
+            if (string.IsNullOrWhiteSpace(code) || options.Any(option => CodeMatches(option.Code, code)))
+                return;
+            if (code.Equals(ManualUoMCode, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            options.Add(new PurchaseUomOptionResponse
+            {
+                Code = code,
+                Name = names.TryGetValue(code, out var name) && name is not null ? name : code,
+                UoMEntry = null,
+                ItemsPerUnit = itemsPerUnit,
+                IsDefault = isDefault,
+                Source = PurchaseUomOptionSources.Master,
+            });
+        }
+
+        Add(
+            purchaseUnit,
+            item.PurchaseItemsPerUnit is > 0 ? item.PurchaseItemsPerUnit : null,
+            isDefault: purchaseUnit is not null);
+        Add(inventoryUnit, 1d, isDefault: purchaseUnit is null);
+
+        return options;
+    }
+
+    private static List<PurchaseUomOptionResponse> FilterPurchaseUomOptions(
+        IEnumerable<PurchaseUomOptionResponse> options,
+        string? search)
+    {
+        var term = search?.Trim();
+        var query = string.IsNullOrWhiteSpace(term)
+            ? options
+            : options.Where(option =>
+                option.Code.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || option.Name.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+        // Order before capping so the item's own unit is never cut off the list.
+        return query
+            .OrderByDescending(option => option.IsDefault)
+            .ThenBy(option => option.Code, StringComparer.OrdinalIgnoreCase)
+            .Take(PurchaseUomOptionLimit)
+            .ToList();
+    }
+
+    private static bool CodeMatches(string? left, string? right) =>
+        !string.IsNullOrWhiteSpace(left)
+        && !string.IsNullOrWhiteSpace(right)
+        && string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     public async Task<WarehouseResponse?> GetWarehouseByCodeAsync(
         string? warehouseCode,
         IReadOnlyList<string>? fields = null,
@@ -810,7 +1083,7 @@ public class SapMasterDataService(
         // Match sap-ui Requests/masters.ts default field constants so cache keys align with live traffic.
         string[] itemDropdown = ["ItemCode", "ItemName"];
         string[] itemDetail = ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID", "DefaultWarehouse"];
-        string[] warehouseDropdown = ["WarehouseCode", "WarehouseName"];
+        string[] warehouseDropdown = ["WarehouseCode", "WarehouseName", "Location"];
         string[] taxDropdown = ["Code", "Name", "Rate"];
         string[] projectDropdown = ["Code", "Name"];
         string[] partnerDropdown = ["CardCode", "CardName"];

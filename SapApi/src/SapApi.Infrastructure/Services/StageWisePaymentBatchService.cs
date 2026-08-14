@@ -135,9 +135,8 @@ public class StageWisePaymentBatchService(
                 var adjustedPayable = StageWisePaymentCalculations.ComputeSequentialStageRowPayable(
                     line, priorLines, po, pageData.PaymentTerms, activeRecords, pageData.TotalBasic);
 
-                var hadTdsDeducted = activeRecords.Any(x =>
-                    x.ApInvoiceDocEntry == line.ApInvoiceDocEntry && (x.Tds ?? 0) != 0)
-                    || !tdsAppliedInBatch.Add(line.ApInvoiceDocEntry!);
+                var hadTdsDeducted = StageWisePaymentCalculations.SkipInvoiceWithholding(
+                    activeRecords, pageData.PaymentTerms, line.PaymentTermsTypes, line.ApInvoiceDocEntry, tdsAppliedInBatch);
                 var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
                 if (net <= 0)
                     return (false, $"Net payment must be greater than zero for AP invoice {apInvoice.DocNum}.", null);
@@ -1167,9 +1166,8 @@ public class StageWisePaymentBatchService(
                 var adjustedPayable = StageWisePaymentCalculations.ComputeSequentialStageRowPayable(
                     line, priorLines, po, pageData.PaymentTerms, activeRecords, pageData.TotalBasic);
 
-                var hadTdsDeducted = activeRecords.Any(x =>
-                    x.ApInvoiceDocEntry == line.ApInvoiceDocEntry && (x.Tds ?? 0) != 0)
-                    || !tdsAppliedInBatch.Add(line.ApInvoiceDocEntry!);
+                var hadTdsDeducted = StageWisePaymentCalculations.SkipInvoiceWithholding(
+                    activeRecords, pageData.PaymentTerms, line.PaymentTermsTypes, line.ApInvoiceDocEntry, tdsAppliedInBatch);
                 var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
                 if (net <= 0)
                     return (false, $"Net payment must be greater than zero for AP invoice {apInvoice.DocNum}.", null, [], []);
@@ -1277,9 +1275,8 @@ public class StageWisePaymentBatchService(
         {
             var line = snapshot.Line;
             var apInvoice = pageData.ApInvoices.First(x => x.DocEntry.ToString() == line.ApInvoiceDocEntry);
-            var hadTdsDeducted = activeRecords.Any(x =>
-                x.ApInvoiceDocEntry == line.ApInvoiceDocEntry && (x.Tds ?? 0) != 0)
-                || !tdsAppliedInBatch.Add(line.ApInvoiceDocEntry!);
+            var hadTdsDeducted = StageWisePaymentCalculations.SkipInvoiceWithholding(
+                activeRecords, pageData.PaymentTerms, line.PaymentTermsTypes, line.ApInvoiceDocEntry, tdsAppliedInBatch);
             var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
             if (net <= 0)
                 return (false, $"Net payment must be greater than zero for AP invoice {apInvoice.DocNum}.", null, null, null, batchStatus);
@@ -1637,9 +1634,8 @@ public class StageWisePaymentBatchService(
                 var adjustedPayable = StageWisePaymentCalculations.ComputeSequentialStageRowPayable(
                     line, priorLines, po, pageData.PaymentTerms, activeRecords, pageData.TotalBasic);
 
-                var hadTdsDeducted = activeRecords.Any(x =>
-                    x.ApInvoiceDocEntry == line.ApInvoiceDocEntry && (x.Tds ?? 0) != 0)
-                    || !tdsAppliedInBatch.Add(line.ApInvoiceDocEntry!);
+                var hadTdsDeducted = StageWisePaymentCalculations.SkipInvoiceWithholding(
+                    activeRecords, pageData.PaymentTerms, line.PaymentTermsTypes, line.ApInvoiceDocEntry, tdsAppliedInBatch);
                 var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
                 if (net > 0)
                     totalTransfer += net;

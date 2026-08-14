@@ -31,6 +31,7 @@ public class SapPurchaseOrderPayloadBuilderTests
                     UnitPrice = 10,
                     DiscountPercent = 5,
                     WarehouseCode = "01",
+                    LocationCode = 4,
                     TaxCode = "IGST18",
                     HSNEntry = 42,
                     SACEntry = null,
@@ -60,9 +61,16 @@ public class SapPurchaseOrderPayloadBuilderTests
         payload.DocumentLines.Should().HaveCount(1);
         var line = payload.DocumentLines![0];
         line.HSNEntry.Should().Be(42);
-        line.UoMCode.Should().Be("NOS");
+        // No UoMEntry: do not send UoMCode or MeasureUnit — SAP derives MeasureUnit from the factor.
+        line.UoMCode.Should().BeNull();
+        line.MeasureUnit.Should().BeNull();
         line.ProjectCode.Should().Be("P1");
         line.FreeText.Should().Be("Rush delivery");
+        line.LocationCode.Should().Be(4);
+        payload.DocumentSpecialLines.Should().ContainSingle();
+        payload.DocumentSpecialLines![0].LineType.Should().Be("dslt_Text");
+        payload.DocumentSpecialLines[0].LineText.Should().Be("Rush delivery");
+        payload.DocumentSpecialLines[0].AfterLineNumber.Should().Be(0);
         line.CostingCode.Should().BeNull();
         line.UProdNo.Should().BeNull();
         line.DiscountPercent.Should().Be(5);
@@ -259,6 +267,134 @@ public class SapPurchaseOrderPayloadBuilderTests
 
         payload.ShipToCode.Should().Be("PEARLS METALS");
     }
+
+    [Test]
+    public void Prepare_ItemLine_OmitsAccountCodeAndMeasureUnit_TheyAreNotWritable()
+    {
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(
+            ItemLineDocument(new SapInventoryTransferItemsRequests
+            {
+                ItemCode = "RM5703813500380",
+                Quantity = 10,
+                UnitPrice = 100,
+                AccountCode = "_SYS00000000677",
+                MeasureUnit = "NOS",
+                UnitsOfMeasurment = 0.075,
+            }),
+            isUpdate: false);
+
+        var line = payload.DocumentLines![0];
+        line.AccountCode.Should().BeNull();
+        line.MeasureUnit.Should().BeNull();
+        line.UnitsOfMeasurment.Should().Be(0.075);
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+        json.Should().NotContain("AccountCode");
+        json.Should().NotContain("MeasureUnit");
+    }
+
+    /// <summary>
+    /// SAP fills AccountCode on item lines from G/L account determination; sending "" would wipe it.
+    /// </summary>
+    [Test]
+    public void Prepare_ItemLine_OmitsBlankAccountCode()
+    {
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(
+            ItemLineDocument(new SapInventoryTransferItemsRequests
+            {
+                ItemCode = "I1",
+                Quantity = 1,
+                UnitPrice = 1,
+                AccountCode = "   ",
+            }),
+            isUpdate: false);
+
+        payload.DocumentLines![0].AccountCode.Should().BeNull();
+        System.Text.Json.JsonSerializer.Serialize(payload).Should().NotContain("AccountCode");
+    }
+
+    /// <summary>
+    /// Real PO rows store UoMCode "Manual" / UoMEntry -1 with the readable unit in MeasureUnit, so the
+    /// unit text must never be sent as UoMCode.
+    /// </summary>
+    [Test]
+    public void Prepare_ItemLine_DoesNotSendUnitTextAsUoMCode()
+    {
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(
+            ItemLineDocument(new SapInventoryTransferItemsRequests
+            {
+                ItemCode = "I1",
+                Quantity = 1,
+                UnitPrice = 1,
+                UoMCode = "KGS",
+            }),
+            isUpdate: false);
+
+        var line = payload.DocumentLines![0];
+        line.UoMCode.Should().BeNull();
+        line.UoMEntry.Should().BeNull();
+        line.MeasureUnit.Should().BeNull();
+        System.Text.Json.JsonSerializer.Serialize(payload).Should().NotContain("UoMCode");
+    }
+
+    [Test]
+    public void Prepare_ItemLine_SendsUoMCodeAndEntryTogether_WhenUoMEntryIsKnown()
+    {
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(
+            ItemLineDocument(new SapInventoryTransferItemsRequests
+            {
+                ItemCode = "I1",
+                Quantity = 1,
+                UnitPrice = 1,
+                UoMCode = "BOX",
+                UoMEntry = 2,
+                MeasureUnit = "BOX",
+            }),
+            isUpdate: false);
+
+        var line = payload.DocumentLines![0];
+        line.UoMCode.Should().Be("BOX");
+        line.UoMEntry.Should().Be(2);
+        line.MeasureUnit.Should().BeNull();
+    }
+
+    [Test]
+    public void Prepare_ServiceLine_SendsNeitherMeasureUnitNorItemFields()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            DocType = "dDocument_Service",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    ItemDescription = "Transport",
+                    AccountCode = "600000",
+                    Quantity = 1,
+                    UnitPrice = 500,
+                    MeasureUnit = "NOS",
+                    UoMCode = "NOS",
+                    UoMEntry = 3,
+                    UnitsOfMeasurment = 2,
+                },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        var line = payload.DocumentLines![0];
+        line.AccountCode.Should().Be("600000");
+        line.MeasureUnit.Should().BeNull();
+        line.UoMCode.Should().BeNull();
+        line.UoMEntry.Should().BeNull();
+        line.UnitsOfMeasurment.Should().BeNull();
+    }
+
+    private static SapPurchaseOrdersResponse ItemLineDocument(SapInventoryTransferItemsRequests line) => new()
+    {
+        CardCode = "V001",
+        DocumentLines = [line],
+    };
 
     [Test]
     public void Prepare_MovesLegacyGstPercentFromUG3ToUG11()
