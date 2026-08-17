@@ -21,6 +21,7 @@ namespace SapApi.Shared.Responses.Sap
     {
         [JsonPropertyName("CardCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CardCode { get; set; }
         [JsonPropertyName("CardName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CardName { get; set; }
+        [JsonPropertyName("CardForeignName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CardForeignName { get; set; }
         [JsonPropertyName("CardType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CardType { get; set; }
         [JsonPropertyName("GroupCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? GroupCode { get; set; }
         [JsonPropertyName("Series"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Series { get; set; }

@@ -82,8 +82,9 @@ public class ReceiptFromProductionController(
         double totalQty = 0;
         double totalWeight = 0;
 
-        foreach (var line in lines)
+        for (var index = 0; index < lines.Count; index++)
         {
+            var line = lines[index];
             totalQty += line.IssuedQuantity;
             itemDetailsMap.TryGetValue(line.ItemNo ?? string.Empty, out var itemDetails);
             totalWeight += itemDetails?.InventoryWeight ?? 0;
@@ -91,7 +92,7 @@ public class ReceiptFromProductionController(
             var freeText = string.IsNullOrWhiteSpace(line.FreeText) ? string.Empty : $" - {line.FreeText}";
             itemsHtml.Append($"""
                 <tr>
-                    <td>{(line.VisualOrder ?? 0) + 1}</td>
+                    <td>{index + 1}</td>
                     <td>{line.LineNumber}</td>
                     <td>{line.ItemNo}</td>
                     <td>{itemDetails?.ItemName}{freeText}</td>
@@ -111,7 +112,7 @@ public class ReceiptFromProductionController(
             ["productionNo"] = order?.DocumentNumber?.ToString() ?? string.Empty,
             ["productionDate"] = order?.CreationDate?.ToString("dd/MM/yyyy") ?? string.Empty,
             ["productNo"] = order?.ItemNumber ?? record.ItemNo ?? string.Empty,
-            ["warehouse"] = lines.LastOrDefault()?.Warehouse ?? string.Empty,
+            ["warehouse"] = order?.Warehouse ?? lines.LastOrDefault()?.Warehouse ?? string.Empty,
             ["productName"] = order?.ProductDescription ?? record.ItemName ?? string.Empty,
             ["@items"] = itemsHtml.ToString(),
             ["totalQty"] = totalQty.ToString("F2"),

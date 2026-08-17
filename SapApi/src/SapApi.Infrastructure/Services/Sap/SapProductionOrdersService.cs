@@ -97,6 +97,34 @@ namespace SapApi.Infrastructure.Services.Sap
             return updated;
         }
 
+        /// <summary>
+        /// Appends one manual production order line via PATCH. Used by Issue for Production add-line,
+        /// not by the Production Order screen (which uses <see cref="UpdateProductionOrderAsync"/>).
+        /// </summary>
+        public async Task<SapProductionOrdersResponse?> PatchProductionOrderLineAsync(
+            int absoluteEntry,
+            SapProductionOrderLines line,
+            CancellationToken cancellationToken = default)
+        {
+            var preparedLine = PrepareLineForSapPatch(line, absoluteEntry);
+            var patchBody = new SapProductionOrdersResponse
+            {
+                ProductionOrderLines = [preparedLine],
+            };
+
+            var patched = await httpRequestHandler.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+                Constants.SapApiUrls.GetProductionOrders(absoluteEntry.ToString()),
+                patchBody,
+                cancellationToken);
+
+            await RefreshMirrorAfterWriteAsync(absoluteEntry, patched, cancellationToken);
+
+            if (patched?.Error is not null)
+                return patched;
+
+            return await localStore.GetFromDbAsync(absoluteEntry, includeLines: true, cancellationToken) ?? patched;
+        }
+
         public async Task<SapProductionOrdersResponse?> CreateProductionOrderAsync(
             SapProductionOrdersResponse addedLines,
             int? policyRequestId = null,
@@ -182,6 +210,15 @@ namespace SapApi.Infrastructure.Services.Sap
             order.Error = null;
 
             return order;
+        }
+
+        static SapProductionOrderLines PrepareLineForSapPatch(SapProductionOrderLines line, int absoluteEntry)
+        {
+            line.DocumentAbsoluteEntry = absoluteEntry;
+            line.SerialNumbers = null;
+            line.BatchNumbers = null;
+            line.UoMCode = SapProductionOrderUoMNormalizer.NormalizeUoMCode(line.UoMCode);
+            return line;
         }
     }
 }

@@ -30,6 +30,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ProductionOrderLine> ProductionOrderLines => Set<ProductionOrderLine>();
     public DbSet<ProductionOrderSyncState> ProductionOrderSyncStates => Set<ProductionOrderSyncState>();
     public DbSet<ProductionOrderSyncLog> ProductionOrderSyncLogs => Set<ProductionOrderSyncLog>();
+    public DbSet<ActionAuditLog> ActionAuditLogs => Set<ActionAuditLog>();
 
     public override int SaveChanges()
     {
@@ -191,6 +192,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.NewValue).HasConversion(EncryptedStringConverter.Instance);
             entity.HasOne(e => e.ApprovalRequest).WithMany().HasForeignKey(e => e.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.ActionByUser).WithMany().HasForeignKey(e => e.ActionByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ActionAuditLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.UserName).HasMaxLength(256);
+            entity.Property(e => e.CompanyDb).HasMaxLength(64);
+            entity.Property(e => e.HttpMethod).HasMaxLength(16).IsRequired();
+            entity.Property(e => e.Path).HasMaxLength(512).IsRequired();
+            entity.Property(e => e.Action).HasMaxLength(128).IsRequired();
+            entity.Property(e => e.IpAddress).HasMaxLength(64);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.Action);
+            entity.HasIndex(e => e.UserId);
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<StageWisePaymentBatchLine>(entity =>

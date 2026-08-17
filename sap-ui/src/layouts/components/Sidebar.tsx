@@ -14,10 +14,11 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  ScrollText,
 } from 'lucide-react'
 import { cn } from '@/helpers/lib/utils'
 import { ROUTES } from '@/config/constants'
-import { isAdminUser } from '@/helpers/roles'
+import { isAdminUser, isSuperAdminUser } from '@/helpers/roles'
 import { ConnectEdgeLogo } from '@/Components/brand/ConnectEdgeLogo'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { toggleSidebar, setMobileSidebarOpen } from '@/store/slices/uiSlice'
@@ -58,6 +59,7 @@ export function Sidebar() {
   }
 
   const showAdmin = isAdminUser(user)
+  const showSuperAdmin = isSuperAdminUser(user)
 
   const renderLink = ({ to, label, icon: Icon }: { to: string; label: string; icon: React.ComponentType<{ className?: string }> }) => (
     <NavLink
@@ -134,6 +136,12 @@ export function Sidebar() {
             <>
               {!collapsed && <p className="px-3 pt-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Admin</p>}
               {adminItems.map(renderLink)}
+            </>
+          )}
+          {showSuperAdmin && (
+            <>
+              {!collapsed && <p className="px-3 pt-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Super Admin</p>}
+              {renderLink({ to: ROUTES.AUDIT_LOGS, label: 'Action Audit Logs', icon: ScrollText })}
             </>
           )}
         </nav>

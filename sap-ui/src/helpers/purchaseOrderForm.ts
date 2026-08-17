@@ -5,6 +5,7 @@ import {
   MAX_BASIC_PAYMENT_TERMS,
   MAX_PAYMENT_TERMS,
 } from '@/types/purchaseOrder'
+import { isNonInventoryItem } from '@/helpers/purchaseOrderTnValidation'
 
 type PoRecord = Record<string, unknown>
 
@@ -88,6 +89,11 @@ export function applyPaymentPercentToTerm<T extends Pick<PaymentTermRow, 'type' 
 
 export function hasGstPaymentTerm(terms: PaymentTermRow[]): boolean {
   return terms.some((t) => isGstPaymentTermRow(t))
+}
+
+export function validatePaymentTermsForSave(terms: PaymentTermRow[]): string | null {
+  if (terms.length === 0) return 'Add at least one payment term.'
+  return null
 }
 
 /**
@@ -269,8 +275,8 @@ export function applyLogisticsToPo(po: PoRecord, logistics: PurchaseOrderLogisti
     U_ModeOfTransport: undefined,
     ShipToCode: undefined,
   }
-  // Header warehouse is line-default UI only — U_Warehouse is not a valid OPOR UDF on this DB.
-  delete next.U_Warehouse
+  // Header warehouse stays on the request so the API can fill service-line LocationCode.
+  // SapPurchaseOrderPayloadBuilder omits U_Warehouse from the SAP body (not a valid OPOR UDF).
   delete next.ShipToCode
   return next
 }
@@ -461,10 +467,8 @@ export function resolvePurchaseUnit(line: Pick<PurchaseOrderLineItem, 'MeasureUn
 
 /**
  * Maps a form line onto the SAP DocumentLine shape the API expects.
- * Item-line AccountCode and MeasureUnit are display-only: Service Layer rejects MeasureUnit on
- * create/update (ODBC -1029) and overwrites AccountCode from G/L determination. The readable unit
- * is derived by SAP from UseBaseUnits / UnitsOfMeasurment. UoMCode/UoMEntry are sent only for items
- * on a real UoM group.
+ * MeasureUnit is display-only (ODBC -1029). Inventory item G/L is determined by SAP;
+ * non-inventory items send AccountCode so the user-selected account is stored.
  */
 export function toSapDocumentLine(
   line: PurchaseOrderLineItem,
@@ -473,6 +477,7 @@ export function toSapDocumentLine(
   const { isService, fallbackProject } = options
   const projectCode = line.ProjectCode || fallbackProject || undefined
   const accountCode = line.AccountCode?.trim() || undefined
+  const sendAccountCode = isService || isNonInventoryItem(line.InventoryItem)
 
   if (isService) {
     return {
@@ -484,7 +489,10 @@ export function toSapDocumentLine(
       TaxCode: line.TaxCode,
       SACEntry: line.SACEntry,
       ProjectCode: projectCode,
-      FreeText: line.FreeText || undefined,
+      LocationCode: line.LocationCode != null && line.LocationCode > 0 ? line.LocationCode : undefined,
+      // Sent so the API can resolve Loc. from OWHS; the SAP payload builder strips WarehouseCode
+      // on service documents (it triggers GrossBuyPrice).
+      WarehouseCode: line.WarehouseCode || undefined,
       LineNum: line.LineNum,
     }
   }
@@ -495,7 +503,7 @@ export function toSapDocumentLine(
   return {
     ItemCode: line.ItemCode,
     ItemDescription: line.ItemDescription,
-    FreeText: line.FreeText || undefined,
+    AccountCode: sendAccountCode ? accountCode : undefined,
     Quantity: line.Quantity,
     UnitPrice: line.UnitPrice,
     DiscountPercent: line.DiscountPercent,
@@ -511,6 +519,129 @@ export function toSapDocumentLine(
     UseBaseUnits: line.UseBaseUnits ?? calcUseBaseUnits(itemsPerUnit),
     ProjectCode: projectCode,
     LineNum: line.LineNum,
+  }
+}
+
+/** SAP DocumentSpecialLines (dslt_Text) — one text row after each line that has Free Text. */
+export function toDocumentSpecialLines(
+  lines: PurchaseOrderLineItem[],
+): Array<{ AfterLineNumber: number; LineType: string; LineText: string }> {
+  return lines.flatMap((line, index) => {
+    const text = (line.FreeText ?? line.U_FreeTxt ?? '').trim()
+    if (!text) return []
+    return [{
+      AfterLineNumber: line.LineNum ?? index,
+      LineType: 'dslt_Text',
+      LineText: text,
+    }]
+  })
+}
+
+/** Merge SAP text rows back onto form lines so Free Text survives reload. */
+export function applyDocumentSpecialLinesToFormLines(
+  lines: PurchaseOrderLineItem[],
+  specialLines: Array<{ AfterLineNumber?: number; afterLineNumber?: number; LineText?: string; lineText?: string }> | undefined,
+): PurchaseOrderLineItem[] {
+  if (!specialLines?.length) return lines
+  return lines.map((line, index) => {
+    const after = line.LineNum ?? index
+    const match = specialLines.find((row) => Number(row.AfterLineNumber ?? row.afterLineNumber) === after)
+    const text = (match?.LineText ?? match?.lineText ?? '').trim()
+    if (!text) return line
+    return { ...line, FreeText: text }
+  })
+}
+
+export function applyWarehouseToPoLines(
+  lines: PurchaseOrderLineItem[],
+  warehouse: string,
+  location?: number,
+): PurchaseOrderLineItem[] {
+  const loc = location != null && Number.isFinite(location) && location > 0 ? location : undefined
+  return lines.map((line) => ({
+    ...line,
+    WarehouseCode: warehouse || line.WarehouseCode,
+    LocationCode: loc ?? line.LocationCode,
+    LocationLabel: loc != null ? String(loc) : line.LocationLabel,
+  }))
+}
+
+export function readPoLineLocationCode(line: Record<string, unknown> | PurchaseOrderLineItem): number | undefined {
+  const raw = (line as { LocationCode?: unknown; locationCode?: unknown }).LocationCode
+    ?? (line as { locationCode?: unknown }).locationCode
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+export function readPoLineFreeText(line: Record<string, unknown> | PurchaseOrderLineItem): string | undefined {
+  const text = String(
+    (line as { FreeText?: unknown }).FreeText
+    ?? (line as { freeText?: unknown }).freeText
+    ?? (line as { U_FreeTxt?: unknown }).U_FreeTxt
+    ?? (line as { u_FreeTxt?: unknown }).u_FreeTxt
+    ?? '',
+  ).trim()
+  return text || undefined
+}
+
+/** Normalizes API camelCase line fields the PO form reads as PascalCase. */
+export function normalizePurchaseOrderLineFromApi(
+  raw: PurchaseOrderLineItem | Record<string, unknown>,
+): PurchaseOrderLineItem {
+  const source = raw as PoRecord
+  const line = raw as PurchaseOrderLineItem
+  const purchaseQty = readNumber(source, 'Quantity', 'quantity') ?? line.Quantity
+  const unitsPer = readNumber(source, 'UnitsOfMeasurment', 'unitsOfMeasurment') ?? line.UnitsOfMeasurment
+  const stockQty = readNumber(source, 'StockQty', 'stockQty', 'InventoryQuantity', 'inventoryQuantity')
+    ?? line.StockQty
+    ?? (purchaseQty != null && unitsPer != null ? purchaseQty * unitsPer : undefined)
+
+  return {
+    ...line,
+    LineNum: readNumber(source, 'LineNum', 'lineNum') ?? line.LineNum,
+    ItemCode: readString(source, 'ItemCode', 'itemCode') || line.ItemCode,
+    ItemDescription: readString(source, 'ItemDescription', 'itemDescription') || line.ItemDescription,
+    AccountCode: readString(source, 'AccountCode', 'accountCode') || line.AccountCode,
+    Quantity: purchaseQty,
+    UnitPrice: readNumber(source, 'UnitPrice', 'unitPrice') ?? line.UnitPrice,
+    DiscountPercent: readNumber(source, 'DiscountPercent', 'discountPercent') ?? line.DiscountPercent,
+    TaxCode: readString(source, 'TaxCode', 'taxCode') || line.TaxCode,
+    WarehouseCode: readString(source, 'WarehouseCode', 'warehouseCode') || line.WarehouseCode,
+    ProjectCode: readString(source, 'ProjectCode', 'projectCode') || line.ProjectCode,
+    HSNEntry: readNumber(source, 'HSNEntry', 'hSNEntry', 'hsnEntry') ?? line.HSNEntry,
+    SACEntry: readNumber(source, 'SACEntry', 'sACEntry', 'sacEntry') ?? line.SACEntry,
+    UoMCode: readString(source, 'UoMCode', 'uoMCode', 'uomCode') || line.UoMCode,
+    MeasureUnit: readString(source, 'MeasureUnit', 'measureUnit') || line.MeasureUnit,
+    UoMEntry: readNumber(source, 'UoMEntry', 'uoMEntry', 'uomEntry') ?? line.UoMEntry,
+    StockQty: stockQty,
+    UnitsOfMeasurment: unitsPer ?? (stockQty != null && purchaseQty != null && purchaseQty > 0
+      ? stockQty / purchaseQty
+      : line.UnitsOfMeasurment),
+    StockUom: readString(source, 'StockUom', 'stockUom') || line.StockUom,
+    UseBaseUnits: readString(source, 'UseBaseUnits', 'useBaseUnits') || line.UseBaseUnits,
+    LineTotal: readNumber(source, 'LineTotal', 'lineTotal') ?? line.LineTotal,
+    TaxTotal: readNumber(source, 'TaxTotal', 'taxTotal') ?? line.TaxTotal,
+    GrossTotal: readNumber(source, 'GrossTotal', 'grossTotal') ?? line.GrossTotal,
+    FreeText: readPoLineFreeText(source),
+    LocationCode: readPoLineLocationCode(source),
+  }
+}
+
+/** Normalizes header fields returned by the API (camelCase) for the PO form. */
+export function normalizePurchaseOrderHeader(raw: Record<string, unknown>): Record<string, unknown> {
+  const docDate = readString(raw, 'DocDate', 'docDate', 'PostingDate', 'postingDate')
+  return {
+    ...raw,
+    CardCode: readString(raw, 'CardCode', 'cardCode') || raw.CardCode,
+    CardName: readString(raw, 'CardName', 'cardName') || raw.CardName,
+    DocType: readString(raw, 'DocType', 'docType') || raw.DocType,
+    DocDate: docDate || raw.DocDate,
+    PostingDate: docDate || readString(raw, 'PostingDate', 'postingDate') || raw.PostingDate,
+    TaxDate: readString(raw, 'TaxDate', 'taxDate') || docDate || raw.TaxDate,
+    DocDueDate: readString(raw, 'DocDueDate', 'docDueDate', 'DueDate', 'dueDate') || raw.DocDueDate,
+    DueDate: readString(raw, 'DueDate', 'dueDate', 'DocDueDate', 'docDueDate') || raw.DueDate,
+    Project: readString(raw, 'Project', 'project') || raw.Project,
+    NumAtCard: readString(raw, 'NumAtCard', 'numAtCard') || raw.NumAtCard,
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getUserRoles, isAdminUser } from './roles'
+import { getUserRoles, isAdminUser, isSuperAdminUser } from './roles'
 import type { User } from '@/types'
 
 function user(overrides: Partial<User>): User {
@@ -39,5 +39,19 @@ describe('isAdminUser', () => {
 
   it('rejects anonymous users', () => {
     expect(isAdminUser(undefined)).toBe(false)
+  })
+})
+
+describe('isSuperAdminUser', () => {
+  it('allows SuperAdmin only', () => {
+    expect(isSuperAdminUser(user({ role: 'SuperAdmin' }))).toBe(true)
+  })
+
+  it('rejects Admin without SuperAdmin', () => {
+    expect(isSuperAdminUser(user({ role: 'Admin' }))).toBe(false)
+  })
+
+  it('rejects standard users', () => {
+    expect(isSuperAdminUser(user({ role: 'Standard' }))).toBe(false)
   })
 })

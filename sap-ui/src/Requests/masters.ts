@@ -5,6 +5,8 @@ import type { Filter, PaginationRequest, PaginationResponse } from '@/types/api'
 export interface MasterItem {
   ItemCode?: string
   ItemName?: string
+  /** SAP Items.InventoryItem: tYES / tNO. */
+  InventoryItem?: string
   InventoryUom?: string
   PurchaseUnit?: string
   /** Items per purchase unit from item master (NumInBuy). */
@@ -75,6 +77,8 @@ export interface MasterPurchaseUom {
 export interface MasterBusinessPartner {
   CardCode?: string
   CardName?: string
+  /** SAP CardForeignName (legal / foreign name on OCRD). */
+  CardForeignName?: string
   Series?: number
 }
 
@@ -142,6 +146,7 @@ function normalizeItem(raw: Record<string, unknown> | MasterItem | undefined): M
   return {
     ItemCode: String(source.ItemCode ?? source.itemCode ?? ''),
     ItemName: String(source.ItemName ?? source.itemName ?? ''),
+    InventoryItem: String(source.InventoryItem ?? source.inventoryItem ?? '') || undefined,
     InventoryUom: String(source.InventoryUom ?? source.inventoryUom ?? source.InventoryUOM ?? ''),
     PurchaseUnit: String(source.PurchaseUnit ?? source.purchaseUnit ?? '') || undefined,
     PurchaseItemsPerUnit: Number.isFinite(Number(source.PurchaseItemsPerUnit ?? source.purchaseItemsPerUnit))
@@ -219,6 +224,7 @@ function normalizeBusinessPartner(raw: Record<string, unknown> | MasterBusinessP
   return {
     CardCode: String(cardCode),
     CardName: String(source.CardName ?? source.cardName ?? ''),
+    CardForeignName: String(source.CardForeignName ?? source.cardForeignName ?? '') || undefined,
     Series: Number.isFinite(series) ? series : undefined,
   }
 }
@@ -284,7 +290,26 @@ export function searchItems(
 }
 
 export function searchWarehouses(search: string, pageSize = 20, fields: string[] = WAREHOUSE_DROPDOWN_FIELDS) {
-  return searchMaster<MasterWarehouse>('/masters/warehouses/list', search, pageSize, fields)
+  return searchMaster<MasterWarehouse>('/masters/warehouses/list', search, pageSize, fields).then((res) => ({
+    ...res,
+    data: (res.data ?? []).map((row) => normalizeWarehouse(row as MasterWarehouse)).filter(Boolean) as MasterWarehouse[],
+  }))
+}
+
+function normalizeWarehouse(raw: Record<string, unknown> | MasterWarehouse | undefined): MasterWarehouse | undefined {
+  if (!raw) return undefined
+  const source = raw as Record<string, unknown>
+  const code = String(source.WarehouseCode ?? source.warehouseCode ?? '').trim()
+  if (!code) return undefined
+  const locationRaw = source.Location ?? source.location
+  const location = locationRaw == null || locationRaw === '' ? undefined : Number(locationRaw)
+  return {
+    WarehouseCode: code,
+    WarehouseName: String(source.WarehouseName ?? source.warehouseName ?? '') || undefined,
+    City: String(source.City ?? source.city ?? '') || undefined,
+    State: String(source.State ?? source.state ?? '') || undefined,
+    Location: location != null && Number.isFinite(location) ? location : undefined,
+  }
 }
 
 /** Dropdown label: WarehouseCode - WarehouseName */
@@ -397,7 +422,7 @@ export async function listPurchaseUoms(itemCode: string, search = ''): Promise<M
   }
 }
 
-export const BUSINESS_PARTNER_DROPDOWN_FIELDS = ['CardCode', 'CardName', 'Series']
+export const BUSINESS_PARTNER_DROPDOWN_FIELDS = ['CardCode', 'CardName', 'CardForeignName', 'Series']
 
 export function searchVendors(search: string, pageSize = 20, fields: string[] = BUSINESS_PARTNER_DROPDOWN_FIELDS) {
   return searchMaster<MasterBusinessPartner>('/business-partner/list', search, pageSize, fields).then((res) => ({

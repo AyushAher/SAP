@@ -65,7 +65,8 @@ public class SapPurchaseOrderPayloadBuilderTests
         line.UoMCode.Should().BeNull();
         line.MeasureUnit.Should().BeNull();
         line.ProjectCode.Should().Be("P1");
-        line.FreeText.Should().Be("Rush delivery");
+        line.FreeText.Should().BeNull();
+        line.UFreeTxt.Should().BeNull();
         line.LocationCode.Should().Be(4);
         payload.DocumentSpecialLines.Should().ContainSingle();
         payload.DocumentSpecialLines![0].LineType.Should().Be("dslt_Text");
@@ -78,6 +79,59 @@ public class SapPurchaseOrderPayloadBuilderTests
         line.TaxTotal.Should().BeNull();
         line.GrossTotal.Should().BeNull();
         line.LineNum.Should().BeNull();
+    }
+
+    [Test]
+    public void Prepare_Create_UsesHeaderDocumentSpecialLinesWhenLineHasNoFreeText()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
+            ],
+            DocumentSpecialLines =
+            [
+                new SapDocumentSpecialLine
+                {
+                    AfterLineNumber = 0,
+                    LineType = "dslt_Text",
+                    LineText = "From header collection",
+                },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+        payload.DocumentSpecialLines.Should().ContainSingle();
+        payload.DocumentSpecialLines![0].LineText.Should().Be("From header collection");
+        payload.DocumentSpecialLines[0].AfterLineNumber.Should().Be(0);
+    }
+
+    [Test]
+    public void Prepare_Create_PutsLongFreeTextOnlyOnDocumentSpecialLines()
+    {
+        var longText = new string('x', 250);
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    ItemCode = "I1",
+                    Quantity = 1,
+                    UnitPrice = 1,
+                    FreeText = longText,
+                },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+        payload.DocumentLines![0].FreeText.Should().BeNull();
+        payload.DocumentLines[0].UFreeTxt.Should().BeNull();
+        payload.DocumentSpecialLines.Should().ContainSingle();
+        payload.DocumentSpecialLines![0].LineText.Should().Be(longText);
     }
 
     [Test]
@@ -150,6 +204,39 @@ public class SapPurchaseOrderPayloadBuilderTests
     }
 
     [Test]
+    public void Prepare_Update_DoesNotInventLineNumForNewRows()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            DocEntry = 100,
+            CardCode = "V001",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    LineNum = 1,
+                    ItemCode = "KEEP",
+                    Quantity = 1,
+                    UnitPrice = 5,
+                },
+                new SapInventoryTransferItemsRequests
+                {
+                    ItemCode = "NEW",
+                    Quantity = 2,
+                    UnitPrice = 3,
+                },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: true);
+
+        payload.DocumentLines.Should().HaveCount(2);
+        payload.DocumentLines![0].LineNum.Should().Be(1);
+        payload.DocumentLines[1].LineNum.Should().BeNull();
+        payload.DocumentLines[1].ItemCode.Should().Be("NEW");
+    }
+
+    [Test]
     public void Prepare_ServiceDocument_MapsAccountCode_WithoutItemCode()
     {
         var source = new SapPurchaseOrdersResponse
@@ -168,6 +255,9 @@ public class SapPurchaseOrderPayloadBuilderTests
                     SACEntry = 11,
                     ItemCode = "SHOULD_IGNORE",
                     WarehouseCode = "01",
+                    LocationCode = 2,
+                    GrossTotal = 1441.96,
+                    InventoryQuantity = 1,
                 },
             ],
         };
@@ -183,6 +273,9 @@ public class SapPurchaseOrderPayloadBuilderTests
         line.ItemCode.Should().BeNull();
         line.WarehouseCode.Should().BeNull();
         line.HSNEntry.Should().BeNull();
+        line.GrossTotal.Should().BeNull();
+        line.InventoryQuantity.Should().BeNull();
+        line.LocationCode.Should().Be(2);
     }
 
     [Test]
@@ -269,7 +362,7 @@ public class SapPurchaseOrderPayloadBuilderTests
     }
 
     [Test]
-    public void Prepare_ItemLine_OmitsAccountCodeAndMeasureUnit_TheyAreNotWritable()
+    public void Prepare_ItemLine_OmitsMeasureUnit_AndSendsAccountCodeWhenProvided()
     {
         var payload = SapPurchaseOrderPayloadBuilder.Prepare(
             ItemLineDocument(new SapInventoryTransferItemsRequests
@@ -284,11 +377,11 @@ public class SapPurchaseOrderPayloadBuilderTests
             isUpdate: false);
 
         var line = payload.DocumentLines![0];
-        line.AccountCode.Should().BeNull();
+        line.AccountCode.Should().Be("_SYS00000000677");
         line.MeasureUnit.Should().BeNull();
         line.UnitsOfMeasurment.Should().Be(0.075);
         var json = System.Text.Json.JsonSerializer.Serialize(payload);
-        json.Should().NotContain("AccountCode");
+        json.Should().Contain("AccountCode");
         json.Should().NotContain("MeasureUnit");
     }
 

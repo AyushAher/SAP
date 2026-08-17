@@ -23,28 +23,20 @@ export function ReceiptFromProductionListPage() {
   const { fetchData, lookupMaps } = useEnrichedListFetch(fetchRequests, extractors)
 
   const columns = useMemo<DataTableColumn<ReceiptFromProductionRequest>[]>(() => [
-    { key: 'id', header: 'Request #', sortable: true, filterable: true, accessor: (r) => r.id },
-    {
-      key: 'cardName',
-      header: 'Customer Name',
-      sortable: true,
-      filterable: true,
-      filterOperator: 'contains',
-      accessor: (r) => r.cardName || lookupMaps.businessPartners[r.cardCode] || r.cardCode,
-    },
+    { key: 'id', header: 'Request No', sortable: true, filterable: true, accessor: (r) => r.id },
     {
       key: 'createdOnUtc',
-      header: 'Request Date',
+      header: 'Date',
       sortable: true,
       accessor: (r) => (r.createdOnUtc ? formatDate(r.createdOnUtc) : '—'),
     },
     {
-      key: 'createdByUserName',
-      header: 'Username',
+      key: 'cardName',
+      header: 'Business Partner',
       sortable: true,
       filterable: true,
       filterOperator: 'contains',
-      accessor: (r) => r.createdByUserName || '—',
+      accessor: (r) => r.cardName || lookupMaps.businessPartners[r.cardCode] || r.cardCode,
     },
     {
       key: 'project',
@@ -55,13 +47,21 @@ export function ReceiptFromProductionListPage() {
     },
     {
       key: 'itemNo',
-      header: 'Item',
+      header: 'Product Details',
       sortable: true,
       filterable: true,
       filterOperator: 'contains',
       accessor: (r) => formatCodeWithName(r.itemNo, r.itemName ?? lookupMaps.items[r.itemNo]),
     },
     { key: 'status', header: 'Status', sortable: true, filterable: true, accessor: (r) => r.status },
+    {
+      key: 'createdByUserName',
+      header: 'Username',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) => r.createdByUserName || '—',
+    },
     {
       key: 'actions',
       header: 'Actions',
@@ -88,7 +88,7 @@ export function ReceiptFromProductionListPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Receipt From Production" actionLabel="Add New" actionTo={ROUTES.RECEIPT_FROM_PRODUCTION_FORM} />
+      <PageHeader title="Receipt from Production Request" actionLabel="Add New" actionTo={ROUTES.RECEIPT_FROM_PRODUCTION_FORM} />
       <DataTable columns={columns} fetchData={fetchData} getRowKey={(r) => r.id ?? Math.random()} initialSorts={[{ field: 'id', direction: 'desc' }]} />
     </div>
   )

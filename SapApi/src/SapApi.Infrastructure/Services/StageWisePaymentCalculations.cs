@@ -69,15 +69,25 @@ public static class StageWisePaymentCalculations
             && r.Tds is > 0);
 
     /// <summary>
-    /// Any earlier non-cancelled request on this PO. TDS is only applied on the first request
-    /// (and only when that request is not GST-only).
+    /// Any earlier non-cancelled request on this PO. Used to skip WT collection on later
+    /// down payments (not invoice WTAmount — that follows first invoice-selected request).
     /// </summary>
     public static bool HasPriorActivePayment(IEnumerable<StageWisePayment> records) =>
         records.Any(r => r.Status != StageWisePaymentStatus.Cancelled);
 
     /// <summary>
-    /// Skip invoice WTAmount: GST-only term, TDS already taken, a prior request exists, or this
-    /// invoice already had TDS applied earlier in the same batch.
+    /// A prior non-cancelled request already selected an AP invoice. Invoice WTAmount is taken
+    /// only on the first such request (GST-only never takes it). Earlier down payments without
+    /// an invoice do not consume that slot.
+    /// </summary>
+    public static bool HasPriorInvoiceSelectedPayment(IEnumerable<StageWisePayment> records) =>
+        records.Any(r =>
+            r.Status != StageWisePaymentStatus.Cancelled
+            && !string.IsNullOrWhiteSpace(r.ApInvoiceDocEntry));
+
+    /// <summary>
+    /// Skip invoice WTAmount when the selected terms are GST-only, an earlier request already
+    /// selected an invoice, or this invoice already had TDS applied in the same batch.
     /// </summary>
     public static bool SkipInvoiceWithholding(
         IReadOnlyList<StageWisePayment> activeRecords,
@@ -88,7 +98,7 @@ public static class StageWisePaymentCalculations
     {
         if (IsGstOnlyTerms(paymentTerms, selectedTermIds))
             return true;
-        if (HasPriorActivePayment(activeRecords) || TdsAlreadyTaken(activeRecords))
+        if (HasPriorInvoiceSelectedPayment(activeRecords))
             return true;
         if (string.IsNullOrWhiteSpace(apInvoiceDocEntry))
             return false;
@@ -857,16 +867,13 @@ public static class StageWisePaymentCalculations
     public static double ComputeApInvoiceTdsAmount(
         SapPurchaseInvoicesResponse apInvoice,
         IReadOnlyList<StageWisePayment> activeRecords,
+        IReadOnlyList<PaymentTermsUdf> paymentTerms,
+        IReadOnlyList<int> selectedTermIds,
         string apInvoiceDocEntry,
         ISet<string> tdsAppliedApInvoices)
     {
-        var hadTdsDeducted = TdsAlreadyTaken(activeRecords)
-            || HasPriorActivePayment(activeRecords)
-            || activeRecords.Any(x =>
-                x.Status != StageWisePaymentStatus.Cancelled
-                && InvoiceKeysOverlap(x.ApInvoiceDocEntry, apInvoiceDocEntry)
-                && x.Tds is > 0);
-        if (hadTdsDeducted || !tdsAppliedApInvoices.Add(apInvoiceDocEntry))
+        if (SkipInvoiceWithholding(
+                activeRecords, paymentTerms, selectedTermIds, apInvoiceDocEntry, tdsAppliedApInvoices))
             return 0;
 
         return apInvoice.WTAmount ?? 0;

@@ -205,6 +205,47 @@ public class SapProductionOrdersServiceWriteTests
     }
 
     [Test]
+    public async Task PatchProductionOrderLine_SendsPatchWithSinglePreparedLine()
+    {
+        SapProductionOrdersResponse? patched = null;
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+                It.IsAny<string>(),
+                It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => patched = body)
+            .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646 });
+
+        var newLine = new SapProductionOrderLines
+        {
+            LineNumber = 2,
+            VisualOrder = 1,
+            ItemNo = "RM-200",
+            PlannedQuantity = 3,
+            Warehouse = "Store1",
+            ProductionOrderIssueType = "im_Manual",
+            UoMCode = "KG",
+        };
+
+        await _sut.PatchProductionOrderLineAsync(646, newLine);
+
+        patched.Should().NotBeNull();
+        patched!.ProductionOrderLines.Should().ContainSingle();
+        var line = patched.ProductionOrderLines!.Single();
+        line.ItemNo.Should().Be("RM-200");
+        line.DocumentAbsoluteEntry.Should().Be(646);
+        line.VisualOrder.Should().Be(1);
+        line.ProductionOrderIssueType.Should().Be("im_Manual");
+        line.UoMCode.Should().NotBe("KG");
+        line.SerialNumbers.Should().BeNull();
+        line.BatchNumbers.Should().BeNull();
+
+        var json = JsonSerializer.Serialize(patched);
+        json.Should().Contain("\"ProductionOrderLines\"");
+        json.Should().NotContain("\"AbsoluteEntry\"");
+        json.Should().NotContain("U_CustomerName");
+    }
+
+    [Test]
     public async Task CreateProductionOrder_OmitsTheOptionalUserFieldsWhenTheyAreNotSet()
     {
         SapProductionOrdersResponse? posted = null;

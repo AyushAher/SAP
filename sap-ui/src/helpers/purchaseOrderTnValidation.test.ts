@@ -82,7 +82,25 @@ describe('validatePurchaseOrderAgainstTn', () => {
     })).toContain('_SYS00000001265')
   })
 
-  it('blocks forbidden G/L on item docs too, where the account is optional', () => {
+  it('requires G/L on non-inventory item lines', () => {
+    expect(validatePurchaseOrderAgainstTn({
+      ...base,
+      lines: [{ ItemCode: 'SRV-1', InventoryItem: 'tNO', Quantity: 1, UnitPrice: 1 }],
+    })).toBe('Select G/L Account in line 1.')
+
+    expect(validatePurchaseOrderAgainstTn({
+      ...base,
+      lines: [{
+        ItemCode: 'SRV-1',
+        InventoryItem: 'tNO',
+        AccountCode: '600000',
+        Quantity: 1,
+        UnitPrice: 1,
+      }],
+    })).toBeNull()
+  })
+
+  it('blocks forbidden G/L on item docs too, where inventory-item account is optional', () => {
     expect(validatePurchaseOrderAgainstTn({
       ...base,
       lines: [{

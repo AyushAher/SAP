@@ -34,14 +34,20 @@ export function IssueForProductionListPage() {
     () => [
       {
         key: "id",
-        header: "Request #",
+        header: "Request No",
         sortable: true,
         filterable: true,
         accessor: (r) => r.id,
       },
       {
+        key: "createdOnUtc",
+        header: "Date",
+        sortable: true,
+        accessor: (r) => (r.createdOnUtc ? formatDate(r.createdOnUtc) : "—"),
+      },
+      {
         key: "cardName",
-        header: "Customer Name",
+        header: "Business Partner",
         sortable: true,
         filterable: true,
         filterOperator: "contains",
@@ -49,20 +55,6 @@ export function IssueForProductionListPage() {
           r.cardName
           || lookupMaps.businessPartners[r.cardCode]
           || r.cardCode,
-      },
-      {
-        key: "createdOnUtc",
-        header: "Request Date",
-        sortable: true,
-        accessor: (r) => (r.createdOnUtc ? formatDate(r.createdOnUtc) : "—"),
-      },
-      {
-        key: "createdByUserName",
-        header: "Username",
-        sortable: true,
-        filterable: true,
-        filterOperator: "contains",
-        accessor: (r) => r.createdByUserName || "—",
       },
       {
         key: "project",
@@ -77,7 +69,7 @@ export function IssueForProductionListPage() {
       },
       {
         key: "itemNo",
-        header: "Item",
+        header: "Product Details",
         sortable: true,
         filterable: true,
         filterOperator: "contains",
@@ -93,6 +85,14 @@ export function IssueForProductionListPage() {
         sortable: true,
         filterable: true,
         accessor: (r) => r.status,
+      },
+      {
+        key: "createdByUserName",
+        header: "Username",
+        sortable: true,
+        filterable: true,
+        filterOperator: "contains",
+        accessor: (r) => r.createdByUserName || "—",
       },
       {
         key: "actions",
@@ -123,7 +123,7 @@ export function IssueForProductionListPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Issue For Production"
+        title="Issue from Production Request"
         actionLabel="Add New"
         actionTo={ROUTES.ISSUE_FOR_PRODUCTION_FORM}
       />

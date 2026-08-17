@@ -37,16 +37,22 @@ export interface PurchaseOrderLineItem extends DocumentLineItem {
   SACEntry?: number
   SacLabel?: string
   /**
-   * G/L account. Required on service lines. On item lines SAP fills it from G/L account
-   * determination, and sending a value overrides that determination for the row.
+   * G/L account. Required on service lines and on non-inventory item lines.
+   * Inventory items keep the account SAP determines; do not send it back.
    */
   AccountCode?: string
   AccountLabel?: string
+  /** SAP Items.InventoryItem (tYES / tNO). Not a document-line field. */
+  InventoryItem?: string
   ProjectCode?: string
   /** SAP DocumentLines.FreeText. */
   FreeText?: string
-  /** SAP DocumentLines.LocationCode (OWHS.Location). */
+  /** SAP line UDF U_FreeTxt. */
+  U_FreeTxt?: string
+  /** SAP DocumentLines.LocationCode (OWHS.Location / OLCT). */
   LocationCode?: number
+  /** Display label for Loc. (not sent to SAP). */
+  LocationLabel?: string
 }
 
 export interface PaymentTermRow {

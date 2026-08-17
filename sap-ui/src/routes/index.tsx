@@ -27,6 +27,8 @@ import { MyApprovalRequestsPage } from '@/Pages/approvals/MyApprovalRequestsPage
 import { ApprovalPoliciesPage } from '@/Pages/approvals/ApprovalPoliciesPage'
 import { UserGroupsPage } from '@/Pages/users/UserGroupsPage'
 import { UserRoleManagementPage } from '@/Pages/users/UserRoleManagementPage'
+import { ActionAuditLogsPage } from '@/Pages/admin/ActionAuditLogsPage'
+import { SuperAdminGuard } from '@/routes/guards/SuperAdminGuard'
 import { BusinessPartnerPage } from '@/Pages/business-partner/BusinessPartnerPage'
 import { GrpoPage } from '@/Pages/grpo/GrpoPage'
 import { ROUTES } from '@/config/constants'
@@ -64,6 +66,14 @@ export const router = createBrowserRouter([
           { path: ROUTES.APPROVAL_POLICIES.slice(1), element: <ApprovalPoliciesPage /> },
           { path: ROUTES.USER_GROUPS.slice(1), element: <UserGroupsPage /> },
           { path: ROUTES.USER_ROLES.slice(1), element: <UserRoleManagementPage /> },
+          {
+            path: ROUTES.AUDIT_LOGS.slice(1),
+            element: (
+              <SuperAdminGuard>
+                <ActionAuditLogsPage />
+              </SuperAdminGuard>
+            ),
+          },
           { path: ROUTES.BUSINESS_PARTNER.slice(1), element: <BusinessPartnerPage /> },
           { path: ROUTES.GRPO.slice(1), element: <GrpoPage /> },
         ],

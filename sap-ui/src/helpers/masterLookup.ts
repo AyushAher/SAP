@@ -39,6 +39,25 @@ export function formatCodeWithName(code?: string | number | null, name?: string 
   return `${codeText} - ${nameText}`
 }
 
+/** Card code with BP name and legal name (SAP CardForeignName) when they differ. */
+export function formatBusinessPartnerDisplay(
+  code?: string | number | null,
+  bpName?: string | null,
+  legalName?: string | null,
+): string {
+  const codeText = code != null && code !== '' ? String(code) : ''
+  const name = bpName?.trim()
+  const legal = legalName?.trim()
+  if (!codeText) return '—'
+
+  const parts: string[] = []
+  if (name && name !== codeText) parts.push(name)
+  if (legal && legal !== name && legal !== codeText) parts.push(legal)
+
+  if (parts.length === 0) return codeText
+  return `${codeText} - ${parts.join(' - ')}`
+}
+
 async function runCachedLookup<T>(
   code: string,
   cache: Map<string, T>,
@@ -176,8 +195,12 @@ export async function resolveMasterSelectLabels(input: {
   return {
     itemLabel: input.itemCode ? formatCodeWithName(input.itemCode, item?.ItemName) : undefined,
     projectLabel: input.projectCode ? formatCodeWithName(input.projectCode, project?.Name) : undefined,
-    customerLabel: input.customerCode ? formatCodeWithName(input.customerCode, partner?.CardName) : undefined,
-    vendorLabel: input.vendorCode ? formatCodeWithName(input.vendorCode, partner?.CardName) : undefined,
+    customerLabel: input.customerCode
+      ? formatBusinessPartnerDisplay(input.customerCode, partner?.CardName, partner?.CardForeignName)
+      : undefined,
+    vendorLabel: input.vendorCode
+      ? formatBusinessPartnerDisplay(input.vendorCode, partner?.CardName, partner?.CardForeignName)
+      : undefined,
   }
 }
 
@@ -224,6 +247,6 @@ export async function resolveSelectOptionByCode(
   }
   const partner = await resolveBusinessPartner(code)
   return partner?.CardCode
-    ? { value: partner.CardCode, label: formatCodeWithName(partner.CardCode, partner.CardName) }
+    ? { value: partner.CardCode, label: formatBusinessPartnerDisplay(partner.CardCode, partner.CardName, partner.CardForeignName) }
     : undefined
 }

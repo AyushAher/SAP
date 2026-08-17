@@ -42,7 +42,7 @@ export const ROUTES = {
   USER_ROLES: '/user-roles',
   BUSINESS_PARTNER: '/business-partner',
   GRPO: '/grpo',
-  USERS: '/users',
+  AUDIT_LOGS: '/audit-logs',
   SETTINGS: '/settings',
 } as const
 

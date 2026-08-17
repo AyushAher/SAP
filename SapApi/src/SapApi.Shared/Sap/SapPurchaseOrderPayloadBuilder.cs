@@ -132,7 +132,8 @@ public static class SapPurchaseOrderPayloadBuilder
             UType10 = NullIfWhiteSpace(source.UType10),
             UType11 = NullIfWhiteSpace(source.UType11),
             DocumentLines = PrepareLines(source.DocumentLines, isUpdate, IsServiceDocument(source.DocType)),
-            DocumentSpecialLines = PrepareSpecialLines(source.DocumentLines, isUpdate),
+            DocumentSpecialLines = PrepareSpecialLines(
+                source.DocumentLines, source.DocumentSpecialLines, isUpdate),
         };
 
         if (isUpdate)
@@ -230,29 +231,43 @@ public static class SapPurchaseOrderPayloadBuilder
 
     /// <summary>
     /// SAP DocumentSpecialLines (dslt_Text) inserted after the item row whose FreeText they carry.
+    /// Header special lines from the client are kept when line FreeText is empty.
     /// </summary>
     internal static List<SapDocumentSpecialLine>? PrepareSpecialLines(
         List<SapInventoryTransferItemsRequests>? lines,
+        List<SapDocumentSpecialLine>? existing,
         bool isUpdate)
     {
-        if (lines is null || lines.Count == 0)
-            return null;
-
-        var special = new List<SapDocumentSpecialLine>();
-        for (var i = 0; i < lines.Count; i++)
+        var fromLines = new List<SapDocumentSpecialLine>();
+        if (lines is { Count: > 0 })
         {
-            var text = NullIfWhiteSpace(lines[i].FreeText);
-            if (text is null)
-                continue;
-            special.Add(new SapDocumentSpecialLine
+            for (var i = 0; i < lines.Count; i++)
             {
-                AfterLineNumber = isUpdate ? lines[i].LineNum ?? i : i,
-                LineType = "dslt_Text",
-                LineText = text,
-            });
+                var text = NullIfWhiteSpace(lines[i].FreeText) ?? NullIfWhiteSpace(lines[i].UFreeTxt);
+                if (text is null)
+                    continue;
+                fromLines.Add(new SapDocumentSpecialLine
+                {
+                    AfterLineNumber = isUpdate ? lines[i].LineNum ?? i : i,
+                    LineType = "dslt_Text",
+                    LineText = text,
+                });
+            }
         }
 
-        return special.Count == 0 ? null : special;
+        if (fromLines.Count > 0)
+            return fromLines;
+
+        var fromHeader = existing?
+            .Where(s => !string.IsNullOrWhiteSpace(s.LineText))
+            .Select(s => new SapDocumentSpecialLine
+            {
+                AfterLineNumber = s.AfterLineNumber,
+                LineType = NullIfWhiteSpace(s.LineType) ?? "dslt_Text",
+                LineText = s.LineText!.Trim(),
+            })
+            .ToList();
+        return fromHeader is { Count: > 0 } ? fromHeader : null;
     }
 
     static List<SapInventoryTransferItemsRequests>? PrepareLines(
@@ -267,19 +282,32 @@ public static class SapPurchaseOrderPayloadBuilder
             .Where(l => isService
                 ? !string.IsNullOrWhiteSpace(l.AccountCode)
                 : !string.IsNullOrWhiteSpace(l.ItemCode))
-            .Select((line, index) => isService
+            .Select(line => isService
                 ? new SapInventoryTransferItemsRequests
                 {
-                    LineNum = isUpdate ? line.LineNum ?? index : null,
+                    LineNum = isUpdate ? line.LineNum : null,
                     ItemDescription = NullIfWhiteSpace(line.ItemDescription),
-                    FreeText = NullIfWhiteSpace(line.FreeText),
+                    FreeText = null,
+                    UFreeTxt = null,
                     AccountCode = NullIfWhiteSpace(line.AccountCode),
                     Quantity = line.Quantity,
                     UnitPrice = line.UnitPrice,
-                    DiscountPercent = line.DiscountPercent,
+                    DiscountPercent = line.DiscountPercent is > 0 ? line.DiscountPercent : null,
                     TaxCode = NullIfWhiteSpace(line.TaxCode),
                     SACEntry = line.SACEntry,
                     ProjectCode = NullIfWhiteSpace(line.ProjectCode),
+                    // Service rows have no item/warehouse cost. Sending WarehouseCode or
+                    // InventoryQuantity makes SAP reject GrossBuyPrice. LocationCode is still
+                    // required by the company transaction notification.
+                    LocationCode = line.LocationCode is > 0 ? line.LocationCode : null,
+                    WarehouseCode = null,
+                    ItemCode = null,
+                    LineTotal = null,
+                    TaxTotal = null,
+                    GrossTotal = null,
+                    InventoryQuantity = null,
+                    UnitsOfMeasurment = null,
+                    UseBaseUnits = null,
                     CostingCode = null,
                     CostingCode2 = null,
                     CostingCode3 = null,
@@ -294,24 +322,24 @@ public static class SapPurchaseOrderPayloadBuilder
                 }
                 : new SapInventoryTransferItemsRequests
                 {
-                    LineNum = isUpdate ? line.LineNum ?? index : null,
+                    LineNum = isUpdate ? line.LineNum : null,
                     ItemCode = NullIfWhiteSpace(line.ItemCode),
                     ItemDescription = NullIfWhiteSpace(line.ItemDescription),
-                    FreeText = NullIfWhiteSpace(line.FreeText),
+                    // POR1.FreeTxt / U_FreeTxt are ~100 chars. Long remarks go on DocumentSpecialLines.
+                    FreeText = null,
+                    UFreeTxt = null,
                     Quantity = line.Quantity,
                     UnitPrice = line.UnitPrice,
                     DiscountPercent = line.DiscountPercent,
                     WarehouseCode = NullIfWhiteSpace(line.WarehouseCode),
-                    LocationCode = line.LocationCode,
+                    LocationCode = line.LocationCode is > 0 ? line.LocationCode : null,
                     TaxCode = NullIfWhiteSpace(line.TaxCode),
                     HSNEntry = line.HSNEntry,
                     SACEntry = line.SACEntry,
-                    // Item-line AccountCode and MeasureUnit are not writable through Service Layer
-                    // (create silently replaces AccountCode from G/L determination; both fields
-                    // return ODBC -1029 on PATCH). Omit them so an update of an existing PO cannot
-                    // fail on a display-only value. MeasureUnit is derived by SAP from
-                    // UseBaseUnits / UnitsOfMeasurment (inventory UoM vs purchase UoM).
-                    AccountCode = null,
+                    AccountCode = NullIfWhiteSpace(line.AccountCode),
+                    // MeasureUnit is not writable (ODBC -1029). SAP derives it from
+                    // UseBaseUnits / UnitsOfMeasurment. AccountCode is sent for non-inventory
+                    // items; inventory lines omit it from the client so G/L determination stays.
                     UoMCode = line.UoMEntry is null ? null : NullIfWhiteSpace(line.UoMCode),
                     UoMEntry = line.UoMEntry,
                     MeasureUnit = null,

@@ -213,17 +213,18 @@ public static class SapPaginationProfiles
     public static SapPaginationOptions Vendors => new()
     {
         BaseFilter = "CardType eq 'cSupplier'",
-        Select = "CardCode,CardName,CardType,Series",
+        Select = "CardCode,CardName,CardForeignName,CardType,Series",
         KeyFields = ["CardCode"],
         DefaultSortField = "CardCode",
         DefaultSortDirection = "asc",
-        SearchOrFields = ["CardCode", "CardName"],
+        SearchOrFields = ["CardCode", "CardName", "CardForeignName"],
         SearchCodeFields = ["CardCode"],
-        SearchTextFields = ["CardName"],
+        SearchTextFields = ["CardName", "CardForeignName"],
         FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["CardCode"] = "CardCode",
             ["CardName"] = "CardName",
+            ["CardForeignName"] = "CardForeignName",
             ["Series"] = "Series",
         },
     };

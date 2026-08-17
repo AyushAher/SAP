@@ -31,6 +31,12 @@ export function isServicePoDocType(docType?: string | null): boolean {
   return (docType ?? '').trim() === PO_DOC_TYPE.service
 }
 
+/** Non-inventory items (OITM.InvntItem = tNO) require a user-selected G/L on the PO row. */
+export function isNonInventoryItem(inventoryItem?: string | null): boolean {
+  const value = (inventoryItem ?? '').trim().toUpperCase()
+  return value === 'TNO' || value === 'N' || value === 'NO' || value === 'FALSE'
+}
+
 export interface PoTnValidationInput {
   salesPersonCode?: number | null
   documentsOwner?: number | null
@@ -79,15 +85,17 @@ export function validatePurchaseOrderAgainstTn(input: PoTnValidationInput): stri
     const line = input.lines[i]
     const tax = (line.TaxCode ?? '').trim()
 
-    // The account is optional on item lines (SAP determines it) but the ban applies to every row.
     if (line.AccountCode?.trim() === PO_TN.forbiddenGlAccount) {
       return 'Selection of G/L Account _SYS00000001265 is not allowed in Purchase Order rows.'
     }
 
-    if (isService) {
+    if (isService || isNonInventoryItem(line.InventoryItem)) {
       if (!line.AccountCode?.trim()) {
         return `Select G/L Account in line ${i + 1}.`
       }
+    }
+
+    if (isService) {
       if (tax && (line.SACEntry == null || !Number.isFinite(line.SACEntry))) {
         return `You must select SAC in line ${i + 1}, since GST tax code is selected`
       }

@@ -640,7 +640,7 @@ public class SapMasterDataService(
         {
             Filter = $"CardCode eq '{safeCode}'",
             Select = SapPaginationBuilder.ResolveSelect(
-                "CardCode,CardName,CardType,BPWithholdingTaxCollection", BusinessPartnerLookupKeyFields, fields),
+                "CardCode,CardName,CardForeignName,CardType,BPWithholdingTaxCollection", BusinessPartnerLookupKeyFields, fields),
             Top = "1",
         };
         var response = await GetCachedAsync<SapBusinessPartnerResponse>(
@@ -757,6 +757,15 @@ public class SapMasterDataService(
         return formatted.Length <= 120 ? formatted : formatted[..120];
     }
 
+    private static string FormatBusinessPartnerLookupLabel(string? cardName, string? cardForeignName)
+    {
+        var name = cardName?.Trim() ?? string.Empty;
+        var foreign = cardForeignName?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(foreign) || string.Equals(name, foreign, StringComparison.OrdinalIgnoreCase))
+            return name;
+        return string.IsNullOrEmpty(name) ? foreign : $"{name} - {foreign}";
+    }
+
     public async Task<ItemsResponse?> GetItemByCodeAsync(
         string itemCode,
         IReadOnlyList<string>? fields = null,
@@ -773,7 +782,7 @@ public class SapMasterDataService(
             Select = SapPaginationBuilder.ResolveSelect(
                 "ItemCode,ItemName,ItemsGroupCode,InventoryItem,InventoryUOM,InventoryWeight,PurchaseUnit,PurchaseItemsPerUnit,PurchaseVATGroup,ChapterID,DefaultWarehouse",
                 ItemLookupKeyFields,
-                fields ?? ["ItemCode", "ItemName", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID", "DefaultWarehouse"]),
+                fields ?? ["ItemCode", "ItemName", "InventoryItem", "InventoryUOM", "PurchaseUnit", "PurchaseItemsPerUnit", "InventoryWeight", "PurchaseVATGroup", "ChapterID", "DefaultWarehouse"]),
             Top = "1",
         };
         var response = await GetCachedAsync<SapItemsResponse>(
@@ -1086,7 +1095,7 @@ public class SapMasterDataService(
         string[] warehouseDropdown = ["WarehouseCode", "WarehouseName", "Location"];
         string[] taxDropdown = ["Code", "Name", "Rate"];
         string[] projectDropdown = ["Code", "Name"];
-        string[] partnerDropdown = ["CardCode", "CardName"];
+        string[] partnerDropdown = ["CardCode", "CardName", "CardForeignName"];
 
         await SearchItemsAsync(Page(itemDropdown), cancellationToken);
         await SearchItemsAsync(Page(itemDetail), cancellationToken);
@@ -1234,7 +1243,7 @@ public class SapMasterDataService(
             var queries = new SapQueries
             {
                 Filter = filter,
-                Select = "CardCode,CardName",
+                Select = "CardCode,CardName,CardForeignName",
                 Top = chunk.Length.ToString(),
             };
             var response = await GetCachedAsync<SapBusinessPartnerResponse>(
@@ -1243,7 +1252,7 @@ public class SapMasterDataService(
             foreach (var partner in response?.Value ?? [])
             {
                 if (!string.IsNullOrWhiteSpace(partner.CardCode))
-                    result[partner.CardCode] = partner.CardName ?? string.Empty;
+                    result[partner.CardCode] = FormatBusinessPartnerLookupLabel(partner.CardName, partner.CardForeignName);
             }
         }
 

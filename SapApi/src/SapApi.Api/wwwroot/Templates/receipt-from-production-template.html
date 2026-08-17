@@ -68,7 +68,7 @@
             </tr>
         </table>
 
-        <h3>Receipt From Production</h3>
+        <h3>Receipt from Production Request</h3>
 
         <table>
             <tr>
@@ -81,16 +81,14 @@
             </tr>
             <tr>
                 <td><b>Worker's Name:</b> {{workersName}}</td>
-                <td><b>Issuing Warehouse:</b> {{warehouse}}</td>
+                <td><b>Receipt Warehouse:</b> {{warehouse}}</td>
             </tr>
-            
-            <tr colspan="2">
-                <td><b>Drawing No:</b> {{drawingNo}}</td>
+            <tr>
+                <td colspan="2"><b>Drawing No:</b> {{drawingNo}}</td>
             </tr>
-            <tr colspan="2">
-                <td><b>Product Details:</b> {{productNo}} - {{productName}}</td>
+            <tr>
+                <td colspan="2"><b>Product Details:</b> {{productNo}} - {{productName}}</td>
             </tr>
-
             <tr>
                 <td colspan="2">
                     <b>Project Details:</b><br />
@@ -110,8 +108,8 @@
                 <th>Weight (KG)</th>
             </tr>
             {{@items}}
-            <tr>  
-                <td colspan="3" class="right"><b>Total</b></td>
+            <tr>
+                <td colspan="4" class="right"><b>Total</b></td>
                 <td class="center"><b>{{totalQty}}</b></td>
                 <td></td>
                 <td class="right"><b>{{totalWeight}}</b></td>

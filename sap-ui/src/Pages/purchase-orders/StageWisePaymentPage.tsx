@@ -21,13 +21,13 @@ import {
   useInvalidateStageWisePaymentPageData,
   useStageWisePaymentPageData,
 } from '@/hooks/useStageWisePaymentPageData'
-import {
-  formatAmount,
+import { formatAmount,
   isBatchPaymentAvailable,
   isPaymentTermSelectable,
   normalizeStatus,
   paymentTermLabel,
 } from '@/helpers/stageWisePaymentCalculations'
+import { formatPoDisplayDate } from '@/helpers/lib/utils'
 
 function triggerDownload(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob)
@@ -36,17 +36,6 @@ function triggerDownload(blob: Blob, fileName: string) {
   anchor.download = fileName
   anchor.click()
   URL.revokeObjectURL(url)
-}
-
-function formatPoDate(value?: string) {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
 }
 
 function recordGrossAmount(record: StageWisePayment) {
@@ -248,7 +237,7 @@ export function StageWisePaymentPage() {
                 {po ? `${po.DocNum ?? po.DocEntry ?? '—'}` : '—'}
               </strong>
               <span className="ml-3 text-slate-500">PO Date:</span>{' '}
-              <strong>{formatPoDate(poDate)}</strong>
+              <strong>{poDate ? formatPoDisplayDate(poDate) : '—'}</strong>
             </div>
             <div>
               <span className="text-slate-500">Project Details:</span>{' '}

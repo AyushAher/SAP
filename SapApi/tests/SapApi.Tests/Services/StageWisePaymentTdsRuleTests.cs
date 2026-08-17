@@ -7,6 +7,12 @@ namespace SapApi.Tests.Services;
 
 public class StageWisePaymentTdsRuleTests
 {
+    private static readonly List<PaymentTermsUdf> Terms =
+    [
+        new() { Id = 1, Gst = 100, Basic = 0, Type = "GstProforma" },
+        new() { Id = 2, Basic = 80, Gst = 0, Type = "Invoice" },
+    ];
+
     [Test]
     public void IsGstOnlyTerm_WhenBasicIsZeroAndGstIsSet()
     {
@@ -46,6 +52,30 @@ public class StageWisePaymentTdsRuleTests
     }
 
     [Test]
+    public void HasPriorInvoiceSelectedPayment_IgnoresDownPaymentsWithoutInvoice()
+    {
+        StageWisePaymentCalculations.HasPriorInvoiceSelectedPayment(
+        [
+            new StageWisePayment
+            {
+                Status = StageWisePaymentStatus.Added,
+                Tds = 2,
+                ApInvoiceDocEntry = null,
+            },
+        ]).Should().BeFalse();
+
+        StageWisePaymentCalculations.HasPriorInvoiceSelectedPayment(
+        [
+            new StageWisePayment
+            {
+                Status = StageWisePaymentStatus.Added,
+                Tds = 0,
+                ApInvoiceDocEntry = "5507",
+            },
+        ]).Should().BeTrue();
+    }
+
+    [Test]
     public void InvoiceKeysOverlap_MatchesCommaJoinedEntries()
     {
         StageWisePaymentCalculations.InvoiceKeysOverlap("10,20", "20").Should().BeTrue();
@@ -53,29 +83,83 @@ public class StageWisePaymentTdsRuleTests
     }
 
     [Test]
-    public void SkipInvoiceWithholding_OnGstOnlyAndOnSecondRequest()
+    public void SkipInvoiceWithholding_OnGstOnlyAndOnSecondInvoiceRequest()
     {
-        var terms = new List<PaymentTermsUdf>
-        {
-            new() { Id = 1, Gst = 100, Basic = 0, Type = "GstProforma" },
-            new() { Id = 2, Basic = 80, Gst = 0 },
-        };
         var applied = new HashSet<string>(StringComparer.Ordinal);
 
-        StageWisePaymentCalculations.SkipInvoiceWithholding([], terms, [1], "55", applied)
+        StageWisePaymentCalculations.SkipInvoiceWithholding([], Terms, [1], "55", applied)
             .Should().BeTrue();
 
         applied.Clear();
         StageWisePaymentCalculations.SkipInvoiceWithholding(
-                [new StageWisePayment { Status = StageWisePaymentStatus.Added, Tds = 0 }],
-                terms,
+                [new StageWisePayment { Status = StageWisePaymentStatus.Added, Tds = 0, ApInvoiceDocEntry = "55" }],
+                Terms,
                 [2],
                 "55",
                 applied)
             .Should().BeTrue();
 
         applied.Clear();
-        StageWisePaymentCalculations.SkipInvoiceWithholding([], terms, [2], "55", applied)
+        StageWisePaymentCalculations.SkipInvoiceWithholding([], Terms, [2], "55", applied)
             .Should().BeFalse();
+    }
+
+    [Test]
+    public void SkipInvoiceWithholding_AllowsInvoiceTdsAfterPriorDownPayment()
+    {
+        var applied = new HashSet<string>(StringComparer.Ordinal);
+        var priorDownPayment = new StageWisePayment
+        {
+            Status = StageWisePaymentStatus.Added,
+            StageDesc = "Batch down payment",
+            Tds = 2,
+            ApInvoiceDocEntry = null,
+        };
+
+        StageWisePaymentCalculations.SkipInvoiceWithholding(
+                [priorDownPayment],
+                Terms,
+                [2],
+                "5507",
+                applied)
+            .Should().BeFalse();
+    }
+
+    [Test]
+    public void ComputeApInvoiceTdsAmount_TakesInvoiceWtOnFirstInvoiceRequestAfterDownPayment()
+    {
+        var applied = new HashSet<string>(StringComparer.Ordinal);
+        var invoice = new SapPurchaseInvoicesResponse { WTAmount = 41.5 };
+        var priorDownPayment = new StageWisePayment
+        {
+            Status = StageWisePaymentStatus.Added,
+            Tds = 2,
+            ApInvoiceDocEntry = null,
+        };
+
+        StageWisePaymentCalculations.ComputeApInvoiceTdsAmount(
+                invoice, [priorDownPayment], Terms, [2], "5507", applied)
+            .Should().Be(41.5);
+
+        StageWisePaymentCalculations.ComputeApInvoiceTdsAmount(
+                invoice,
+                [
+                    priorDownPayment,
+                    new StageWisePayment
+                    {
+                        Status = StageWisePaymentStatus.Added,
+                        Tds = 41.5,
+                        ApInvoiceDocEntry = "5507",
+                    },
+                ],
+                Terms,
+                [2],
+                "5507",
+                new HashSet<string>(StringComparer.Ordinal))
+            .Should().Be(0);
+
+        StageWisePaymentCalculations.ComputeApInvoiceTdsAmount(
+                invoice, [], Terms, [1], "5507", new HashSet<string>(StringComparer.Ordinal))
+            .Should().Be(0);
     }
 }

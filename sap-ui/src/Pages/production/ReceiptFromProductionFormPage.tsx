@@ -9,12 +9,13 @@ import {
 export function ReceiptFromProductionFormPage() {
   return (
     <ProductionRequestForm
-      title="Receipt From Production Request"
+      title="Receipt from Production Request"
       listRoute={ROUTES.RECEIPT_FROM_PRODUCTION}
       loadOrderLines={getReceiptFromProductionOrderLines}
       saveOrderLines={saveReceiptFromProduction}
       downloadPdf={downloadReceiptFromProductionPdf}
       showWorkerName
+      variant="receipt"
       consumableItemsOnly
     />
   )

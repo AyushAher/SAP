@@ -113,6 +113,8 @@ public static class DependencyInjection
             services.AddScoped<ISapLoginService, SapLoginService>();
 
         services.AddScoped<ApprovalService>();
+        services.AddScoped<ActionAuditLogService>();
+        services.AddScoped<IActionAuditLogService>(sp => sp.GetRequiredService<ActionAuditLogService>());
         services.AddScoped<ApprovalExecutionService>();
         services.AddScoped<ApprovalPolicyService>();
         services.AddScoped<UserGroupService>();

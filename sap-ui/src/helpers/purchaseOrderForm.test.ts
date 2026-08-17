@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyWarehouseToPoLines,
+  applyDocumentSpecialLinesToFormLines,
   applyLogisticsToPo,
   applyOtherTermsToPo,
   applyPaymentPercentToTerm,
@@ -10,6 +12,7 @@ import {
   isGstPaymentTermType,
   nextPaymentTermSlot,
   normalizePaymentTermType,
+  normalizePurchaseOrderLineFromApi,
   parsePaymentTermsFromPo,
   readLogisticsFromPo,
   readOtherTermsFromPo,
@@ -17,10 +20,13 @@ import {
   resolvePaymentTermPercent,
   resolvePurchaseUnit,
   toSapDocumentLine,
+  toDocumentSpecialLines,
   usesPbbplDispatchLocationMapping,
+  validatePaymentTermsForSave,
   warehouseForDispatchLocation,
   withItemsPerUnit,
 } from './purchaseOrderForm'
+import { formatPoDisplayDate, parsePoDisplayDate } from './lib/utils'
 
 describe('resolveLineUoms', () => {
   it('defaults both UoMs from the item master when the line has none', () => {
@@ -276,7 +282,7 @@ describe('logistics SAP field mapping', () => {
       dispatchTo: 'C000030',
     })
     expect(cleared.ShipToCode).toBeUndefined()
-    expect(cleared.U_Warehouse).toBeUndefined()
+    expect(cleared.U_Warehouse).toBe('Store1')
     expect(cleared.U_DisID).toBe('C000030')
 
     const read = readLogisticsFromPo({
@@ -402,6 +408,25 @@ describe('toSapDocumentLine', () => {
     expect(payload.LocationCode).toBe(4)
   })
 
+  it('sends Free Text only as document special lines, not DocumentLine.FreeText', () => {
+    const longText = `${'Lorem ipsum dolor sit amet, '.repeat(20)}end`
+    const line = { ...itemLine, FreeText: longText }
+    const payload = toSapDocumentLine(line, { isService: false })
+    expect(payload.FreeText).toBeUndefined()
+    expect(payload.U_FreeTxt).toBeUndefined()
+    expect(toDocumentSpecialLines([line])).toEqual([
+      { AfterLineNumber: 0, LineType: 'dslt_Text', LineText: longText },
+    ])
+  })
+
+  it('rehydrates Free Text from document special lines', () => {
+    const restored = applyDocumentSpecialLinesToFormLines(
+      [{ ...itemLine, FreeText: undefined }],
+      [{ AfterLineNumber: 0, LineText: 'Ship to gate 2' }],
+    )
+    expect(restored[0].FreeText).toBe('Ship to gate 2')
+  })
+
   it('sends UoMCode with its entry when the item is on a real UoM group', () => {
     const payload = toSapDocumentLine({ ...itemLine, UoMEntry: 4, MeasureUnit: 'BOX' }, { isService: false })
     expect(payload.UoMCode).toBe('BOX')
@@ -409,9 +434,17 @@ describe('toSapDocumentLine', () => {
     expect(payload.MeasureUnit).toBeUndefined()
   })
 
-  it('does not send a G/L account on item lines, so SAP keeps determining it', () => {
+  it('does not send a G/L account on inventory item lines, so SAP keeps determining it', () => {
     expect(toSapDocumentLine(itemLine, { isService: false }).AccountCode).toBeUndefined()
     expect(toSapDocumentLine({ ...itemLine, AccountCode: '   ' }, { isService: false }).AccountCode).toBeUndefined()
+  })
+
+  it('sends the selected G/L account on non-inventory item lines', () => {
+    const payload = toSapDocumentLine(
+      { ...itemLine, InventoryItem: 'tNO', AccountCode: '_SYS00000000677' },
+      { isService: false },
+    )
+    expect(payload.AccountCode).toBe('_SYS00000000677')
   })
 
   it('falls back to the header project when the line has none', () => {
@@ -419,15 +452,67 @@ describe('toSapDocumentLine', () => {
     expect(payload.ProjectCode).toBe('PRJ-9')
   })
 
-  it('keeps service lines to account, SAC and amounts', () => {
+  it('keeps service lines to account, SAC, amounts, location and warehouse for Loc. fill', () => {
     const payload = toSapDocumentLine(
-      { ItemDescription: 'Engineering', AccountCode: '_SYS00000000677', Quantity: 1, SACEntry: 11, MeasureUnit: 'NOS' },
+      {
+        ItemDescription: 'Engineering',
+        AccountCode: '_SYS00000000677',
+        Quantity: 1,
+        SACEntry: 11,
+        MeasureUnit: 'NOS',
+        WarehouseCode: 'Store5',
+        LocationCode: 2,
+        GrossTotal: 1441.96,
+      },
       { isService: true },
     )
     expect(payload.AccountCode).toBe('_SYS00000000677')
     expect(payload.SACEntry).toBe(11)
+    expect(payload.LocationCode).toBe(2)
+    expect(payload.WarehouseCode).toBe('Store5')
     expect(payload.MeasureUnit).toBeUndefined()
     expect(payload.ItemCode).toBeUndefined()
-    expect(payload.WarehouseCode).toBeUndefined()
+    expect(payload.GrossTotal).toBeUndefined()
+  })
+
+  it('copies warehouse location onto every line', () => {
+    const next = applyWarehouseToPoLines(
+      [{ ItemDescription: 'Freight', LocationCode: undefined }, { ItemCode: 'RM-1', WarehouseCode: 'Old' }],
+      'Store5',
+      2,
+    )
+    expect(next[0]).toMatchObject({ WarehouseCode: 'Store5', LocationCode: 2, LocationLabel: '2' })
+    expect(next[1]).toMatchObject({ WarehouseCode: 'Store5', LocationCode: 2, LocationLabel: '2' })
+  })
+})
+
+describe('normalizePurchaseOrderLineFromApi', () => {
+  it('maps camelCase itemDescription from the API onto ItemDescription', () => {
+    const line = normalizePurchaseOrderLineFromApi({
+      accountCode: '600000',
+      itemDescription: 'Transport charges',
+      quantity: 1,
+      unitPrice: 100,
+    })
+    expect(line.ItemDescription).toBe('Transport charges')
+    expect(line.AccountCode).toBe('600000')
+  })
+})
+
+describe('validatePaymentTermsForSave', () => {
+  it('requires at least one payment term', () => {
+    expect(validatePaymentTermsForSave([])).toBe('Add at least one payment term.')
+    expect(validatePaymentTermsForSave([{ id: 1, type: 'Advance', basic: 20 }])).toBeNull()
+  })
+})
+
+describe('PO display dates', () => {
+  it('formats ISO dates as dd/MM/yyyy', () => {
+    expect(formatPoDisplayDate('2026-08-17')).toBe('17/08/2026')
+  })
+
+  it('parses dd/MM/yyyy and ddMMyyyy back to ISO', () => {
+    expect(parsePoDisplayDate('17/08/2026')).toBe('2026-08-17')
+    expect(parsePoDisplayDate('17082026')).toBe('2026-08-17')
   })
 })

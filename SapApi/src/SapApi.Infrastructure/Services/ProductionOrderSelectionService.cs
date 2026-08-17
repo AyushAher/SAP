@@ -11,7 +11,7 @@ public class ProductionOrderSelectionService(
     /// <summary>
     /// Builds the Issue / Receipt from Production selection payload from the local mirror, which
     /// already carries the resolved project name and SAP's numeric line UoMCode. The lines are used
-    /// verbatim — swapping in an inventory UoM name such as "KG" makes SAP reject the later PUT.
+    /// verbatim — swapping in an inventory UoM name such as "KG" makes SAP reject the later write.
     /// </summary>
     public async Task<SapInventoryGenExitRequestOrderLines?> BuildSelectionAsync(
         string absoluteEntry,
@@ -42,16 +42,15 @@ public class ProductionOrderSelectionService(
             throw new InvalidOperationException("Issue quantity cannot exceed planned quantity.");
 
         order.ProductionOrderLines ??= [];
-        selection.ProductionOrderLinesEntryNumber ??= [];
 
         var maxLine = order.ProductionOrderLines
             .Select(x => x.LineNumber ?? 0)
             .DefaultIfEmpty(0)
             .Max();
         line.LineNumber = maxLine + 1;
+        line.VisualOrder = order.ProductionOrderLines.Count;
         line.ProductionOrderIssueType = "im_Manual";
         line.Project = order.Project;
-        line.DocumentAbsoluteEntry = order.AbsoluteEntry;
         line.BaseQuantity = order.PlannedQuantity > 0
             ? line.PlannedQuantity / order.PlannedQuantity
             : 0;
@@ -65,27 +64,23 @@ public class ProductionOrderSelectionService(
         var warehouse = await masterDataService.GetWarehouseByCodeAsync(line.Warehouse, cancellationToken: cancellationToken);
         line.LocationCode = warehouse?.Location ?? 0;
 
-        order.ProductionOrderLines.Add(line);
-        selection.ProductionOrderLinesEntryNumber.Add(line);
+        var absoluteEntryInt = order.AbsoluteEntry
+            ?? throw new InvalidOperationException("Production order absolute entry is missing.");
 
-        var response = await productionOrdersService.UpdateProductionOrderAsync(
-            order,
-            cancellationToken: cancellationToken);
+        var response = await productionOrdersService.PatchProductionOrderLineAsync(
+            absoluteEntryInt,
+            line,
+            cancellationToken);
         if (response?.Error is not null && !string.IsNullOrEmpty(response.Error.Message?.Value))
-        {
-            order.ProductionOrderLines.Remove(line);
-            selection.ProductionOrderLinesEntryNumber.Remove(line);
             throw new InvalidOperationException($"{response.Error.Code}: {response.Error.Message.Value}");
-        }
 
-        // Prefer the SAP-returned order when present so line lists stay in sync with Service Layer.
         var updatedOrder = response ?? order;
-        if (updatedOrder.ProductionOrderLines is null || updatedOrder.ProductionOrderLines.Count == 0)
-            updatedOrder.ProductionOrderLines = order.ProductionOrderLines;
+        var addedLine = updatedOrder.ProductionOrderLines?
+            .FirstOrDefault(l => l.LineNumber == line.LineNumber) ?? line;
 
         return new ProductionOrderAddLineResult
         {
-            AddedLine = line,
+            AddedLine = addedLine,
             ProductionOrder = updatedOrder,
         };
     }

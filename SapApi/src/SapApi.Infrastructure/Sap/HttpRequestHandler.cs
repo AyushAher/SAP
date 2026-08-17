@@ -130,6 +130,13 @@ public class HttpRequestHandler(
 
     public async Task<TResponse?> PutAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default)
     {
+        var companyDb = companyDbAccessor.GetCompanyDb()?.ToString() ?? "(none)";
+        Log.Information(
+            "SAP PUT {CompanyDb} {Url} body: {Body}",
+            companyDb,
+            url,
+            JsonSerializer.Serialize(data));
+
         var request = await BuildSapRequestAsync(HttpMethod.Put, url, cancellationToken);
         request.Content = CreateJsonContent(data);
         var response = await client.SendAsync(request, cancellationToken);

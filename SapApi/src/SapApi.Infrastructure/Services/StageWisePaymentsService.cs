@@ -96,9 +96,11 @@ public class StageWisePaymentService(
         entity1.Status = StageWisePaymentStatus.Added;
 
         var gstOnly = StageWisePaymentCalculations.IsGstOnlyTerm(selectedPaymentTermsUdf);
-        var hadTdsDeducted = gstOnly
+        var skipDownPaymentWt = gstOnly
             || StageWisePaymentCalculations.HasPriorActivePayment(existingRecords)
             || StageWisePaymentCalculations.TdsAlreadyTaken(existingRecords);
+        var skipInvoiceWt = gstOnly
+            || StageWisePaymentCalculations.HasPriorInvoiceSelectedPayment(existingRecords);
 
         try
         {
@@ -120,7 +122,7 @@ public class StageWisePaymentService(
                     entity1.GstAmount = gst;
                     (sapResponse, tdsAmount) = await AddToSap(
                         purchaseOrder, selectedPaymentTermsUdf, false, downPaymentAmount, wtCode, paymentTermsLabel,
-                        entity1.Bank, entity1.ApInvoiceDocEntry, hadTdsDeducted, paymentRequestId);
+                        entity1.Bank, entity1.ApInvoiceDocEntry, skipInvoiceWt, paymentRequestId);
                     if (sapResponse is not null && sapResponse.PendingApproval)
                     {
                         entity1.ApprovalRequestId = sapResponse.PendingApprovalRequestId?.ToString();
@@ -159,7 +161,7 @@ public class StageWisePaymentService(
                         wtCode,
                         entity1.GrossAmount ?? 0,
                         entity1.GstAmount ?? 0,
-                        hadTdsDeducted,
+                        skipDownPaymentWt,
                         paymentRequestId);
                     if (!dpOk)
                         throw new StageWisePaymentCreateAbortedException(dpMessage);
@@ -177,7 +179,7 @@ public class StageWisePaymentService(
                         wtCode,
                         grossAmount: 0,
                         gstAmount: downPaymentAmount,
-                        hadTdsDeducted,
+                        skipDownPaymentWt,
                         paymentRequestId);
                     if (!dpOk)
                         throw new StageWisePaymentCreateAbortedException(dpMessage);

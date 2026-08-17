@@ -19,19 +19,24 @@ import {
   Textarea,
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
-import { formatCodeWithName, resolveMasterSelectLabels } from '@/helpers/masterLookup'
+import { formatBusinessPartnerDisplay, formatCodeWithName, resolveItem, resolveMasterSelectLabels } from '@/helpers/masterLookup'
+import { formatPoDisplayDate, parsePoDisplayDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import {
+  applyDocumentSpecialLinesToFormLines,
   applyLogisticsToPo,
   applyOtherTermsToPo,
   applyPaymentPercentToTerm,
   applyPaymentTermsToPo,
   buildPaymentTermDescription,
+  applyWarehouseToPoLines,
   calculatePurchaseOrderTotals,
   dispatchLocationForWarehouse,
   formatPoAmount,
   hasGstPaymentTerm,
   isGstPaymentTermType,
   nextPaymentTermSlot,
+  normalizePurchaseOrderHeader,
+  normalizePurchaseOrderLineFromApi,
   parsePaymentTermsFromPo,
   paymentTermDisplayLabel,
   PO_DISPATCH_LOCATION_OPTIONS,
@@ -39,8 +44,10 @@ import {
   readOtherTermsFromPo,
   resolvePaymentTermPercent,
   resolvePurchaseUnit,
+  toDocumentSpecialLines,
   toSapDocumentLine,
   usesPbbplDispatchLocationMapping,
+  validatePaymentTermsForSave,
   warehouseForDispatchLocation,
   type PaymentPercentBasis,
 } from '@/helpers/purchaseOrderForm'
@@ -65,6 +72,7 @@ import {
   lookupSalesPerson,
   type BusinessPartnerAddressOption,
   type MasterBusinessPartner,
+  type MasterWarehouse,
   type PaymentTermTypeOption,
 } from '@/Requests/masters'
 import { createPurchaseOrder, updatePurchaseOrder, downloadPurchaseOrderPdf, type PurchaseOrder } from '@/Requests/purchaseOrders'
@@ -221,6 +229,7 @@ export function PurchaseOrderFormPage() {
   const [dispatchAddressOptions, setDispatchAddressOptions] = useState<BusinessPartnerAddressOption[]>([])
   const [contactPersonLabel, setContactPersonLabel] = useState('')
   const [branchOptions, setBranchOptions] = useState<SelectOption[]>([])
+  const [postingDateDisplay, setPostingDateDisplay] = useState(() => formatPoDisplayDate(todayIsoDate()))
 
   const loading = Boolean(id) && (queryLoading || hydratedId !== String(id))
   const loadError = error
@@ -244,7 +253,7 @@ export function PurchaseOrderFormPage() {
     const response = await searchVendors(search)
     return (response.data ?? []).map((v) => ({
       value: v.CardCode ?? '',
-      label: `${v.CardCode ?? ''} - ${v.CardName ?? ''}`.trim(),
+      label: formatBusinessPartnerDisplay(v.CardCode, v.CardName, v.CardForeignName),
       meta: v,
     })).filter((o) => o.value)
   }, [])
@@ -322,18 +331,33 @@ export function PurchaseOrderFormPage() {
     return (response.data ?? []).map((wh) => ({
       value: wh.WarehouseCode ?? '',
       label: formatWarehouseOptionLabel(wh),
+      meta: wh,
     })).filter((o) => o.value)
+  }, [])
+
+  const applyWarehouseToLines = useCallback((warehouse: string, location?: number) => {
+    setWarehouseLabel(warehouse)
+    setForm((prev) => ({ ...prev, U_Warehouse: warehouse }))
+    if (location != null && location > 0) {
+      setLines((prev) => applyWarehouseToPoLines(prev, warehouse, location))
+      return
+    }
+    setLines((prev) => prev.map((line) => ({ ...line, WarehouseCode: warehouse || line.WarehouseCode })))
+    if (!warehouse) return
+    void searchWarehouses(warehouse, 20).then((response) => {
+      const match = (response.data ?? []).find((wh) => wh.WarehouseCode === warehouse)
+      const loc = match?.Location
+      if (loc == null || !Number.isFinite(loc) || loc <= 0) return
+      setLines((prev) => applyWarehouseToPoLines(prev, warehouse, loc))
+    })
   }, [])
 
   const applyDispatchLocation = useCallback((location: string) => {
     setDispatchLocation(location)
     const warehouse = warehouseForDispatchLocation(location)
     if (!warehouse) return
-    setWarehouseLabel(warehouse)
-    setForm((prev) => ({ ...prev, U_Warehouse: warehouse }))
-    if (isServicePoDocType(String(form.DocType ?? PO_DOC_TYPE.items))) return
-    setLines((prev) => prev.map((line) => ({ ...line, WarehouseCode: warehouse })))
-  }, [form.DocType])
+    applyWarehouseToLines(warehouse)
+  }, [applyWarehouseToLines])
 
   /** A saved document only stores HSN/SAC entry numbers, so fetch the code+description to show. */
   const resolveIndiaCodeLabels = useCallback(async (loaded: PurchaseOrderLineItem[]) => {
@@ -370,27 +394,42 @@ export function PurchaseOrderFormPage() {
 
     let cancelled = false
     void (async () => {
-      const record = purchaseOrder as Record<string, unknown>
+      const record = normalizePurchaseOrderHeader(purchaseOrder as Record<string, unknown>)
+      const cardCode = String(record.CardCode ?? '')
+      const cardName = String(record.CardName ?? '')
       setForm({
         ...record,
         DocType: record.DocType || PO_DOC_TYPE.items,
       })
-      const loadedLines = ((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? []).map((line) => {
-        const purchaseQty = line.Quantity ?? 0
-        const unitsPer = line.UnitsOfMeasurment
-        const stockQty = line.StockQty
-          ?? (line as { InventoryQuantity?: number }).InventoryQuantity
-          ?? (purchaseQty > 0 && unitsPer != null ? purchaseQty * unitsPer : undefined)
-        return {
-          ...line,
-          StockQty: stockQty,
-          UnitsOfMeasurment: unitsPer ?? (stockQty != null && purchaseQty > 0 ? stockQty / purchaseQty : undefined),
-          StockUom: line.StockUom,
-          UoMCode: resolvePurchaseUnit(line) || line.UoMCode,
-        }
-      })
+      setPostingDateDisplay(formatPoDisplayDate(String(record.DocDate ?? record.PostingDate ?? '')))
+      const rawLines = (purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? []
+      const loadedLines = applyDocumentSpecialLinesToFormLines(
+        rawLines.map((line) => {
+          const normalized = normalizePurchaseOrderLineFromApi(line)
+          return {
+            ...normalized,
+            UoMCode: resolvePurchaseUnit(normalized) || normalized.UoMCode,
+          }
+        }),
+        (purchaseOrder as { DocumentSpecialLines?: Array<{ AfterLineNumber?: number; LineText?: string }> }).DocumentSpecialLines,
+      )
       setLines(loadedLines)
       void resolveIndiaCodeLabels(loadedLines)
+      void (async () => {
+        const codes = [...new Set(loadedLines.map((line) => line.ItemCode?.trim()).filter(Boolean))] as string[]
+        if (codes.length === 0) return
+        const entries = await Promise.all(codes.map(async (code) => {
+          const item = await resolveItem(code)
+          return [code, item?.InventoryItem] as const
+        }))
+        const flags = Object.fromEntries(entries.filter(([, flag]) => flag))
+        if (cancelled || Object.keys(flags).length === 0) return
+        setLines((prev) => prev.map((line) => {
+          const code = line.ItemCode?.trim()
+          const flag = code ? flags[code] : undefined
+          return flag ? { ...line, InventoryItem: flag } : line
+        }))
+      })()
       setPaymentTerms(parsePaymentTermsFromPo(record))
       const loadedLogistics = readLogisticsFromPo(record)
       setLogistics(loadedLogistics)
@@ -406,28 +445,31 @@ export function PurchaseOrderFormPage() {
       try {
         const [labels, buyer, approver, vendorMatch, dispatchBp] = await Promise.all([
           resolveMasterSelectLabels({
-            vendorCode: purchaseOrder.CardCode,
-            projectCode: purchaseOrder.Project,
+            vendorCode: cardCode || undefined,
+            projectCode: String(record.Project ?? purchaseOrder.Project ?? ''),
           }),
           buyerCode != null && Number.isFinite(buyerCode) ? lookupSalesPerson(buyerCode) : Promise.resolve(undefined),
           approverId != null && Number.isFinite(approverId) ? lookupEmployee(approverId) : Promise.resolve(undefined),
-          purchaseOrder.CardCode
-            ? searchVendors(purchaseOrder.CardCode, 5).then((res) =>
-              (res.data ?? []).find((v) => v.CardCode === purchaseOrder.CardCode))
-            : Promise.resolve(undefined),
+          cardCode ? lookupBusinessPartner(cardCode) : Promise.resolve(undefined),
           loadedLogistics.dispatchTo
             ? lookupBusinessPartner(loadedLogistics.dispatchTo)
             : Promise.resolve(undefined),
         ])
         if (cancelled) return
-        if (purchaseOrder.CardCode) {
-          setVendorLabel(labels.vendorLabel ?? formatCodeWithName(purchaseOrder.CardCode, purchaseOrder.CardName))
+        const bpName = cardName || vendorMatch?.CardName || ''
+        const legalName = vendorMatch?.CardForeignName ?? ''
+        if (cardCode) {
+          setVendorLabel(formatBusinessPartnerDisplay(cardCode, bpName, legalName) || labels.vendorLabel || cardCode)
           setVendorSeries(vendorMatch?.Series ?? null)
+          if (bpName) {
+            setForm((prev) => ({ ...prev, CardName: bpName }))
+          }
         } else {
           setVendorSeries(null)
         }
-        if (purchaseOrder.Project) {
-          setProjectLabel(labels.projectLabel ?? formatCodeWithName(purchaseOrder.Project))
+        const projectCode = String(record.Project ?? purchaseOrder.Project ?? '')
+        if (projectCode) {
+          setProjectLabel(labels.projectLabel ?? formatCodeWithName(projectCode))
         }
         if (buyer) {
           setBuyerLabel(`${buyer.SalesEmployeeCode} - ${buyer.SalesEmployeeName ?? ''}`.trim())
@@ -522,7 +564,9 @@ export function PurchaseOrderFormPage() {
   }
 
   const buildPayload = (): PurchaseOrder => {
-    const docDate = String(form.DocDate ?? form.PostingDate ?? todayIsoDate()).slice(0, 10)
+    const docDate = parsePoDisplayDate(postingDateDisplay)
+      ?? toIsoDateOnly(String(form.DocDate ?? form.PostingDate ?? ''))
+      ?? todayIsoDate()
     const docDue = String(form.DocDueDate ?? form.DueDate ?? '').slice(0, 10)
     // SAP Document Date (TaxDate) always matches Posting Date (DocDate).
     const taxDate = docDate
@@ -532,6 +576,7 @@ export function PurchaseOrderFormPage() {
         isService: isServiceDoc,
         fallbackProject: form.Project ? String(form.Project) : undefined,
       })),
+      DocumentSpecialLines: toDocumentSpecialLines(lines),
       DocType: docType,
       DocDate: docDate,
       DocDueDate: docDue,
@@ -553,8 +598,6 @@ export function PurchaseOrderFormPage() {
     delete payload.VatSum
     delete payload.PostingDate
     delete payload.DueDate
-    // Header warehouse is UI default for lines only (not a valid OPOR UDF).
-    delete payload.U_Warehouse
     delete payload.ShipToCode
     payload = applyPaymentTermsToPo(payload, paymentTerms, paymentTypeLabelMap)
     payload = applyLogisticsToPo(payload, logistics)
@@ -578,6 +621,13 @@ export function PurchaseOrderFormPage() {
     if (!deliveryDate) {
       setError('Delivery Date is required.')
       toast.error('Delivery Date is required.')
+      return
+    }
+    const paymentTermError = validatePaymentTermsForSave(paymentTerms)
+    if (paymentTermError) {
+      setError(paymentTermError)
+      toast.error(paymentTermError)
+      setActiveTab('payment')
       return
     }
     const tnError = validatePurchaseOrderAgainstTn({
@@ -687,21 +737,21 @@ export function PurchaseOrderFormPage() {
               <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Header</h3>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <SearchableSelect
-                  label="BP Name"
+                  label="Card Code"
                   lookupKind="businessPartner"
                   required
                   disabled={!!id}
                   value={String(form.CardCode ?? '')}
                   selectedLabel={vendorLabel}
-                  placeholder="Search vendor..."
+                  placeholder="Search vendor by code or legal name..."
                   onSearch={searchVendorOptions}
                   onChange={(cardCode, option) => {
-                    const label = option?.label ?? cardCode
-                    const cardName = label.includes(' - ') ? label.split(' - ').slice(1).join(' - ') : ''
                     const meta = option?.meta as MasterBusinessPartner | undefined
-                    setVendorLabel(label)
+                    const bpName = meta?.CardName ?? ''
+                    const legalName = meta?.CardForeignName ?? ''
+                    setVendorLabel(formatBusinessPartnerDisplay(cardCode, bpName, legalName))
                     setVendorSeries(meta?.Series ?? null)
-                    updateForm({ CardCode: cardCode, CardName: cardName })
+                    updateForm({ CardCode: cardCode, CardName: bpName })
                   }}
                 />
                 <Select
@@ -732,11 +782,15 @@ export function PurchaseOrderFormPage() {
                 />
                 <Input
                   label="Posting Date"
-                  type="date"
-                  value={String(form.DocDate ?? form.PostingDate ?? '').slice(0, 10)}
-                  onChange={(e) => {
-                    const date = e.target.value
-                    updateForm({ DocDate: date, PostingDate: date, TaxDate: date })
+                  placeholder="DD/MM/YYYY"
+                  value={postingDateDisplay}
+                  onChange={(e) => setPostingDateDisplay(e.target.value)}
+                  onBlur={() => {
+                    const iso = parsePoDisplayDate(postingDateDisplay)
+                      ?? toIsoDateOnly(postingDateDisplay)
+                      ?? todayIsoDate()
+                    setPostingDateDisplay(formatPoDisplayDate(iso))
+                    updateForm({ DocDate: iso, PostingDate: iso, TaxDate: iso })
                   }}
                 />
                 <SearchableSelect
@@ -779,8 +833,9 @@ export function PurchaseOrderFormPage() {
                   placeholder="Search warehouse..."
                   onSearch={searchWarehouseOptions}
                   onChange={(code, option) => {
+                    const loc = (option?.meta as MasterWarehouse | undefined)?.Location
                     setWarehouseLabel(option?.label ?? code)
-                    updateForm({ U_Warehouse: code })
+                    applyWarehouseToLines(code, loc != null && Number.isFinite(loc) ? loc : undefined)
                     if (usesDispatchLocationMapping) {
                       setDispatchLocation(dispatchLocationForWarehouse(code) ?? '')
                     }

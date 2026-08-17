@@ -1522,7 +1522,12 @@ public class StageWisePaymentBatchService(
                 continue;
 
             totalTds += StageWisePaymentCalculations.ComputeApInvoiceTdsAmount(
-                apInvoice, activeRecords, snapshot.ApInvoiceDocEntry, tdsAppliedForTotal);
+                apInvoice,
+                activeRecords,
+                pageData.PaymentTerms,
+                snapshot.Line.PaymentTermsTypes,
+                snapshot.ApInvoiceDocEntry,
+                tdsAppliedForTotal);
         }
 
         var payment = new StageWisePayment

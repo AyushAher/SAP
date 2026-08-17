@@ -9,12 +9,13 @@ import {
 export function IssueForProductionFormPage() {
   return (
     <ProductionRequestForm
-      title="Issue For Production Request"
+      title="Issue from Production Request"
       listRoute={ROUTES.ISSUE_FOR_PRODUCTION}
       loadOrderLines={getIssueForProductionOrderLines}
       saveOrderLines={saveIssueForProduction}
       downloadPdf={downloadIssueForProductionPdf}
       showWorkerName
+      variant="issue"
       consumableItemsOnly
     />
   )

@@ -5,20 +5,30 @@ import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import { normalizeProductionOrderLine } from '@/helpers/productionOrderMapper'
 import { getProductionOrderLines } from '@/Requests/productionOrders'
+import { ensureFinishedGoodReceiptLine } from '@/helpers/productionRequestLines'
 import type { ProductionOrder, ProductionOrderLine } from '@/types/production'
 
 interface ProductionOrderLinesDialogProps {
   isOpen: boolean
   order?: ProductionOrder | null
+  warehouseHeader?: string
+  includeFinishedGood?: boolean
   onClose: () => void
   onConfirm: (lines: ProductionOrderLine[]) => void
 }
 
 function lineKey(line: ProductionOrderLine) {
-  return `${line.LineNumber}-${line.ItemNo}`
+  return `${line.LineNumber ?? 'fg'}-${line.ItemNo}`
 }
 
-export function ProductionOrderLinesDialog({ isOpen, order, onClose, onConfirm }: ProductionOrderLinesDialogProps) {
+export function ProductionOrderLinesDialog({
+  isOpen,
+  order,
+  warehouseHeader = 'Issuing Warehouse',
+  includeFinishedGood = false,
+  onClose,
+  onConfirm,
+}: ProductionOrderLinesDialogProps) {
   const [selected, setSelected] = useState<ProductionOrderLine[]>([])
   const [lines, setLines] = useState<ProductionOrderLine[]>([])
   const [loadingLines, setLoadingLines] = useState(false)
@@ -41,8 +51,15 @@ export function ProductionOrderLinesDialog({ isOpen, order, onClose, onConfirm }
     }
 
     const embedded = order.ProductionOrderLines ?? []
+    const applyBom = (bom: ProductionOrderLine[]) => {
+      const normalized = bom.map(normalizeProductionOrderLine)
+      setLines(includeFinishedGood && order.ItemNumber
+        ? ensureFinishedGoodReceiptLine(order, normalized)
+        : normalized)
+    }
+
     if (embedded.length > 0) {
-      setLines(embedded.map(normalizeProductionOrderLine))
+      applyBom(embedded)
       return
     }
 
@@ -51,14 +68,14 @@ export function ProductionOrderLinesDialog({ isOpen, order, onClose, onConfirm }
     getProductionOrderLines(String(order.AbsoluteEntry))
       .then((res) => {
         const raw = res?.Value ?? res?.value ?? []
-        setLines(raw.map(normalizeProductionOrderLine))
+        applyBom(raw)
       })
       .catch((err) => {
         setLinesError(err instanceof Error ? err.message : 'Failed to load production order lines')
         setLines([])
       })
       .finally(() => setLoadingLines(false))
-  }, [isOpen, order])
+  }, [isOpen, order, includeFinishedGood])
 
   const isLineSelected = useCallback(
     (line: ProductionOrderLine) => selected.some((x) => lineKey(x) === lineKey(line)),
@@ -108,7 +125,7 @@ export function ProductionOrderLinesDialog({ isOpen, order, onClose, onConfirm }
         />
       ),
     },
-    { key: 'sr', header: 'Sr. No.', accessor: (r) => (r.VisualOrder ?? 0) + 1 },
+    { key: 'sr', header: 'Sr. No.', accessor: (r) => lines.findIndex((line) => lineKey(line) === lineKey(r)) + 1 },
     { key: 'LineNumber', header: 'Line No.', accessor: (r) => r.LineNumber },
     {
       key: 'ItemNo',
@@ -117,7 +134,7 @@ export function ProductionOrderLinesDialog({ isOpen, order, onClose, onConfirm }
     },
     { key: 'IssuedQuantity', header: 'Issued Qty', accessor: (r) => r.IssuedQuantity },
     { key: 'PlannedQuantity', header: 'Planned Qty', accessor: (r) => r.PlannedQuantity },
-    { key: 'Warehouse', header: 'Issuing Warehouse', accessor: (r) => r.Warehouse },
+    { key: 'Warehouse', header: warehouseHeader, accessor: (r) => r.Warehouse },
     { key: 'uom', header: 'Stock Unit', accessor: (r) => (r.ItemNo ? itemMasterMap[r.ItemNo]?.uom ?? '' : '') },
   ]
 
@@ -131,7 +148,7 @@ export function ProductionOrderLinesDialog({ isOpen, order, onClose, onConfirm }
         <div className="flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={() => onConfirm(selected)}>
-            {selected.length ? 'Select Lines' : 'Confirm Order'}
+            {selected.length === 0 ? 'Proceed without items' : `Select ${selected.length} line${selected.length === 1 ? '' : 's'}`}
           </Button>
         </div>
       )}

@@ -7,7 +7,7 @@ import { RowActionsMenu } from '@/Components/shared/RowActionsMenu'
 import { rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Badge, Button, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
-import { formatDate } from '@/helpers/lib/utils'
+import { formatPoDisplayDate } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { usePurchaseOrderListFetcher } from '@/hooks/usePurchaseOrders'
@@ -193,7 +193,7 @@ export function PurchaseOrderListPage() {
       header: 'PO Date',
       sortable: true,
       filterable: true,
-      accessor: (r) => (r.DocDate ? formatDate(r.DocDate) : '—'),
+      accessor: (r) => (r.DocDate ? formatPoDisplayDate(r.DocDate) : '—'),
     },
     {
       key: 'BPLId',
@@ -207,7 +207,11 @@ export function PurchaseOrderListPage() {
       header: 'Business Partner',
       sortable: true,
       filterable: true,
-      accessor: (r) => formatCodeWithName(r.CardCode, r.CardName ?? lookupMaps.businessPartners[r.CardCode ?? '']),
+      accessor: (r) => {
+        const lookup = lookupMaps.businessPartners[r.CardCode ?? '']
+        const name = lookup ?? r.CardName
+        return formatCodeWithName(r.CardCode, name)
+      },
     },
     {
       key: 'Project',

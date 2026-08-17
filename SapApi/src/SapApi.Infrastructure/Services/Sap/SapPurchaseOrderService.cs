@@ -15,7 +15,8 @@ namespace SapApi.Infrastructure.Services.Sap
         IHttpRequestHandler requestHandler,
         ApprovalService approvalService,
         PurchaseOrderLocalStore localStore,
-        SapDocumentSeriesService documentSeriesService)
+        SapDocumentSeriesService documentSeriesService,
+        SapMasterDataService masterDataService)
     {
         public Task<GetAllSapPurchaseOrdersResponse?> GetAllPurchaseOrders(SapQueries? sapQueries = null)
         {
@@ -93,6 +94,7 @@ namespace SapApi.Infrastructure.Services.Sap
         public async Task<SapPurchaseOrdersResponse?> CreatePurchaseOrder(SapPurchaseOrdersResponse data, int? policyRequestId = null)
         {
             var payload = SapPurchaseOrderPayloadBuilder.Prepare(data, isUpdate: false);
+            await ApplyWarehouseLocationsAsync(data, payload);
             SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, payload, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Create);
             if (policyApproval.PendingApproval)
             {
@@ -125,6 +127,7 @@ namespace SapApi.Infrastructure.Services.Sap
         public async Task<SapPurchaseOrdersResponse?> UpdatePurchaseOrder(SapPurchaseOrdersResponse data, int? policyRequestId = null)
         {
             var payload = SapPurchaseOrderPayloadBuilder.Prepare(data, isUpdate: true);
+            await ApplyWarehouseLocationsAsync(data, payload);
             SapBaseResponse policyApproval = await approvalService.CheckApprovalPolicy(policyRequestId, payload, ApprovalDocumentType.PurchaseOrder, ApprovalAction.Update);
             if (policyApproval.PendingApproval)
             {
@@ -135,7 +138,9 @@ namespace SapApi.Infrastructure.Services.Sap
                 };
             }
 
-            var updated = await requestHandler.PatchAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(
+            // PUT replaces DocumentLines / DocumentSpecialLines. PATCH merges and keeps
+            // omitted rows, so deleted item lines would stay on the SAP document.
+            var updated = await requestHandler.PutAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(
                 Constants.SapApiUrls.UpdateSapPurchaseOrders(payload.DocEntry), payload);
             if (payload.DocEntry is not null)
             {
@@ -171,5 +176,42 @@ namespace SapApi.Infrastructure.Services.Sap
         {
             return requestHandler.GetAsync<SapGetAllBranchesResponse>(Constants.SapApiUrls.GetAllBpl);
         }
+
+        /// <summary>
+        /// SAP PO "Loc." is DocumentLines.LocationCode (OWHS.Location / OLCT). Fill it from the
+        /// line warehouse or header warehouse when the client omitted it so the column is not blank.
+        /// Must run against the original request (before Prepare strips service WarehouseCode / U_Warehouse).
+        /// </summary>
+        private async Task ApplyWarehouseLocationsAsync(
+            SapPurchaseOrdersResponse source,
+            SapPurchaseOrdersResponse payload)
+        {
+            if (payload.DocumentLines is not { Count: > 0 })
+                return;
+
+            var sourceLines = source.DocumentLines ?? [];
+            var headerWarehouse = NullIfWhiteSpace(source.UWarehouse);
+
+            for (var i = 0; i < payload.DocumentLines.Count; i++)
+            {
+                var line = payload.DocumentLines[i];
+                if (line.LocationCode is > 0)
+                    continue;
+
+                var sourceLine = i < sourceLines.Count ? sourceLines[i] : null;
+                var warehouseCode = NullIfWhiteSpace(sourceLine?.WarehouseCode)
+                    ?? NullIfWhiteSpace(line.WarehouseCode)
+                    ?? headerWarehouse;
+                if (warehouseCode is null)
+                    continue;
+
+                var warehouse = await masterDataService.GetWarehouseByCodeAsync(warehouseCode);
+                if (warehouse?.Location is > 0)
+                    line.LocationCode = warehouse.Location;
+            }
+        }
+
+        private static string? NullIfWhiteSpace(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }

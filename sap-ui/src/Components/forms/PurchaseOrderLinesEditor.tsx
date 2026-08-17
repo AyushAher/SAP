@@ -20,7 +20,7 @@ import {
   withStockQty,
 } from '@/helpers/purchaseOrderForm'
 import { pickHsnFromChapterId } from '@/helpers/hsnResolve'
-import { isServicePoDocType, PO_TN } from '@/helpers/purchaseOrderTnValidation'
+import { isServicePoDocType, isNonInventoryItem, PO_TN } from '@/helpers/purchaseOrderTnValidation'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import {
@@ -105,6 +105,12 @@ function formatPoCell(value: number | undefined | null): string {
   return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function readLineItemDescription(line: PurchaseOrderLineItem): string | undefined {
+  const raw = line as Record<string, unknown>
+  const text = String(line.ItemDescription ?? raw.itemDescription ?? '').trim()
+  return text || undefined
+}
+
 export function PurchaseOrderLinesEditor({
   lines,
   onChange,
@@ -145,6 +151,7 @@ export function PurchaseOrderLinesEditor({
   const taxSelected = Boolean((draft.TaxCode ?? '').trim())
   const hsnRequired = !isService && taxSelected
   const sacRequired = isService && taxSelected
+  const glAccountRequired = isService || isNonInventoryItem(draft.InventoryItem)
   const isEditing = editingIndex != null
 
   const enrichLine = useCallback((line: PurchaseOrderLineItem): PurchaseOrderLineItem => {
@@ -157,7 +164,7 @@ export function PurchaseOrderLinesEditor({
         UoMCode: purchaseUom,
         UomName: purchaseUom,
         StockUom: stockUom,
-        ItemDescription: line.ItemDescription?.trim() || item?.name,
+        ItemDescription: readLineItemDescription(line) || item?.name,
       },
       rate,
     )
@@ -264,11 +271,17 @@ export function PurchaseOrderLinesEditor({
     setEditingIndex(null)
     setDraft({
       ...emptyLine(),
-      WarehouseCode: isService ? '' : defaultWarehouse,
+      WarehouseCode: defaultWarehouse,
       ProjectCode: defaultProject,
     })
     resetDialogLabels()
-    if (!isService && defaultWarehouse) setWarehouseLabel(defaultWarehouse)
+    if (defaultWarehouse) {
+      setWarehouseLabel(defaultWarehouse)
+      void resolveWarehouseLocation(defaultWarehouse).then((loc) => {
+        if (loc == null) return
+        setDraft((prev) => ({ ...prev, LocationCode: loc, LocationLabel: String(loc) }))
+      })
+    }
     if (defaultProject) setProjectLabel(defaultProject)
     setDialogOpen(true)
   }
@@ -290,6 +303,7 @@ export function PurchaseOrderLinesEditor({
           const purchaseUnit = resolvePurchaseUnit(prev) || meta?.PurchaseUnit || ''
           return {
             ...prev,
+            InventoryItem: meta?.InventoryItem ?? prev.InventoryItem,
             StockUom: stockUom || prev.StockUom,
             UoMCode: purchaseUnit || prev.UoMCode,
             UomName: purchaseUnit || prev.UomName,
@@ -308,7 +322,7 @@ export function PurchaseOrderLinesEditor({
     setDialogOpen(true)
   }
 
-  const handleSaveLine = () => {
+  const handleSaveLine = async () => {
     if (isService) {
       if (!draft.AccountCode?.trim()) {
         toast.error('Select a G/L Account.')
@@ -341,6 +355,15 @@ export function PurchaseOrderLinesEditor({
     } else if (draft.AccountCode?.trim() === PO_TN.forbiddenGlAccount) {
       toast.error('Selection of G/L Account _SYS00000001265 is not allowed in Purchase Order rows.')
       return
+    } else {
+      let inventoryItem = draft.InventoryItem
+      if (inventoryItem == null && draft.ItemCode) {
+        inventoryItem = (await lookupItem(draft.ItemCode))?.InventoryItem
+      }
+      if (isNonInventoryItem(inventoryItem) && !draft.AccountCode?.trim()) {
+        toast.error('Select a G/L Account.')
+        return
+      }
     }
 
     if (hsnRequired && (draft.HSNEntry == null || !Number.isFinite(draft.HSNEntry))) {
@@ -348,10 +371,24 @@ export function PurchaseOrderLinesEditor({
       return
     }
 
+    const warehouseCode = draft.WarehouseCode || defaultWarehouse
+    let locationCode = draft.LocationCode
+    let locationLabel = draft.LocationLabel
+    if (warehouseCode && !(locationCode != null && locationCode > 0)) {
+      locationCode = await resolveWarehouseLocation(warehouseCode)
+      locationLabel = locationCode != null ? String(locationCode) : undefined
+    }
+    if (isService && !(locationCode != null && locationCode > 0)) {
+      toast.error('Select a warehouse with a location before adding service lines.')
+      return
+    }
+
     const nextLine = enrichLine(applyStockPurchaseQty({
       ...draft,
       ItemCode: isService ? undefined : draft.ItemCode,
-      WarehouseCode: isService ? undefined : (draft.WarehouseCode || defaultWarehouse),
+      WarehouseCode: warehouseCode,
+      LocationCode: locationCode,
+      LocationLabel: locationLabel,
       UoMCode: isService ? undefined : draft.UoMCode,
       UomName: isService ? undefined : draft.UomName,
       MeasureUnit: isService ? undefined : (resolvePurchaseUnit(draft) || undefined),
@@ -361,6 +398,7 @@ export function PurchaseOrderLinesEditor({
       UnitsOfMeasurment: isService ? undefined : draft.UnitsOfMeasurment,
       HSNEntry: isService ? undefined : draft.HSNEntry,
       AccountCode: draft.AccountCode?.trim() || undefined,
+      InventoryItem: draft.InventoryItem,
       ProjectCode: draft.ProjectCode || defaultProject || undefined,
       FreeText: draft.FreeText?.trim() || undefined,
     }))
@@ -387,7 +425,7 @@ export function PurchaseOrderLinesEditor({
     },
     { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
     { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
-    { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationCode != null ? String(r.LocationCode) : '—' },
+    { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationLabel || (r.LocationCode != null ? String(r.LocationCode) : '—') },
     { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => r.Quantity },
     { key: 'UoMCode', header: 'Purchase UoM', accessor: (r) => resolvePurchaseUnit(r) || '—' },
     { key: 'StockQty', header: 'Stock Qty', accessor: (r) => r.StockQty ?? '—' },
@@ -431,8 +469,9 @@ export function PurchaseOrderLinesEditor({
       header: 'G/L Account',
       accessor: (r) => r.AccountLabel ?? r.AccountCode ?? '—',
     },
-    { key: 'ItemDescription', header: 'Description', accessor: (r) => r.ItemDescription ?? '—' },
+    { key: 'ItemDescription', header: 'Description', accessor: (r) => readLineItemDescription(r) ?? '—' },
     { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
+    { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationLabel || (r.LocationCode != null ? String(r.LocationCode) : '—') },
     { key: 'Quantity', header: 'Qty', accessor: (r) => r.Quantity },
     { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice) },
     { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => r.DiscountPercent ?? '—' },
@@ -486,7 +525,7 @@ export function PurchaseOrderLinesEditor({
           ? (isService ? 'Edit Service Line' : 'Edit Item')
           : (isService ? 'Add Service Line' : 'Add Item')}
         description={isService
-          ? 'Enter G/L account, description, and amounts for this service line.'
+          ? 'Enter G/L account, description, warehouse location, and amounts for this service line.'
           : 'Add a stock/item line to the purchase order.'}
         size="2xl"
         footer={(
@@ -540,6 +579,7 @@ export function PurchaseOrderLinesEditor({
                   const fromLabel = label.includes(' - ') ? label.split(' - ').slice(1).join(' - ').trim() : ''
                   const description = fromMeta || fromLabel
                   setItemLabel(label)
+                  setAccountLabel('')
                   setDraft({
                     ...draft,
                     ItemCode: code,
@@ -550,6 +590,9 @@ export function PurchaseOrderLinesEditor({
                     MeasureUnit: undefined,
                     UoMEntry: undefined,
                     StockUom: undefined,
+                    InventoryItem: metaItem?.InventoryItem,
+                    AccountCode: undefined,
+                    AccountLabel: undefined,
                     WarehouseCode: draft.WarehouseCode || defaultWarehouse,
                     ProjectCode: draft.ProjectCode || defaultProject,
                   })
@@ -586,6 +629,7 @@ export function PurchaseOrderLinesEditor({
                         ? applyStockPurchaseQty({
                             ...prev,
                             ItemDescription: prev.ItemDescription || meta.ItemName || description,
+                            InventoryItem: meta.InventoryItem ?? prev.InventoryItem,
                             UoMCode: unit || prev.UoMCode,
                             UomName: unit || prev.UomName,
                             MeasureUnit: unit || prev.MeasureUnit,
@@ -603,7 +647,7 @@ export function PurchaseOrderLinesEditor({
                     if (warehouse) {
                       const loc = await resolveWarehouseLocation(warehouse)
                       if (loc != null) {
-                        setDraft((prev) => (prev.ItemCode === code ? { ...prev, LocationCode: loc } : prev))
+                        setDraft((prev) => (prev.ItemCode === code ? { ...prev, LocationCode: loc, LocationLabel: String(loc) } : prev))
                       }
                     }
                     if (meta.PurchaseVatGroup) setTaxLabel(meta.PurchaseVatGroup)
@@ -646,8 +690,14 @@ export function PurchaseOrderLinesEditor({
                     ...draft,
                     WarehouseCode: code,
                     LocationCode: loc != null && Number.isFinite(loc) ? loc : undefined,
+                    LocationLabel: loc != null && Number.isFinite(loc) ? String(loc) : undefined,
                   })
                 }}
+              />
+              <Input
+                label="Loc."
+                value={draft.LocationLabel || (draft.LocationCode != null ? String(draft.LocationCode) : '')}
+                disabled
               />
               <Input
                 label="Purchase Qty *"
@@ -733,13 +783,22 @@ export function PurchaseOrderLinesEditor({
                 readOnly
               />
               <SearchableSelect
-                label="G/L Account"
+                label={glAccountRequired ? 'G/L Account *' : 'G/L Account'}
                 value={draft.AccountCode ?? ''}
                 selectedLabel={accountLabel}
-                placeholder="Determined by SAP"
+                placeholder={glAccountRequired ? 'Search G/L account...' : 'Determined by SAP'}
                 onSearch={searchAccountOptions}
-                disabled
-                onChange={() => undefined}
+                disabled={!glAccountRequired}
+                onChange={(code, option) => {
+                  if (!glAccountRequired) return
+                  setAccountLabel(option?.label ?? code)
+                  setDraft({
+                    ...draft,
+                    AccountCode: code,
+                    AccountLabel: option?.label ?? code,
+                    InventoryItem: draft.InventoryItem,
+                  })
+                }}
               />
             </>
           )}
@@ -752,6 +811,28 @@ export function PurchaseOrderLinesEditor({
                   onChange={(e) => setDraft({ ...draft, FreeText: e.target.value })}
                 />
               </div>
+              <SearchableSelect
+                label="Warehouse"
+                value={draft.WarehouseCode ?? ''}
+                selectedLabel={warehouseLabel}
+                placeholder="Search warehouse..."
+                onSearch={searchWarehouseOptions}
+                onChange={(code, option) => {
+                  const loc = (option?.meta as MasterWarehouse | undefined)?.Location
+                  setWarehouseLabel(option?.label ?? code)
+                  setDraft({
+                    ...draft,
+                    WarehouseCode: code,
+                    LocationCode: loc != null && Number.isFinite(loc) ? loc : undefined,
+                    LocationLabel: loc != null && Number.isFinite(loc) ? String(loc) : undefined,
+                  })
+                }}
+              />
+              <Input
+                label="Loc."
+                value={draft.LocationLabel || (draft.LocationCode != null ? String(draft.LocationCode) : '')}
+                disabled
+              />
               <Input
                 label="Quantity"
                 type="number"

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Input } from '@/Components/ui'
 import {
   formatCodeWithName,
   resolveBusinessPartner,
@@ -10,6 +11,9 @@ import type { ProductionOrder } from '@/types/production'
 interface ProductionOrderDetailsPanelProps {
   order?: ProductionOrder | null
   projectName?: string
+  showWorkerName?: boolean
+  workerName?: string
+  onWorkerNameChange?: (value: string) => void
 }
 
 function DetailItem({ label, value }: { label: string; value?: string | number | null }) {
@@ -21,7 +25,13 @@ function DetailItem({ label, value }: { label: string; value?: string | number |
   )
 }
 
-export function ProductionOrderDetailsPanel({ order, projectName }: ProductionOrderDetailsPanelProps) {
+export function ProductionOrderDetailsPanel({
+  order,
+  projectName,
+  showWorkerName = false,
+  workerName = '',
+  onWorkerNameChange,
+}: ProductionOrderDetailsPanelProps) {
   const [resolvedCustomerName, setResolvedCustomerName] = useState<string>()
   const [resolvedProjectName, setResolvedProjectName] = useState<string>()
   const [resolvedItemName, setResolvedItemName] = useState<string>()
@@ -82,6 +92,14 @@ export function ProductionOrderDetailsPanel({ order, projectName }: ProductionOr
         <DetailItem label="Item" value={itemDisplay} />
         <DetailItem label="Drawing Number" value={order.DrawingNo} />
       </div>
+      {showWorkerName ? (
+        <Input
+          label="Worker Name"
+          value={workerName}
+          onChange={(e) => onWorkerNameChange?.(e.target.value)}
+          placeholder="Enter worker name"
+        />
+      ) : null}
     </div>
   )
 }

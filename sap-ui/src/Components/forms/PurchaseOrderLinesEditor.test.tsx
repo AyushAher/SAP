@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PurchaseOrderLinesEditor } from './PurchaseOrderLinesEditor'
+import { PO_DOC_TYPE } from '@/helpers/purchaseOrderTnValidation'
+import { searchWarehouses } from '@/Requests/masters'
 import type { PurchaseOrderLineItem } from '@/types/purchaseOrder'
 
 vi.mock('@/Requests/masters', () => ({
@@ -14,7 +16,9 @@ vi.mock('@/Requests/masters', () => ({
   searchProjects: vi.fn().mockResolvedValue({ data: [] }),
   searchSacCodes: vi.fn().mockResolvedValue({ data: [] }),
   searchTaxCodes: vi.fn().mockResolvedValue({ data: [] }),
-  searchWarehouses: vi.fn().mockResolvedValue({ data: [] }),
+  searchWarehouses: vi.fn().mockResolvedValue({
+    data: [{ WarehouseCode: 'Store5', WarehouseName: 'Store 5', Location: 2 }],
+  }),
   formatWarehouseOptionLabel: (wh: { WarehouseCode?: string }) => wh.WarehouseCode ?? '',
 }))
 
@@ -50,6 +54,19 @@ describe('PurchaseOrderLinesEditor — item lines', () => {
   it('shows HSN with its description', () => {
     render(<PurchaseOrderLinesEditor lines={[itemLine]} onChange={vi.fn()} />)
     expect(screen.getByText('72.16.32 - ANGLES, BEAMS, CHANNELS, FLAT')).toBeInTheDocument()
+  })
+
+  it('lets the user pick a G/L account when the item is non-inventory', async () => {
+    const user = userEvent.setup()
+    render(<PurchaseOrderLinesEditor lines={[{
+      ...itemLine,
+      InventoryItem: 'tNO',
+      AccountCode: undefined,
+      AccountLabel: undefined,
+    }]} onChange={vi.fn()} />)
+    await user.click(screen.getByTitle('Edit item'))
+    const account = await screen.findByLabelText('G/L Account *')
+    expect(account).not.toBeDisabled()
   })
 
   it('shows the G/L account SAP determined for the row as read-only', async () => {
@@ -91,5 +108,57 @@ describe('PurchaseOrderLinesEditor — item lines', () => {
     expect(saved.StockQty).toBeCloseTo(80, 10)
     expect(saved.MeasureUnit).toBe('KGS')
     expect(saved.AccountCode).toBe('_SYS00000000893')
+  })
+})
+
+describe('PurchaseOrderLinesEditor — service lines', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('shows Loc. on the service grid', () => {
+    render(
+      <PurchaseOrderLinesEditor
+        docType={PO_DOC_TYPE.service}
+        defaultWarehouse="Store5"
+        lines={[{
+          ItemDescription: 'Freight',
+          AccountCode: '600000',
+          LocationCode: 2,
+          LocationLabel: '2',
+        }]}
+        onChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Loc.')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('Freight')).toBeInTheDocument()
+  })
+
+  it('reads service description from camelCase API fields', () => {
+    render(
+      <PurchaseOrderLinesEditor
+        docType={PO_DOC_TYPE.service}
+        lines={[{
+          itemDescription: 'Engineering support',
+          AccountCode: '600000',
+        } as PurchaseOrderLineItem]}
+        onChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Engineering support')).toBeInTheDocument()
+  })
+
+  it('fills Loc. from the header warehouse when adding a service line', async () => {
+    const user = userEvent.setup()
+    render(
+      <PurchaseOrderLinesEditor
+        docType={PO_DOC_TYPE.service}
+        defaultWarehouse="Store5"
+        lines={[]}
+        onChange={vi.fn()}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Add Service' }))
+    await waitFor(() => expect(screen.getByLabelText('Loc.')).toHaveValue('2'))
+    expect(searchWarehouses).toHaveBeenCalled()
   })
 })

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Trash2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ProductionOrderDetailsPanel } from '@/Components/production/ProductionOrderDetailsPanel'
 import { ProductionOrderLinesDialog } from '@/Components/production/ProductionOrderLinesDialog'
 import { ProductionOrderSelectionDialog } from '@/Components/production/ProductionOrderSelectionDialog'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
+import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
 import { Button, Card, CardContent, Input, SearchableSelect } from '@/Components/ui'
 import { searchItems, searchWarehouses, formatWarehouseOptionLabel, CONSUMABLES_ITEM_GROUP_FILTER } from '@/Requests/masters'
@@ -15,6 +17,9 @@ import {
   validateManualProductionLineQuantities,
   validateProductionRequestForSave,
 } from '@/helpers/productionRequestValidation'
+import {
+  alreadyIssuedQuantity,
+} from '@/helpers/productionRequestLines'
 import type { SelectOption } from '@/types'
 import type { ProductionOrder, ProductionOrderLine, ProductionOrderSelection } from '@/types/production'
 
@@ -26,6 +31,7 @@ interface ProductionRequestFormProps {
   downloadPdf?: (id: number) => Promise<void>
   showWorkerName?: boolean
   consumableItemsOnly?: boolean
+  variant?: 'issue' | 'receipt'
 }
 
 const emptyLine = (): ProductionOrderLine => ({
@@ -43,6 +49,7 @@ export function ProductionRequestForm({
   downloadPdf,
   showWorkerName = false,
   consumableItemsOnly = false,
+  variant = 'issue',
 }: ProductionRequestFormProps) {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -59,6 +66,7 @@ export function ProductionRequestForm({
   const [loading, setLoading] = useState(!!id)
   const [saving, setSaving] = useState(false)
   const [workerName, setWorkerName] = useState('')
+  const isReceipt = variant === 'receipt'
 
   const lineItemCodes = useMemo(
     () => [
@@ -81,7 +89,7 @@ export function ProductionRequestForm({
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load request'))
       .finally(() => setLoading(false))
-  }, [id, loadOrderLines])
+  }, [id, loadOrderLines, isReceipt])
 
   const searchItemOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
     const response = await searchItems(
@@ -104,39 +112,65 @@ export function ProductionRequestForm({
     })).filter((o) => o.value)
   }, [])
 
-  const lineColumns: SapColumn<ProductionOrderLine>[] = [
-    { key: 'LineNumber', header: 'Line Number', accessor: (r) => r.LineNumber },
-    {
-      key: 'ItemNo',
-      header: 'Item',
-      accessor: (r) => formatCodeWithName(r.ItemNo, r.ItemName ?? itemMasterMap[r.ItemNo ?? '']?.name),
-    },
-    { key: 'PlannedQuantity', header: 'Planned Qty.', accessor: (r) => r.PlannedQuantity },
-    {
-      key: 'IssuedQuantity',
-      header: 'Issue Qty.',
-      render: (row) => (
-        <Input
-          type="number"
-          value={String(row.IssuedQuantity ?? 0)}
-          onChange={(e) => {
-            const value = Number(e.target.value)
-            setSelection((prev) => {
-              if (!prev) return prev
-              const lines = prev.ProductionOrderLinesEntryNumber.map((line) =>
-                line.LineNumber === row.LineNumber && line.ItemNo === row.ItemNo
-                  ? { ...line, IssuedQuantity: value }
-                  : line,
-              )
-              return { ...prev, ProductionOrderLinesEntryNumber: lines }
-            })
-          }}
-        />
-      ),
-    },
-    { key: 'uom', header: 'Stock UOM', accessor: (r) => (r.ItemNo ? itemMasterMap[r.ItemNo]?.uom ?? '' : '') },
-    { key: 'Warehouse', header: 'Issuing Warehouse', accessor: (r) => r.Warehouse },
-  ]
+  const lineColumns: SapColumn<ProductionOrderLine>[] = useMemo(() => {
+    const columns: SapColumn<ProductionOrderLine>[] = [
+      {
+        key: 'sr',
+        header: 'Sr. No.',
+        accessor: (r) => {
+          const lines = selection?.ProductionOrderLinesEntryNumber ?? []
+          const index = lines.findIndex(
+            (line) => line.LineNumber === r.LineNumber && line.ItemNo === r.ItemNo,
+          )
+          return index >= 0 ? index + 1 : ''
+        },
+      },
+      { key: 'LineNumber', header: 'Line No.', accessor: (r) => r.LineNumber },
+      {
+        key: 'ItemNo',
+        header: 'Item',
+        accessor: (r) => formatCodeWithName(r.ItemNo, r.ItemName ?? itemMasterMap[r.ItemNo ?? '']?.name),
+      },
+      { key: 'PlannedQuantity', header: 'Planned Qty.', accessor: (r) => r.PlannedQuantity },
+    ]
+
+    if (isReceipt) {
+      columns.push({
+        key: 'AlreadyIssued',
+        header: 'Issued Qty',
+        accessor: (r) => alreadyIssuedQuantity(selection?.ProductionOrder, r),
+      })
+    }
+
+    columns.push(
+      {
+        key: 'IssuedQuantity',
+        header: isReceipt ? 'Receipt Qty' : 'Issue Qty.',
+        render: (row) => (
+          <Input
+            type="number"
+            value={String(row.IssuedQuantity ?? 0)}
+            onChange={(e) => {
+              const value = Number(e.target.value)
+              setSelection((prev) => {
+                if (!prev) return prev
+                const lines = prev.ProductionOrderLinesEntryNumber.map((line) =>
+                  line.LineNumber === row.LineNumber && line.ItemNo === row.ItemNo
+                    ? { ...line, IssuedQuantity: value }
+                    : line,
+                )
+                return { ...prev, ProductionOrderLinesEntryNumber: lines }
+              })
+            }}
+          />
+        ),
+      },
+      { key: 'uom', header: 'Stock UOM', accessor: (r) => (r.ItemNo ? itemMasterMap[r.ItemNo]?.uom ?? '' : '') },
+      { key: 'Warehouse', header: isReceipt ? 'Receipt Warehouse' : 'Issuing Warehouse', accessor: (r) => r.Warehouse },
+    )
+
+    return columns
+  }, [isReceipt, itemMasterMap, selection?.ProductionOrder, selection?.ProductionOrderLinesEntryNumber])
 
   const handleSelection = async (picked: ProductionOrder) => {
     if (!picked.AbsoluteEntry) return
@@ -157,6 +191,18 @@ export function ProductionRequestForm({
     setProjectName(pendingOrder.ProductionOrder.ProjectName ?? '')
     setPendingOrder(null)
     setLinesDialogOpen(false)
+  }
+
+  const handleDeleteLine = (row: ProductionOrderLine) => {
+    setSelection((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        ProductionOrderLinesEntryNumber: prev.ProductionOrderLinesEntryNumber.filter(
+          (line) => !(line.LineNumber === row.LineNumber && line.ItemNo === row.ItemNo),
+        ),
+      }
+    })
   }
 
   const handleAddManualLine = async (e: FormEvent) => {
@@ -240,6 +286,9 @@ export function ProductionRequestForm({
 
   if (loading) return <div className="py-12 text-center text-slate-500">Loading...</div>
 
+  const hasProductionOrder = !!selection?.ProductionOrder?.AbsoluteEntry
+  const showWorkerField = showWorkerName && hasProductionOrder
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -251,28 +300,31 @@ export function ProductionRequestForm({
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
-      {showWorkerName && (
-        <Card>
-          <CardContent className="pt-6">
-            <Input
-              label="Worker Name"
-              value={workerName}
-              onChange={(e) => setWorkerName(e.target.value)}
-              placeholder="Enter worker name"
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      <ProductionOrderDetailsPanel order={selection?.ProductionOrder} projectName={projectName} />
+      <ProductionOrderDetailsPanel
+        order={selection?.ProductionOrder}
+        projectName={projectName}
+        showWorkerName={showWorkerField}
+        workerName={workerName}
+        onWorkerNameChange={setWorkerName}
+      />
 
       <Card>
         <CardContent className="space-y-4 pt-6">
           <SapDataGrid
             columns={lineColumns}
             data={selection?.ProductionOrderLinesEntryNumber ?? []}
-            getRowKey={(row) => `${row.LineNumber}-${row.ItemNo}`}
+            getRowKey={(row) => `${row.LineNumber ?? 'fg'}-${row.ItemNo}`}
             emptyMessage="No lines selected"
+            actions={(row) => (
+              <RowActions>
+                <RowActionButton
+                  title="Delete item"
+                  variant="danger"
+                  icon={<Trash2 className={rowActionIconClassName} />}
+                  onClick={() => handleDeleteLine(row)}
+                />
+              </RowActions>
+            )}
           />
           <Button type="button" variant="outline" onClick={() => setSelectionOpen(true)}>
             Select Production Order
@@ -280,6 +332,7 @@ export function ProductionRequestForm({
         </CardContent>
       </Card>
 
+      {!isReceipt && (
       <Card>
         <CardContent className="space-y-4 pt-6">
           <h3 className="text-sm font-semibold text-slate-800">Add To Production Order</h3>
@@ -333,6 +386,7 @@ export function ProductionRequestForm({
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={handleSubmit} isLoading={saving}>{id ? 'Update Request' : 'Create Request'}</Button>
@@ -353,6 +407,8 @@ export function ProductionRequestForm({
       <ProductionOrderLinesDialog
         isOpen={linesDialogOpen}
         order={pendingOrder?.ProductionOrder}
+        includeFinishedGood={isReceipt}
+        warehouseHeader={isReceipt ? 'Receipt Warehouse' : 'Issuing Warehouse'}
         onClose={() => {
           setLinesDialogOpen(false)
           setPendingOrder(null)

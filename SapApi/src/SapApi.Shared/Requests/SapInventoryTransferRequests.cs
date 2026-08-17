@@ -59,9 +59,16 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("ItemDescription"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ItemDescription { get; set; }
 
-        /// <summary>SAP DocumentLines.FreeText — free-text remarks on the line.</summary>
+        /// <summary>
+        /// SAP DocumentLines.FreeText (POR1.FreeTxt, typically 100 chars).
+        /// Purchase-order remarks are written to DocumentSpecialLines instead.
+        /// </summary>
         [JsonPropertyName("FreeText"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? FreeText { get; set; }
+
+        /// <summary>SAP line UDF U_FreeTxt. Not used for PO remarks (see DocumentSpecialLines).</summary>
+        [JsonPropertyName("U_FreeTxt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UFreeTxt { get; set; }
 
         [JsonPropertyName("AccountCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? AccountCode { get; set; }

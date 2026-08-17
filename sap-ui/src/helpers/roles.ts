@@ -11,3 +11,7 @@ export function getUserRoles(user?: User | null): string[] {
 export function isAdminUser(user?: User | null): boolean {
   return getUserRoles(user).some((role) => role === ROLES.SUPER_ADMIN || role === ROLES.ADMIN)
 }
+
+export function isSuperAdminUser(user?: User | null): boolean {
+  return getUserRoles(user).includes(ROLES.SUPER_ADMIN)
+}
