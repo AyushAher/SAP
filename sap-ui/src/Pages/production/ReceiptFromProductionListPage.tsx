@@ -28,6 +28,9 @@ export function ReceiptFromProductionListPage() {
       key: 'createdOnUtc',
       header: 'Date',
       sortable: true,
+      filterable: true,
+      filterType: 'date',
+      filterPlaceholder: 'Filter date',
       accessor: (r) => (r.createdOnUtc ? formatDate(r.createdOnUtc) : '—'),
     },
     {

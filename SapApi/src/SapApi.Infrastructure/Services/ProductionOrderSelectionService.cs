@@ -43,12 +43,9 @@ public class ProductionOrderSelectionService(
 
         order.ProductionOrderLines ??= [];
 
-        var maxLine = order.ProductionOrderLines
-            .Select(x => x.LineNumber ?? 0)
-            .DefaultIfEmpty(0)
-            .Max();
-        line.LineNumber = maxLine + 1;
-        line.VisualOrder = order.ProductionOrderLines.Count;
+        line.LineNumber = null;
+        line.VisualOrder = null;
+        line.DocumentAbsoluteEntry = null;
         line.ProductionOrderIssueType = "im_Manual";
         line.Project = order.Project;
         line.BaseQuantity = order.PlannedQuantity > 0
@@ -70,13 +67,17 @@ public class ProductionOrderSelectionService(
         var response = await productionOrdersService.PatchProductionOrderLineAsync(
             absoluteEntryInt,
             line,
-            cancellationToken);
+            cancellationToken: cancellationToken);
         if (response?.Error is not null && !string.IsNullOrEmpty(response.Error.Message?.Value))
             throw new InvalidOperationException($"{response.Error.Code}: {response.Error.Message.Value}");
 
         var updatedOrder = response ?? order;
         var addedLine = updatedOrder.ProductionOrderLines?
-            .FirstOrDefault(l => l.LineNumber == line.LineNumber) ?? line;
+            .Where(l =>
+                string.Equals(l.ItemNo, line.ItemNo, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(l.Warehouse, line.Warehouse, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(l => l.LineNumber ?? 0)
+            .FirstOrDefault() ?? line;
 
         return new ProductionOrderAddLineResult
         {

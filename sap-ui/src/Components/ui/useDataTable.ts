@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createDefaultPaginationRequest,
   DEFAULT_PAGE_SIZE,
+  buildLocalDayRangeFilters,
   toggleSort,
 } from '@/helpers/api/pagination'
 import type { Filter, FilterOperator, PaginationRequest, PaginationResponse, Sort } from '@/types/api'
@@ -12,6 +13,8 @@ export interface UseDataTableOptions<T> {
   initialFilters?: Filter[]
   initialSorts?: Sort[]
   filterDebounceMs?: number
+  /** Column keys that use a date picker and filter by local calendar day. */
+  dateFilterFields?: string[]
 }
 
 export interface UseDataTableReturn<T> {
@@ -37,6 +40,7 @@ export function useDataTable<T>({
   initialFilters = [],
   initialSorts = [],
   filterDebounceMs = 300,
+  dateFilterFields = [],
 }: UseDataTableOptions<T>): UseDataTableReturn<T> {
   const [data, setData] = useState<T[]>([])
   const [loading, setLoading] = useState(true)
@@ -52,6 +56,8 @@ export function useDataTable<T>({
   )
 
   const filterOperators = useRef<Record<string, FilterOperator>>({})
+  const dateFilterFieldSet = useRef(new Set(dateFilterFields))
+  dateFilterFieldSet.current = new Set(dateFilterFields)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fetchId = useRef(0)
 
@@ -98,13 +104,24 @@ export function useDataTable<T>({
 
   const buildFiltersFromValues = useCallback(
     (values: Record<string, string>): Filter[] => {
-      return Object.entries(values)
-        .filter(([, value]) => value.trim() !== '')
-        .map(([field, value]) => ({
+      const filters: Filter[] = []
+
+      for (const [field, value] of Object.entries(values)) {
+        if (value.trim() === '') continue
+
+        if (dateFilterFieldSet.current.has(field)) {
+          filters.push(...buildLocalDayRangeFilters(field, value))
+          continue
+        }
+
+        filters.push({
           field,
           operator: filterOperators.current[field] ?? 'contains',
           value,
-        }))
+        })
+      }
+
+      return filters
     },
     [],
   )

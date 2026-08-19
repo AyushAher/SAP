@@ -100,19 +100,24 @@ namespace SapApi.Infrastructure.Services.Sap
         /// <summary>
         /// Appends one manual production order line via PATCH. Used by Issue for Production add-line,
         /// not by the Production Order screen (which uses <see cref="UpdateProductionOrderAsync"/>).
+        /// LineNumber / VisualOrder are omitted so Service Layer appends instead of updating an
+        /// existing line (SAP error 254000224: Item code cannot be changed).
+        /// PostingDate is omitted: Live blocks posting-date edits even when the value is unchanged.
         /// </summary>
         public async Task<SapProductionOrdersResponse?> PatchProductionOrderLineAsync(
             int absoluteEntry,
             SapProductionOrderLines line,
+            DateTime? postingDate = null,
             CancellationToken cancellationToken = default)
         {
-            var preparedLine = PrepareLineForSapPatch(line, absoluteEntry);
-            var patchBody = new SapProductionOrdersResponse
+            _ = postingDate;
+            var preparedLine = PrepareLineForSapPatch(line);
+            var patchBody = new SapProductionOrderLinePatchRequest
             {
                 ProductionOrderLines = [preparedLine],
             };
 
-            var patched = await httpRequestHandler.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+            var patched = await httpRequestHandler.PatchAsync<SapProductionOrderLinePatchRequest, SapProductionOrdersResponse>(
                 Constants.SapApiUrls.GetProductionOrders(absoluteEntry.ToString()),
                 patchBody,
                 cancellationToken);
@@ -212,9 +217,13 @@ namespace SapApi.Infrastructure.Services.Sap
             return order;
         }
 
-        static SapProductionOrderLines PrepareLineForSapPatch(SapProductionOrderLines line, int absoluteEntry)
+        static SapProductionOrderLines PrepareLineForSapPatch(SapProductionOrderLines line)
         {
-            line.DocumentAbsoluteEntry = absoluteEntry;
+            // Identity fields must stay unset: a LineNumber that already exists is treated as an
+            // in-place update, which cannot change ItemNo.
+            line.LineNumber = null;
+            line.VisualOrder = null;
+            line.DocumentAbsoluteEntry = null;
             line.SerialNumbers = null;
             line.BatchNumbers = null;
             line.UoMCode = SapProductionOrderUoMNormalizer.NormalizeUoMCode(line.UoMCode);

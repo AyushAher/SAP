@@ -11,6 +11,7 @@ using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.Sap;
+using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 using SapApi.Tests.Services.ProductionOrders;
 using SapApi.Tests.Services.PurchaseOrders;
@@ -207,12 +208,12 @@ public class SapProductionOrdersServiceWriteTests
     [Test]
     public async Task PatchProductionOrderLine_SendsPatchWithSinglePreparedLine()
     {
-        SapProductionOrdersResponse? patched = null;
-        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        SapProductionOrderLinePatchRequest? patched = null;
+        _http.Setup(h => h.PatchAsync<SapProductionOrderLinePatchRequest, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
-                It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<SapProductionOrderLinePatchRequest>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => patched = body)
+            .Callback((string _, SapProductionOrderLinePatchRequest body, CancellationToken _) => patched = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646 });
 
         var newLine = new SapProductionOrderLines
@@ -226,14 +227,16 @@ public class SapProductionOrdersServiceWriteTests
             UoMCode = "KG",
         };
 
-        await _sut.PatchProductionOrderLineAsync(646, newLine);
+        await _sut.PatchProductionOrderLineAsync(646, newLine, new DateTime(2026, 6, 16));
 
         patched.Should().NotBeNull();
-        patched!.ProductionOrderLines.Should().ContainSingle();
+        patched!.PostingDate.Should().BeNull();
+        patched.ProductionOrderLines.Should().ContainSingle();
         var line = patched.ProductionOrderLines!.Single();
         line.ItemNo.Should().Be("RM-200");
-        line.DocumentAbsoluteEntry.Should().Be(646);
-        line.VisualOrder.Should().Be(1);
+        line.LineNumber.Should().BeNull();
+        line.VisualOrder.Should().BeNull();
+        line.DocumentAbsoluteEntry.Should().BeNull();
         line.ProductionOrderIssueType.Should().Be("im_Manual");
         line.UoMCode.Should().NotBe("KG");
         line.SerialNumbers.Should().BeNull();
@@ -241,7 +244,9 @@ public class SapProductionOrdersServiceWriteTests
 
         var json = JsonSerializer.Serialize(patched);
         json.Should().Contain("\"ProductionOrderLines\"");
-        json.Should().NotContain("\"AbsoluteEntry\"");
+        json.Should().NotContain("\"LineNumber\"");
+        json.Should().NotContain("\"PostingDate\"");
+        json.Should().NotContain("\"PlannedQuantity\":0");
         json.Should().NotContain("U_CustomerName");
     }
 

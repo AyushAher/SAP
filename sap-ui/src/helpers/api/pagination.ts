@@ -153,3 +153,20 @@ export function toggleSort(sorts: Sort[], field: string): Sort[] {
 export function getSortForField(sorts: Sort[], field: string): Sort | undefined {
   return sorts.find((s) => s.field === field)
 }
+
+/** Expand a calendar date (yyyy-MM-dd) into local-day gte/lt filters for UTC timestamps. */
+export function buildLocalDayRangeFilters(field: string, isoDate: string): Filter[] {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim())
+  if (!match) return []
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0)
+  const end = new Date(year, month - 1, day + 1, 0, 0, 0, 0)
+
+  return [
+    { field, operator: 'gte', value: start.toISOString() },
+    { field, operator: 'lt', value: end.toISOString() },
+  ]
+}

@@ -26,7 +26,7 @@ export interface DataTableColumn<T> {
   filterable?: boolean
   filterOperator?: FilterOperator
   filterPlaceholder?: string
-  filterType?: 'text' | 'select'
+  filterType?: 'text' | 'select' | 'date'
   filterOptions?: SelectOption[]
   className?: string
   headerClassName?: string
@@ -77,6 +77,10 @@ export function DataTable<T>({
   toolbar,
   onRowClick,
 }: DataTableProps<T>) {
+  const dateFilterFields = columns
+    .filter((column) => column.filterable && column.filterType === 'date')
+    .map((column) => column.key)
+
   const {
     data,
     loading,
@@ -97,6 +101,7 @@ export function DataTable<T>({
     defaultPageSize,
     initialFilters,
     initialSorts,
+    dateFilterFields,
   })
 
   const hasFilters = columns.some((col) => col.filterable)
@@ -173,6 +178,13 @@ export function DataTable<T>({
                             setFilter(column.key, value, column.filterOperator ?? 'eq')
                           }
                           placeholder={column.filterPlaceholder ?? `Filter ${column.header}`}
+                        />
+                      ) : column.filterType === 'date' ? (
+                        <Input
+                          type="date"
+                          value={filterValues[column.key] ?? ''}
+                          onChange={(e) => setFilter(column.key, e.target.value)}
+                          className="!py-1.5 text-xs"
                         />
                       ) : (
                         <Input
