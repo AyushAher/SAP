@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  allocateBatchRowNetAmounts,
   applySequentialBatchRowAdjustments,
   batchRowRequiresApInvoice,
   getPayableAmount,
@@ -272,5 +273,22 @@ describe('stageWisePaymentCalculations', () => {
     expect(adjusted[1].balanceDue).toBe(4800)
     expect(adjusted[1].payable).toBe(4800)
     expect(adjusted[2].balanceDue).toBe(3000)
+  })
+
+  it('allocateBatchRowNetAmounts deducts invoice WT once on the basic row', () => {
+    const nets = allocateBatchRowNetAmounts(
+      [
+        { paymentTermsTypes: [2], apInvoiceDocEntry: '5510', amount: '73560' },
+        { paymentTermsTypes: [1], apInvoiceDocEntry: '5510', amount: '13240' },
+      ],
+      [
+        { id: 1, gst: 100, basic: 0, type: 'Invoice', desc: '100% GST Against Invoice' },
+        { id: 2, basic: 100, gst: 0, type: 'Invoice', desc: '100% Basic Against Invoice' },
+      ],
+      [{ id: 448, status: 1, tds: 0, apInvoiceDocEntry: '5511' }],
+      [{ DocEntry: 5510, DocTotal: 86727, PaidToDate: 0, WTAmount: 74 }],
+    )
+    expect(nets[0]).toEqual({ tds: 74, net: 73486 })
+    expect(nets[1]).toEqual({ tds: 0, net: 13240 })
   })
 })

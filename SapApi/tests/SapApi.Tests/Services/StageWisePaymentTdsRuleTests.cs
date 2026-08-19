@@ -1,6 +1,7 @@
 using FluentAssertions;
 using SapApi.Domain.Entities;
 using SapApi.Infrastructure.Services;
+using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 
 namespace SapApi.Tests.Services;
@@ -83,7 +84,7 @@ public class StageWisePaymentTdsRuleTests
     }
 
     [Test]
-    public void SkipInvoiceWithholding_OnGstOnlyAndOnSecondInvoiceRequest()
+    public void SkipInvoiceWithholding_OnGstOnlyAndOnSameInvoiceAfterTdsTaken()
     {
         var applied = new HashSet<string>(StringComparer.Ordinal);
 
@@ -92,7 +93,7 @@ public class StageWisePaymentTdsRuleTests
 
         applied.Clear();
         StageWisePaymentCalculations.SkipInvoiceWithholding(
-                [new StageWisePayment { Status = StageWisePaymentStatus.Added, Tds = 0, ApInvoiceDocEntry = "55" }],
+                [new StageWisePayment { Status = StageWisePaymentStatus.Added, Tds = 41.5, ApInvoiceDocEntry = "55" }],
                 Terms,
                 [2],
                 "55",
@@ -101,6 +102,26 @@ public class StageWisePaymentTdsRuleTests
 
         applied.Clear();
         StageWisePaymentCalculations.SkipInvoiceWithholding([], Terms, [2], "55", applied)
+            .Should().BeFalse();
+    }
+
+    [Test]
+    public void SkipInvoiceWithholding_TakesWtOnSecondInvoiceOfSamePo()
+    {
+        var applied = new HashSet<string>(StringComparer.Ordinal);
+        var priorOtherInvoice = new StageWisePayment
+        {
+            Status = StageWisePaymentStatus.Added,
+            Tds = 1450,
+            ApInvoiceDocEntry = "9808",
+        };
+
+        StageWisePaymentCalculations.SkipInvoiceWithholding(
+                [priorOtherInvoice],
+                Terms,
+                [2],
+                "9809",
+                applied)
             .Should().BeFalse();
     }
 
@@ -161,5 +182,60 @@ public class StageWisePaymentTdsRuleTests
         StageWisePaymentCalculations.ComputeApInvoiceTdsAmount(
                 invoice, [], Terms, [1], "5507", new HashSet<string>(StringComparer.Ordinal))
             .Should().Be(0);
+    }
+
+    [Test]
+    public void BuildApInvoicePaymentApplications_GroupsRowsAndDeductsInvoiceWtOnce()
+    {
+        var invoice = new SapPurchaseInvoicesResponse
+        {
+            DocEntry = 5510,
+            DocTotal = 86727,
+            PaidToDate = 0,
+            WTAmount = 74,
+        };
+        var lines = new List<(StageWisePaymentBatchLineRequest Line, SapPurchaseInvoicesResponse Invoice)>
+        {
+            (new() { Amount = 73560, PaymentTermsTypes = [2], ApInvoiceDocEntry = "5510" }, invoice),
+            (new() { Amount = 13240, PaymentTermsTypes = [1], ApInvoiceDocEntry = "5510" }, invoice),
+        };
+
+        var apps = StageWisePaymentCalculations.BuildApInvoicePaymentApplications(lines, [], Terms);
+
+        apps.Should().HaveCount(1);
+        apps[0].DocEntry.Should().Be(5510);
+        apps[0].GrossAmount.Should().Be(86800);
+        apps[0].Tds.Should().Be(74);
+        apps[0].SumApplied.Should().Be(86726);
+    }
+
+    [Test]
+    public void BuildApInvoicePaymentApplications_StillTakesThisInvoiceWtAfterOtherInvoiceOnPo()
+    {
+        var invoice = new SapPurchaseInvoicesResponse
+        {
+            DocEntry = 5510,
+            DocTotal = 86727,
+            PaidToDate = 0,
+            WTAmount = 74,
+        };
+        var priorOtherInvoice = new StageWisePayment
+        {
+            Status = StageWisePaymentStatus.Added,
+            Tds = 302,
+            ApInvoiceDocEntry = "5512",
+        };
+        var lines = new List<(StageWisePaymentBatchLineRequest Line, SapPurchaseInvoicesResponse Invoice)>
+        {
+            (new() { Amount = 73560, PaymentTermsTypes = [2], ApInvoiceDocEntry = "5510" }, invoice),
+            (new() { Amount = 13240, PaymentTermsTypes = [1], ApInvoiceDocEntry = "5510" }, invoice),
+        };
+
+        var apps = StageWisePaymentCalculations.BuildApInvoicePaymentApplications(
+            lines, [priorOtherInvoice], Terms);
+
+        apps.Should().HaveCount(1);
+        apps[0].Tds.Should().Be(74);
+        apps[0].SumApplied.Should().Be(86726);
     }
 }

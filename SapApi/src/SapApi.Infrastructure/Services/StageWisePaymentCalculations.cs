@@ -76,9 +76,8 @@ public static class StageWisePaymentCalculations
         records.Any(r => r.Status != StageWisePaymentStatus.Cancelled);
 
     /// <summary>
-    /// A prior non-cancelled request already selected an AP invoice. Invoice WTAmount is taken
-    /// only on the first such request (GST-only never takes it). Earlier down payments without
-    /// an invoice do not consume that slot.
+    /// A prior non-cancelled request already selected an AP invoice. Down-payment WT still
+    /// follows first invoice-selected request; AP invoice payments take each invoice's own WT.
     /// </summary>
     public static bool HasPriorInvoiceSelectedPayment(IEnumerable<StageWisePayment> records) =>
         records.Any(r =>
@@ -86,8 +85,9 @@ public static class StageWisePaymentCalculations
             && !string.IsNullOrWhiteSpace(r.ApInvoiceDocEntry));
 
     /// <summary>
-    /// Skip invoice WTAmount when the selected terms are GST-only, an earlier request already
-    /// selected an invoice, or this invoice already had TDS applied in the same batch.
+    /// Skip invoice WTAmount when the selected terms are GST-only, this invoice already had TDS
+    /// on a prior request, or this invoice already had TDS applied in the same batch.
+    /// Each AP invoice keeps its own SAP WT — a payment on a different invoice does not skip it.
     /// </summary>
     public static bool SkipInvoiceWithholding(
         IReadOnlyList<StageWisePayment> activeRecords,
@@ -98,16 +98,79 @@ public static class StageWisePaymentCalculations
     {
         if (IsGstOnlyTerms(paymentTerms, selectedTermIds))
             return true;
-        if (HasPriorInvoiceSelectedPayment(activeRecords))
-            return true;
         if (string.IsNullOrWhiteSpace(apInvoiceDocEntry))
             return false;
-        if (activeRecords.Any(r =>
-                r.Status != StageWisePaymentStatus.Cancelled
-                && r.Tds is > 0
-                && InvoiceKeysOverlap(r.ApInvoiceDocEntry, apInvoiceDocEntry)))
+        if (InvoiceWithholdingAlreadyTaken(activeRecords, apInvoiceDocEntry))
             return true;
         return !tdsAppliedInBatch.Add(apInvoiceDocEntry);
+    }
+
+    public static bool InvoiceWithholdingAlreadyTaken(
+        IEnumerable<StageWisePayment> activeRecords,
+        string? apInvoiceDocEntry) =>
+        !string.IsNullOrWhiteSpace(apInvoiceDocEntry)
+        && activeRecords.Any(r =>
+            r.Status != StageWisePaymentStatus.Cancelled
+            && r.Tds is > 0
+            && InvoiceKeysOverlap(r.ApInvoiceDocEntry, apInvoiceDocEntry));
+
+    /// <summary>
+    /// SAP DocTotal on Indian AP invoices is already net of WT. Open amount to apply is
+    /// DocTotal − PaidToDate; paying the UI gross (DocTotal + WT) is rejected.
+    /// </summary>
+    public static double GetApInvoiceSapOpenAmount(SapPurchaseInvoicesResponse? invoice) =>
+        Math.Round(Math.Max(0, (invoice?.DocTotal ?? 0) - (invoice?.PaidToDate ?? 0)), 2);
+
+    public static double CapAppliedAmountToSapOpen(double net, SapPurchaseInvoicesResponse? invoice)
+    {
+        var sapOpen = GetApInvoiceSapOpenAmount(invoice);
+        net = Math.Round(net, 2);
+        if (sapOpen <= 0)
+            return net;
+        return Math.Min(net, sapOpen);
+    }
+
+    public readonly record struct ApInvoicePaymentApplication(
+        int? DocEntry,
+        double GrossAmount,
+        double Tds,
+        double SumApplied);
+
+    /// <summary>
+    /// One SAP payment application per AP invoice: deduct that invoice's WT once (not on GST-only
+    /// rows), then cap at SAP's open amount so basic+GST rows cannot exceed DocTotal − PaidToDate.
+    /// </summary>
+    public static List<ApInvoicePaymentApplication> BuildApInvoicePaymentApplications(
+        IReadOnlyList<(StageWisePaymentBatchLineRequest Line, SapPurchaseInvoicesResponse Invoice)> apLines,
+        IReadOnlyList<StageWisePayment> activeRecords,
+        IReadOnlyList<PaymentTermsUdf> paymentTerms)
+    {
+        var tdsAppliedInBatch = new HashSet<string>(StringComparer.Ordinal);
+        var applications = new List<ApInvoicePaymentApplication>();
+
+        foreach (var group in apLines.GroupBy(x => x.Invoice.DocEntry))
+        {
+            var invoice = group.First().Invoice;
+            var gross = Math.Round(group.Sum(x => x.Line.Amount), 2);
+            var tds = 0.0;
+            foreach (var item in group)
+            {
+                var key = item.Line.ApInvoiceDocEntry ?? invoice.DocEntry?.ToString() ?? string.Empty;
+                tds += ComputeApInvoiceTdsAmount(
+                    invoice,
+                    activeRecords,
+                    paymentTerms,
+                    item.Line.PaymentTermsTypes,
+                    key,
+                    tdsAppliedInBatch);
+            }
+
+            tds = Math.Round(tds, 2);
+            var sumApplied = CapAppliedAmountToSapOpen(gross - tds, invoice);
+            applications.Add(new ApInvoicePaymentApplication(invoice.DocEntry, gross, tds, sumApplied));
+        }
+
+        return applications;
     }
 
     public static bool InvoiceKeysOverlap(string? stored, string? candidate)

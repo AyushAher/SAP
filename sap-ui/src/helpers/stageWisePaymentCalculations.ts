@@ -353,6 +353,81 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+export function isGstOnlyTerm(term: PaymentTermUdf | undefined): boolean {
+  return Boolean(
+    term
+    && !(term.basic != null && term.basic > 0)
+    && (
+      (term.gst != null && term.gst > 0)
+      || term.type?.toLowerCase() === 'gstproforma'
+      || term.type?.toLowerCase() === 'taxinvoice'
+    ),
+  )
+}
+
+export function isGstOnlyTerms(paymentTerms: PaymentTermUdf[], selectedTermIds: number[]): boolean {
+  const selected = selectedTermIds
+    .map((id) => paymentTerms.find((t) => t.id === id))
+    .filter((t): t is PaymentTermUdf => t != null)
+  return selected.length > 0 && selected.every(isGstOnlyTerm)
+}
+
+function invoiceKeysOverlap(stored?: string, candidate?: string): boolean {
+  if (!stored?.trim() || !candidate?.trim()) return false
+  const left = stored.split(',').map((x) => x.trim()).filter(Boolean)
+  const right = candidate.split(',').map((x) => x.trim()).filter(Boolean)
+  return left.some((key) => right.includes(key))
+}
+
+function isCancelledPayment(record: StageWisePayment): boolean {
+  return normalizeStatus(record.status) === 'Cancelled'
+}
+
+export function invoiceWithholdingAlreadyTaken(
+  activeRecords: StageWisePayment[],
+  apInvoiceDocEntry?: string,
+): boolean {
+  if (!apInvoiceDocEntry?.trim()) return false
+  return activeRecords.some((r) =>
+    !isCancelledPayment(r)
+    && (r.tds ?? 0) > 0
+    && invoiceKeysOverlap(r.apInvoiceDocEntry, apInvoiceDocEntry),
+  )
+}
+
+export interface BatchRowNetAmount {
+  tds: number
+  net: number
+}
+
+/** Allocate each AP invoice's WT once onto the first non-GST row; Net Amt = amount − TDS. */
+export function allocateBatchRowNetAmounts(
+  rows: BatchRowAmountFields[],
+  paymentTerms: PaymentTermUdf[],
+  activeRecords: StageWisePayment[],
+  apInvoices: ApInvoice[] = [],
+): BatchRowNetAmount[] {
+  const tdsApplied = new Set<string>()
+  return rows.map((row) => {
+    const amount = Number(row.amount) || 0
+    const termIds = (row.paymentTermsTypes ?? []).map(Number)
+    const invoiceKey = row.apInvoiceDocEntry?.trim()
+    if (!invoiceKey || amount <= 0) {
+      return { tds: 0, net: round2(amount) }
+    }
+    if (isGstOnlyTerms(paymentTerms, termIds)) {
+      return { tds: 0, net: round2(amount) }
+    }
+    if (invoiceWithholdingAlreadyTaken(activeRecords, invoiceKey) || tdsApplied.has(invoiceKey)) {
+      return { tds: 0, net: round2(amount) }
+    }
+    tdsApplied.add(invoiceKey)
+    const invoice = apInvoices.find((inv) => String(inv.DocEntry ?? '') === invoiceKey)
+    const tds = round2(invoice?.WTAmount ?? 0)
+    return { tds, net: round2(amount - tds) }
+  })
+}
+
 export interface BatchRowAmountFields {
   apInvoiceDocEntry?: string
   amount?: string | number

@@ -100,7 +100,7 @@ public class StageWisePaymentService(
             || StageWisePaymentCalculations.HasPriorActivePayment(existingRecords)
             || StageWisePaymentCalculations.TdsAlreadyTaken(existingRecords);
         var skipInvoiceWt = gstOnly
-            || StageWisePaymentCalculations.HasPriorInvoiceSelectedPayment(existingRecords);
+            || StageWisePaymentCalculations.InvoiceWithholdingAlreadyTaken(existingRecords, entity1.ApInvoiceDocEntry);
 
         try
         {
@@ -842,6 +842,7 @@ public class StageWisePaymentService(
         }
 
         var net = amount - (hadTdsDeducted ? 0 : apInvoice?.WTAmount ?? 0);
+        net = StageWisePaymentCalculations.CapAppliedAmountToSapOpen(net, apInvoice);
         if (net <= 0)
         {
             return (

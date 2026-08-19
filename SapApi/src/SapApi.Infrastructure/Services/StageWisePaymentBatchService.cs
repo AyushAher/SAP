@@ -108,11 +108,6 @@ public class StageWisePaymentBatchService(
             return (false, compositionMessage, null);
 
         var lineSnapshots = new List<BatchLineSnapshot>();
-        var paymentInvoices = new List<PaymentInvoice>();
-        var totalTransfer = 0.0;
-        var lineNumber = 0;
-        var tdsAppliedInBatch = new HashSet<string>(StringComparer.Ordinal);
-
         var priorLines = new List<StageWisePaymentBatchLineRequest>();
 
         foreach (var (line, index) in request.Lines.Select((line, index) => (line, index)))
@@ -135,22 +130,6 @@ public class StageWisePaymentBatchService(
                 var adjustedPayable = StageWisePaymentCalculations.ComputeSequentialStageRowPayable(
                     line, priorLines, po, pageData.PaymentTerms, activeRecords, pageData.TotalBasic);
 
-                var hadTdsDeducted = StageWisePaymentCalculations.SkipInvoiceWithholding(
-                    activeRecords, pageData.PaymentTerms, line.PaymentTermsTypes, line.ApInvoiceDocEntry, tdsAppliedInBatch);
-                var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
-                if (net <= 0)
-                    return (false, $"Net payment must be greater than zero for AP invoice {apInvoice.DocNum}.", null);
-
-                totalTransfer += net;
-                paymentInvoices.Add(new PaymentInvoice
-                {
-                    LineNumber = lineNumber++,
-                    DocEntry = apInvoice.DocEntry,
-                    InvoiceType = Constants.SapVendorPaymentInvoiceType.Invoice,
-                    SumApplied = net,
-                    AppliedFC = 0,
-                });
-
                 lineSnapshots.Add(new BatchLineSnapshot(
                     line, index, true, adjustedBalanceDue, adjustedPayable, line.ApInvoiceDocEntry));
             }
@@ -164,6 +143,13 @@ public class StageWisePaymentBatchService(
 
             priorLines.Add(line);
         }
+
+        var (paymentInvoices, totalTransfer, paymentError) = BuildGroupedApPaymentInvoices(
+            lineSnapshots.Where(s => s.RequiresAp).Select(s => s.Line),
+            pageData,
+            activeRecords);
+        if (paymentError is not null)
+            return (false, paymentError, null);
 
         if (request.PaymentDate is null
             && !await CanOmitPaymentDateAsync(
@@ -1143,7 +1129,6 @@ public class StageWisePaymentBatchService(
             return (false, compositionMessage, null, [], []);
 
         var lineSnapshots = new List<BatchLineSnapshot>();
-        var tdsAppliedInBatch = new HashSet<string>(StringComparer.Ordinal);
         var priorLines = new List<StageWisePaymentBatchLineRequest>();
 
         foreach (var (line, index) in request.Lines.Select((line, index) => (line, index)))
@@ -1166,12 +1151,6 @@ public class StageWisePaymentBatchService(
                 var adjustedPayable = StageWisePaymentCalculations.ComputeSequentialStageRowPayable(
                     line, priorLines, po, pageData.PaymentTerms, activeRecords, pageData.TotalBasic);
 
-                var hadTdsDeducted = StageWisePaymentCalculations.SkipInvoiceWithholding(
-                    activeRecords, pageData.PaymentTerms, line.PaymentTermsTypes, line.ApInvoiceDocEntry, tdsAppliedInBatch);
-                var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
-                if (net <= 0)
-                    return (false, $"Net payment must be greater than zero for AP invoice {apInvoice.DocNum}.", null, [], []);
-
                 lineSnapshots.Add(new BatchLineSnapshot(
                     line, index, true, adjustedBalanceDue, adjustedPayable, line.ApInvoiceDocEntry));
             }
@@ -1185,6 +1164,13 @@ public class StageWisePaymentBatchService(
 
             priorLines.Add(line);
         }
+
+        var (_, _, paymentError) = BuildGroupedApPaymentInvoices(
+            lineSnapshots.Where(s => s.RequiresAp).Select(s => s.Line),
+            pageData,
+            activeRecords);
+        if (paymentError is not null)
+            return (false, paymentError, null, [], []);
 
         return (true, string.Empty, pageData, lineSnapshots, banks);
     }
@@ -1266,31 +1252,12 @@ public class StageWisePaymentBatchService(
         string? batchApprovalId = null;
         var batchStatus = StageWisePaymentBatchStatus.Draft;
 
-        var paymentInvoices = new List<PaymentInvoice>();
-        var totalTransfer = 0.0;
-        var lineNumber = 0;
-        var tdsAppliedInBatch = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var snapshot in lineSnapshots.Where(s => s.RequiresAp).OrderBy(s => s.Index))
-        {
-            var line = snapshot.Line;
-            var apInvoice = pageData.ApInvoices.First(x => x.DocEntry.ToString() == line.ApInvoiceDocEntry);
-            var hadTdsDeducted = StageWisePaymentCalculations.SkipInvoiceWithholding(
-                activeRecords, pageData.PaymentTerms, line.PaymentTermsTypes, line.ApInvoiceDocEntry, tdsAppliedInBatch);
-            var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
-            if (net <= 0)
-                return (false, $"Net payment must be greater than zero for AP invoice {apInvoice.DocNum}.", null, null, null, batchStatus);
-
-            totalTransfer += net;
-            paymentInvoices.Add(new PaymentInvoice
-            {
-                LineNumber = lineNumber++,
-                DocEntry = apInvoice.DocEntry,
-                InvoiceType = Constants.SapVendorPaymentInvoiceType.Invoice,
-                SumApplied = net,
-                AppliedFC = 0,
-            });
-        }
+        var (paymentInvoices, totalTransfer, paymentError) = BuildGroupedApPaymentInvoices(
+            lineSnapshots.Where(s => s.RequiresAp).OrderBy(s => s.Index).Select(s => s.Line),
+            pageData,
+            activeRecords);
+        if (paymentError is not null)
+            return (false, paymentError, null, null, null, batchStatus);
 
         if (request.PaymentDate is null
             && !await CanOmitPaymentDateAsync(
@@ -1598,8 +1565,6 @@ public class StageWisePaymentBatchService(
         }
 
         var lineSnapshots = new List<BatchLineSnapshot>();
-        var totalTransfer = 0.0;
-        var tdsAppliedInBatch = new HashSet<string>(StringComparer.Ordinal);
         var priorLines = new List<StageWisePaymentBatchLineRequest>();
 
         foreach (var (line, index) in request.Lines.Select((line, index) => (line, index)))
@@ -1639,12 +1604,6 @@ public class StageWisePaymentBatchService(
                 var adjustedPayable = StageWisePaymentCalculations.ComputeSequentialStageRowPayable(
                     line, priorLines, po, pageData.PaymentTerms, activeRecords, pageData.TotalBasic);
 
-                var hadTdsDeducted = StageWisePaymentCalculations.SkipInvoiceWithholding(
-                    activeRecords, pageData.PaymentTerms, line.PaymentTermsTypes, line.ApInvoiceDocEntry, tdsAppliedInBatch);
-                var net = line.Amount - (hadTdsDeducted ? 0 : apInvoice.WTAmount ?? 0);
-                if (net > 0)
-                    totalTransfer += net;
-
                 lineSnapshots.Add(new BatchLineSnapshot(
                     line, index, true, adjustedBalanceDue, adjustedPayable, line.ApInvoiceDocEntry));
             }
@@ -1656,6 +1615,19 @@ public class StageWisePaymentBatchService(
             }
 
             priorLines.Add(line);
+        }
+
+        var (paymentInvoicesValid, totalTransfer, paymentError) = BuildGroupedApPaymentInvoices(
+            lineSnapshots.Where(s => s.RequiresAp).Select(s => s.Line),
+            pageData,
+            activeRecords);
+        if (paymentError is not null || paymentInvoicesValid.Count == 0 && lineSnapshots.Any(s => s.RequiresAp))
+        {
+            return new BatchPaymentDateRequirementResponse
+            {
+                PaymentDateRequired = true,
+                RequiresApproval = false,
+            };
         }
 
         if (lineSnapshots.Count == 0)
@@ -1802,5 +1774,44 @@ public class StageWisePaymentBatchService(
         // "Invalid cash flow primary item [Message 3741-3]". Match AddOutgoingPayment /
         // SapForms and omit cash-flow lines unless a valid primary item is known.
         request.CashFlowAssignments = [];
+    }
+
+    private static (List<PaymentInvoice> Invoices, double TotalTransfer, string? Error) BuildGroupedApPaymentInvoices(
+        IEnumerable<StageWisePaymentBatchLineRequest> apLines,
+        StageWisePaymentPageDataResponse pageData,
+        List<StageWisePayment> activeRecords)
+    {
+        var pairs = new List<(StageWisePaymentBatchLineRequest Line, SapPurchaseInvoicesResponse Invoice)>();
+        foreach (var line in apLines)
+        {
+            var invoice = pageData.ApInvoices.FirstOrDefault(x => x.DocEntry.ToString() == line.ApInvoiceDocEntry);
+            if (invoice is null)
+                return ([], 0, $"AP invoice {line.ApInvoiceDocEntry} was not found.");
+            pairs.Add((line, invoice));
+        }
+
+        if (pairs.Count == 0)
+            return ([], 0, null);
+
+        var applications = StageWisePaymentCalculations.BuildApInvoicePaymentApplications(
+            pairs, activeRecords, pageData.PaymentTerms);
+        var invalid = applications.FirstOrDefault(a => a.SumApplied <= 0);
+        if (invalid.DocEntry is not null && invalid.SumApplied <= 0)
+        {
+            var docNum = pageData.ApInvoices.FirstOrDefault(x => x.DocEntry == invalid.DocEntry)?.DocNum
+                ?? invalid.DocEntry;
+            return ([], 0, $"Net payment must be greater than zero for AP invoice {docNum}.");
+        }
+
+        var invoices = applications.Select((application, index) => new PaymentInvoice
+        {
+            LineNumber = index,
+            DocEntry = application.DocEntry,
+            InvoiceType = Constants.SapVendorPaymentInvoiceType.Invoice,
+            SumApplied = application.SumApplied,
+            AppliedFC = 0,
+        }).ToList();
+
+        return (invoices, Math.Round(applications.Sum(a => a.SumApplied), 2), null);
     }
 }

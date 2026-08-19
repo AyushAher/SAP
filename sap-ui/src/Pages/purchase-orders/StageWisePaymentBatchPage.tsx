@@ -42,6 +42,7 @@ import {
 } from '@/Requests/stageWisePaymentBatches'
 import type { StageWisePaymentPageData } from '@/Requests/stageWisePayments'
 import {
+  allocateBatchRowNetAmounts,
   applySequentialBatchRowAdjustments,
   batchRowRequiresApInvoice,
   formatAmount,
@@ -464,6 +465,17 @@ export function StageWisePaymentBatchPage() {
   }
 
   const totalAmount = displayRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+  const rowNetAmounts = useMemo(
+    () => allocateBatchRowNetAmounts(
+      displayRows,
+      paymentTerms,
+      pageData?.activeRecords ?? [],
+      pageData?.apInvoices ?? [],
+    ),
+    [displayRows, paymentTerms, pageData?.activeRecords, pageData?.apInvoices],
+  )
+  const totalNetAmount = rowNetAmounts.reduce((sum, row) => sum + row.net, 0)
+  const totalTds = rowNetAmounts.reduce((sum, row) => sum + row.tds, 0)
 
   const buildPayload = (): BatchPayload | null => {
     if (!sharedBank) {
@@ -952,6 +964,7 @@ export function StageWisePaymentBatchPage() {
                         return String(batch.downPaymentStageWisePaymentId)
                       return '—'
                     })()
+                    const rowNet = rowNetAmounts[rowIndex]
                     return (
                       <tr key={row.key} className="border-b border-slate-100 align-top">
                         <td className="px-3 py-3 min-w-[240px] align-top">
@@ -1012,6 +1025,11 @@ export function StageWisePaymentBatchPage() {
                               required
                             />
                           )}
+                          {rowNet && rowNet.tds > 0 && (
+                            <p className="mt-1 text-right text-xs text-slate-500">
+                              TDS {formatAmount(rowNet.tds)} · Net {formatAmount(rowNet.net)}
+                            </p>
+                          )}
                         </td>
                         {!readOnly && (
                           <td className={rowActionsCellClassName}>
@@ -1031,7 +1049,14 @@ export function StageWisePaymentBatchPage() {
                 <tfoot>
                   <tr className="bg-slate-50 font-medium">
                     <td colSpan={readOnly ? 5 : 5} className="px-3 py-2 text-right">Total</td>
-                    <td className="px-3 py-2 text-right">{formatAmount(totalAmount)}</td>
+                    <td className="px-3 py-2 text-right">
+                      {formatAmount(totalNetAmount)}
+                      {totalTds > 0 && (
+                        <div className="text-xs font-normal text-slate-500">
+                          TDS {formatAmount(totalTds)} from {formatAmount(totalAmount)}
+                        </div>
+                      )}
+                    </td>
                     {!readOnly && <td />}
                   </tr>
                 </tfoot>
