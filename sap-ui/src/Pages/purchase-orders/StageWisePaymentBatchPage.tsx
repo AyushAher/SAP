@@ -8,12 +8,14 @@ import {
   Card,
   CardContent,
   Input,
+  SapDateInput,
   Badge,
   SearchableSelect,
   Select,
   Textarea,
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { formatPoDisplayDate } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { isAdminUser } from '@/helpers/roles'
 import { useAppSelector } from '@/store/hooks'
@@ -868,13 +870,7 @@ export function StageWisePaymentBatchPage() {
                 <span className="text-slate-500">PO Details:</span>{' '}
                 <strong>
                   {po.DocNum ?? po.DocEntry ?? '—'}
-                  {po.DocDate
-                    ? ` - ${new Date(po.DocDate).toLocaleDateString(undefined, {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                      })}`
-                    : ''}
+                  {po.DocDate ? ` - ${formatPoDisplayDate(po.DocDate)}` : ''}
                 </strong>
               </div>
               <div>
@@ -1112,19 +1108,17 @@ export function StageWisePaymentBatchPage() {
                   disabled={sapPaymentDetailsReadOnly}
                   required={needsPaymentDetails}
                 />
-                <Input
+                <SapDateInput
                   label="Posting Date"
-                  type="date"
                   value={postingDate}
-                  onChange={(e) => setPostingDate(e.target.value)}
+                  onChangeIso={setPostingDate}
                   disabled={additionalDetailsReadOnly}
                   required={canEditAdditionalDetails}
                 />
-                <Input
+                <SapDateInput
                   label="Payment Date"
-                  type="date"
                   value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
+                  onChangeIso={setPaymentDate}
                   disabled={sapPaymentDetailsReadOnly}
                   required={paymentDateFieldRequired}
                   hint={

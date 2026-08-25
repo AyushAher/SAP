@@ -1,5 +1,6 @@
 export { Button, type ButtonProps } from './Button'
 export { Input, type InputProps } from './Input'
+export { SapDateInput, type SapDateInputProps } from './SapDateInput'
 export { Textarea, type TextareaProps } from './Textarea'
 export { Checkbox, type CheckboxProps } from './Checkbox'
 export { Select, type SelectProps } from './Select'

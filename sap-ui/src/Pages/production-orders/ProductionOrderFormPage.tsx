@@ -3,8 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { SelectableSapDataGrid } from '@/Components/shared/SelectableSapDataGrid'
 import type { SapColumn } from '@/Components/shared/SapDataGrid'
-import { Button, Card, CardContent, Input, SearchableSelect, Select } from '@/Components/ui'
+import { Button, Card, CardContent, Input, SapDateInput, SearchableSelect, Select } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { toIsoDateOnly } from '@/helpers/lib/utils'
 import { formatCodeWithName, resolveMasterSelectLabels, resolveProject } from '@/helpers/masterLookup'
 import { applyProductionCategoryDefaults, validateProductionOrderForm } from '@/helpers/productionOrderForm'
 import { toast } from '@/helpers/toast'
@@ -47,11 +48,11 @@ const CATEGORY_OPTIONS = [
 ]
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function asDateInputValue(value: unknown): string {
-  return String(value ?? '').slice(0, 10)
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export function ProductionOrderFormPage() {
@@ -266,8 +267,9 @@ export function ProductionOrderFormPage() {
       const payload: ProductionOrder = {
         ...form,
         ProductionOrderLines: submittedLines,
-        PostingDate: form.PostingDate ?? today(),
-        DueDate: form.DueDate ?? today(),
+        PostingDate: toIsoDateOnly(form.PostingDate) ?? today(),
+        StartDate: toIsoDateOnly(form.StartDate) ?? today(),
+        DueDate: toIsoDateOnly(form.DueDate) ?? today(),
       }
       const result = id
         ? await updateProductionOrder(Number(id), payload)
@@ -411,18 +413,16 @@ export function ProductionOrderFormPage() {
                 value={String(form.PlannedQuantity ?? 0)}
                 onChange={(e) => handlePlannedQuantityChange(Number(e.target.value))}
               />
-              <Input
+              <SapDateInput
                 label="Start Date"
-                type="date"
-                value={asDateInputValue(form.StartDate)}
-                onChange={(e) => setForm({ ...form, StartDate: e.target.value })}
+                value={form.StartDate}
+                onChangeIso={(date) => setForm({ ...form, StartDate: date })}
               />
-              <Input
+              <SapDateInput
                 label="Due Date"
-                type="date"
                 required
-                value={asDateInputValue(form.DueDate)}
-                onChange={(e) => setForm({ ...form, DueDate: e.target.value })}
+                value={form.DueDate}
+                onChangeIso={(date) => setForm({ ...form, DueDate: date })}
               />
               <SearchableSelect
                 label="Receipt Warehouse"

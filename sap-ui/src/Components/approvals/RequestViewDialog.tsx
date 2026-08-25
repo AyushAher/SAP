@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
-import { Badge, Button, Input, Modal, Textarea } from '@/Components/ui'
+import { Badge, Button, Input, Modal, SapDateInput, Textarea } from '@/Components/ui'
 import {
   approveRequest,
   getApprovalPaymentContext,
@@ -215,7 +215,7 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
                 )}
                 {needsPaymentDetails && (
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Input label="Payment Date" type="date" value={utrDate} onChange={(e) => setUtrDate(e.target.value)} required />
+                    <SapDateInput label="Payment Date" value={utrDate} onChangeIso={setUtrDate} required />
                     <Input label="Reference No." value={utrNo} onChange={(e) => setUtrNo(e.target.value)} required />
                   </div>
                 )}

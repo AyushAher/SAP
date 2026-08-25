@@ -230,6 +230,7 @@ export function PurchaseOrderFormPage() {
   const [contactPersonLabel, setContactPersonLabel] = useState('')
   const [branchOptions, setBranchOptions] = useState<SelectOption[]>([])
   const [postingDateDisplay, setPostingDateDisplay] = useState(() => formatPoDisplayDate(todayIsoDate()))
+  const [deliveryDateDisplay, setDeliveryDateDisplay] = useState('')
 
   const loading = Boolean(id) && (queryLoading || hydratedId !== String(id))
   const loadError = error
@@ -387,6 +388,8 @@ export function PurchaseOrderFormPage() {
       if (authBranchId) setForm((prev) => ({ ...prev, BPLId: authBranchId }))
       setHydratedId(null)
       setDispatchLocation('')
+      setPostingDateDisplay(formatPoDisplayDate(todayIsoDate()))
+      setDeliveryDateDisplay('')
       return
     }
     if (!purchaseOrder || queryLoading)
@@ -402,6 +405,7 @@ export function PurchaseOrderFormPage() {
         DocType: record.DocType || PO_DOC_TYPE.items,
       })
       setPostingDateDisplay(formatPoDisplayDate(String(record.DocDate ?? record.PostingDate ?? '')))
+      setDeliveryDateDisplay(formatPoDisplayDate(String(record.DocDueDate ?? record.DueDate ?? '')))
       const rawLines = (purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? []
       const loadedLines = applyDocumentSpecialLinesToFormLines(
         rawLines.map((line) => {
@@ -567,7 +571,9 @@ export function PurchaseOrderFormPage() {
     const docDate = parsePoDisplayDate(postingDateDisplay)
       ?? toIsoDateOnly(String(form.DocDate ?? form.PostingDate ?? ''))
       ?? todayIsoDate()
-    const docDue = String(form.DocDueDate ?? form.DueDate ?? '').slice(0, 10)
+    const docDue = parsePoDisplayDate(deliveryDateDisplay)
+      ?? toIsoDateOnly(String(form.DocDueDate ?? form.DueDate ?? ''))
+      ?? ''
     // SAP Document Date (TaxDate) always matches Posting Date (DocDate).
     const taxDate = docDate
     let payload: Record<string, unknown> = {
@@ -617,7 +623,8 @@ export function PurchaseOrderFormPage() {
       toast.error('Select a business partner.')
       return
     }
-    const deliveryDate = String(form.DocDueDate ?? form.DueDate ?? '').trim()
+    const deliveryDate = parsePoDisplayDate(deliveryDateDisplay)
+      ?? toIsoDateOnly(String(form.DocDueDate ?? form.DueDate ?? ''))
     if (!deliveryDate) {
       setError('Delivery Date is required.')
       toast.error('Delivery Date is required.')
@@ -807,10 +814,21 @@ export function PurchaseOrderFormPage() {
                 />
                 <Input
                   label="Delivery Date"
-                  type="date"
+                  placeholder="DD/MM/YYYY"
                   required
-                  value={String(form.DocDueDate ?? form.DueDate ?? '').slice(0, 10)}
-                  onChange={(e) => updateForm({ DocDueDate: e.target.value, DueDate: e.target.value })}
+                  value={deliveryDateDisplay}
+                  onChange={(e) => setDeliveryDateDisplay(e.target.value)}
+                  onBlur={() => {
+                    const iso = parsePoDisplayDate(deliveryDateDisplay)
+                      ?? toIsoDateOnly(deliveryDateDisplay)
+                    if (!iso) {
+                      setDeliveryDateDisplay('')
+                      updateForm({ DocDueDate: '', DueDate: '' })
+                      return
+                    }
+                    setDeliveryDateDisplay(formatPoDisplayDate(iso))
+                    updateForm({ DocDueDate: iso, DueDate: iso })
+                  }}
                 />
                 <Input
                   label="Vendor Ref."

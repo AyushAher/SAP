@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { DocumentLinesEditor } from '@/Components/forms/DocumentLinesEditor'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
-import { Button, Card, CardContent, Input, SearchableSelect, Select, Textarea } from '@/Components/ui'
+import { Button, Card, CardContent, Input, SapDateInput, SearchableSelect, Select, Textarea } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName, resolveMasterSelectLabels } from '@/helpers/masterLookup'
 import { createInventoryTransfer, getInventoryTransfer, updateInventoryTransfer } from '@/Requests/inventoryTransfers'
@@ -148,8 +148,8 @@ export function StockTransferFormPage() {
                   setForm({ ...form, ToWarehouse: code })
                 }}
               />
-              <Input label="Doc Date" type="date" value={String(form.DocDate ?? '').slice(0, 10)} onChange={(e) => setForm({ ...form, DocDate: e.target.value })} />
-              <Input label="Due Date" type="date" value={String(form.DueDate ?? '').slice(0, 10)} onChange={(e) => setForm({ ...form, DueDate: e.target.value })} />
+              <SapDateInput label="Doc Date" value={String(form.DocDate ?? '')} onChangeIso={(date) => setForm({ ...form, DocDate: date })} />
+              <SapDateInput label="Due Date" value={String(form.DueDate ?? '')} onChangeIso={(date) => setForm({ ...form, DueDate: date })} />
               <Input label="Sales Person Code" type="number" value={String(form.SalesPersonCode ?? '')} onChange={(e) => setForm({ ...form, SalesPersonCode: Number(e.target.value) })} />
               <Input label="Journal Memo" value={String(form.JournalMemo ?? '')} onChange={(e) => setForm({ ...form, JournalMemo: e.target.value })} />
               <div className="md:col-span-2">

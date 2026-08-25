@@ -4,6 +4,7 @@ import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { formatPoDisplayDate } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { cancelInventoryTransfer, closeInventoryTransfer, listInventoryTransfers, type InventoryTransfer } from '@/Requests/inventoryTransfers'
@@ -21,7 +22,7 @@ export function InventoryTransferListPage() {
 
   const columns = useMemo<DataTableColumn<InventoryTransfer>[]>(() => [
     { key: 'DocEntry', header: 'Doc Entry', sortable: true, filterable: true, accessor: (r) => r.DocEntry },
-    { key: 'DocDate', header: 'Date', sortable: true, accessor: (r) => r.DocDate },
+    { key: 'DocDate', header: 'Date', sortable: true, accessor: (r) => (r.DocDate ? formatPoDisplayDate(r.DocDate) : '—') },
     { key: 'FromWarehouse', header: 'From', sortable: true, filterable: true, accessor: (r) => r.FromWarehouse },
     { key: 'ToWarehouse', header: 'To', sortable: true, filterable: true, accessor: (r) => r.ToWarehouse },
     {
