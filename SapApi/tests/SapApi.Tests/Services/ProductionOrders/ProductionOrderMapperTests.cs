@@ -35,6 +35,7 @@ public class ProductionOrderMapperTests
             RejectedQuantity = 0,
             InventoryUom = "SET",
             DrawingNo = "4354d",
+            ParentProductionOrderNo = "10",
             ProductionCategory = "INT",
             DueDate = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
         }, SyncedAt);
@@ -53,6 +54,7 @@ public class ProductionOrderMapperTests
         entity.CompletedQuantity.Should().Be(1);
         entity.InventoryUom.Should().Be("SET");
         entity.DrawingNo.Should().Be("4354d");
+        entity.ParentProductionOrderNo.Should().Be("10");
         entity.ProductionCategory.Should().Be("INT");
         entity.DueDate.Should().Be(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
         entity.SyncedAtUtc.Should().Be(SyncedAt);
@@ -159,6 +161,7 @@ public class ProductionOrderMapperTests
             SalesOrderDocNum = 252610128,
             Warehouse = "WIP",
             PlannedQuantity = 3,
+            ParentProductionOrderNo = "9",
             Lines =
             [
                 new ProductionOrderLine { LineNumber = 2, ItemNo = "RM-2", VisualOrder = 1, UoMCode = 7 },
@@ -172,6 +175,7 @@ public class ProductionOrderMapperTests
         response.CustomerName.Should().Be("FORBESVYNCKE PRIVATE LIMITED");
         response.ProjectName.Should().Be("FORBESVYNCKE (PO NO:XX3824)");
         response.SalesOrderDocNum.Should().Be(252610128);
+        response.ParentProductionOrderNo.Should().Be("9");
         response.ProductionOrderLines.Should().NotBeNull();
         response.ProductionOrderLines!.Select(l => l.ItemNo).Should().Equal("RM-1", "RM-2");
         response.ProductionOrderLines[0].DocumentAbsoluteEntry.Should().Be(646);
@@ -255,6 +259,9 @@ public class ProductionOrderMapperTests
         yield return new TestCaseData(
             "drawing number",
             (Action<SapProductionOrdersResponse>)(sap => sap.DrawingNo = "4354e"));
+        yield return new TestCaseData(
+            "parent production order",
+            (Action<SapProductionOrdersResponse>)(sap => sap.ParentProductionOrderNo = "11"));
         yield return new TestCaseData(
             "remarks",
             (Action<SapProductionOrdersResponse>)(sap => sap.Remarks = "Rework requested"));

@@ -214,6 +214,86 @@ public class ProductionOrderListFilterTests
         lines.Select(l => l.UoMCode).Should().Equal(-1, 7);
     }
 
+    [Test]
+    public async Task ListFromDb_excludes_child_subassemblies_by_default()
+    {
+        SeedChildOrders();
+
+        var page = await _sut.ListFromDbAsync(Request());
+
+        page.Data!.Select(x => x.AbsoluteEntry).Should().Equal(104, 103, 102, 101);
+        page.TotalCount.Should().Be(4);
+    }
+
+    [Test]
+    public async Task ListFromDb_includes_child_subassemblies_when_requested()
+    {
+        SeedChildOrders();
+
+        var page = await _sut.ListFromDbAsync(Request(), excludeSubassemblies: false);
+
+        page.Data!.Select(x => x.AbsoluteEntry).Should().Equal(203, 202, 201, 104, 103, 102, 101);
+        page.TotalCount.Should().Be(7);
+    }
+
+    [Test]
+    public async Task ListSubassemblies_returns_only_non_cancelled_children_of_that_parent()
+    {
+        SeedChildOrders();
+
+        var children = await _sut.ListSubassembliesAsync(101);
+
+        children.Should().NotBeNull();
+        children!.Select(x => x.AbsoluteEntry).Should().Equal(201);
+        children.Single().ParentProductionOrderNo.Should().Be("900101");
+    }
+
+    [Test]
+    public async Task ListSubassemblies_returns_null_when_the_parent_is_missing()
+    {
+        var children = await _sut.ListSubassembliesAsync(999);
+
+        children.Should().BeNull();
+    }
+
+    private void SeedChildOrders()
+    {
+        var now = DateTime.UtcNow;
+        _context.ProductionOrders.AddRange(
+            new ProductionOrder
+            {
+                CompanyDb = CompanyDb,
+                AbsoluteEntry = 201,
+                DocumentNumber = 900201,
+                Status = Constants.SapProductionOrderStatus.Planned,
+                ItemNo = "SA-001",
+                ParentProductionOrderNo = "900101",
+                SyncedAtUtc = now,
+            },
+            new ProductionOrder
+            {
+                CompanyDb = CompanyDb,
+                AbsoluteEntry = 202,
+                DocumentNumber = 900202,
+                Status = Constants.SapProductionOrderStatus.Cancelled,
+                ItemNo = "SA-002",
+                ParentProductionOrderNo = "900101",
+                SyncedAtUtc = now,
+            },
+            new ProductionOrder
+            {
+                CompanyDb = CompanyDb,
+                AbsoluteEntry = 203,
+                DocumentNumber = 900203,
+                Status = Constants.SapProductionOrderStatus.Released,
+                ItemNo = "SA-003",
+                ParentProductionOrderNo = "900102",
+                SyncedAtUtc = now,
+            });
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+    }
+
     private void SeedProductionOrders()
     {
         var now = DateTime.UtcNow;

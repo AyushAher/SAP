@@ -40,7 +40,7 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       ...request,
       filters,
       includeTotalCount: true,
-    })
+    }, { excludeSubassemblies: false })
   }, [])
 
   const { tableKey, syncingKey, syncError, handleSyncRow } = useDocumentSync({

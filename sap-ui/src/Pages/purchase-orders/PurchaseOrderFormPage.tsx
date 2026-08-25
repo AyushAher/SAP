@@ -20,7 +20,7 @@ import {
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatBusinessPartnerDisplay, formatCodeWithName, resolveItem, resolveMasterSelectLabels } from '@/helpers/masterLookup'
-import { formatPoDisplayDate, parsePoDisplayDate, toIsoDateOnly } from '@/helpers/lib/utils'
+import { formatPoDisplayDate, parsePoDisplayDate, todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import {
   applyDocumentSpecialLinesToFormLines,
   applyLogisticsToPo,
@@ -110,10 +110,6 @@ const FORM_TAB_HEADINGS: Record<Exclude<FormTab, 'items'>, { label: string; desc
   logistics: { label: 'Logistics', description: 'Dispatch, shipping, and transport details.' },
   payment: { label: 'Payment Terms', description: 'Define stage-wise payment terms for this order.' },
   other: { label: 'Other Terms', description: 'Commercial terms, warranty, and additional conditions.' },
-}
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10)
 }
 
 type PaymentTermDraft = Omit<PaymentTermRow, 'id'>

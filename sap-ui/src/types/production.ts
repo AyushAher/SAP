@@ -29,6 +29,8 @@ export interface ProductionOrder {
   ProjectName?: string
   Warehouse?: string
   DrawingNo?: string
+  /** Parent production order DocumentNumber (SAP UDF U_ParentProdOrd until the real name is shared). */
+  ParentProductionOrderNo?: string
   Status?: string
   CreationDate?: string
   PlannedQuantity?: number

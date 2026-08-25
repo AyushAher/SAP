@@ -1,3 +1,4 @@
+using SapApi.Shared;
 using SapApi.Shared.Sap;
 
 namespace SapApi.Infrastructure.Sap;
@@ -44,7 +45,8 @@ public static class SapPaginationProfiles
         // Only real ProductionOrders fields: customer/project *names* are not UDFs on this document,
         // so SAP rejects them in $select ("Property 'U_CustomerName' ... is invalid"). Names are
         // resolved from master data in SapProductionOrdersService instead.
-        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,U_DwgNo,CreationDate",
+        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,U_DwgNo,"
+            + Constants.SapProductionOrderUdf.ParentProductionOrder + ",CreationDate",
         KeyFields = ["AbsoluteEntry"],
         DefaultSortField = "AbsoluteEntry",
         DefaultSortDirection = "desc",
@@ -67,6 +69,7 @@ public static class SapPaginationProfiles
             ["Status"] = "ProductionOrderStatus",
             ["CustomerCode"] = "CustomerCode",
             ["DrawingNo"] = "U_DwgNo",
+            ["ParentProductionOrderNo"] = Constants.SapProductionOrderUdf.ParentProductionOrder,
             ["CreationDate"] = "CreationDate",
         },
     };

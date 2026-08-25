@@ -15,7 +15,7 @@ import {
   Textarea,
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
-import { formatPoDisplayDate } from '@/helpers/lib/utils'
+import { formatPoDisplayDate, todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { isAdminUser } from '@/helpers/roles'
 import { useAppSelector } from '@/store/hooks'
@@ -66,18 +66,14 @@ const PAYMENT_MODE_OPTIONS: SelectOption[] = [
   { value: 'pmtCash', label: 'Cash' },
 ]
 
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10)
-}
-
 function batchAdditionalDetailsFromBatch(batch: StageWisePaymentBatch) {
   return {
     modeOfPayment: batch.modeOfPayment ?? 'pmtBankTransfer',
     account: batch.account ?? '',
     journalRemark: batch.journalRemark ?? '',
     referenceNo: batch.referenceNo ?? '',
-    postingDate: batch.postingDate ? batch.postingDate.slice(0, 10) : todayIsoDate(),
-    paymentDate: batch.paymentDate ? batch.paymentDate.slice(0, 10) : '',
+    postingDate: toIsoDateOnly(batch.postingDate) ?? todayIsoDate(),
+    paymentDate: toIsoDateOnly(batch.paymentDate) ?? '',
   }
 }
 

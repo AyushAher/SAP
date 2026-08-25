@@ -77,7 +77,11 @@ describe('ProductionOrderFormPage', () => {
     vi.clearAllMocks()
     apiPost.mockResolvedValue({})
     apiPut.mockResolvedValue({ AbsoluteEntry: 646, DocumentNumber: 10 })
-    apiGet.mockImplementation(async (url: string) => (url === '/production-orders/646' ? sapOrder : {}) as never)
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === '/production-orders/646') return sapOrder as never
+      if (url === '/production-orders/646/subassemblies') return [] as never
+      return {} as never
+    })
   })
 
   it('sends the status the user picked, under the name the API binds', async () => {
@@ -184,5 +188,15 @@ describe('ProductionOrderFormPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The requested resource was not found.')
     expect(screen.queryByRole('button', { name: 'Update' })).not.toBeInTheDocument()
+  })
+
+  it('shows sub-assemblies once the parent production order is saved in SAP', async () => {
+    renderEditForm()
+
+    expect(await screen.findByText('Sub-assemblies')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Add Sub-assembly' })).toHaveAttribute(
+      'href',
+      '/production-orders/form/646/subassemblies',
+    )
   })
 })

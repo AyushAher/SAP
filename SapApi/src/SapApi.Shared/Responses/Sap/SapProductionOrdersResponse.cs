@@ -1,4 +1,6 @@
-﻿namespace SapApi.Shared.Responses.Sap
+﻿using SapApi.Shared;
+
+namespace SapApi.Shared.Responses.Sap
 {
     public record SapProductionOrdersResponse : SapBaseResponse
     {
@@ -39,6 +41,13 @@
 
         [JsonPropertyName("U_DwgNo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? DrawingNo { get; set; }
+
+        /// <summary>
+        /// Parent production order DocumentNumber. JSON name is
+        /// <see cref="Constants.SapProductionOrderUdf.ParentProductionOrder"/> until the SAP UDF is confirmed.
+        /// </summary>
+        [JsonPropertyName(Constants.SapProductionOrderUdf.ParentProductionOrder), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ParentProductionOrderNo { get; set; }
 
         [JsonPropertyName("ProductionOrderOriginNumber"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? SalesOrderDocNum { get; set; }

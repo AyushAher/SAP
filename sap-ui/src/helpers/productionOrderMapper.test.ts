@@ -14,6 +14,7 @@ const sapOrder = {
   ProductionOrderType: 'bopotSpecial',
   U_ProdType: 'INT',
   U_DwgNo: 'DWG-42',
+  U_ParentProdOrd: '9',
   U_PrjName: 'Refinery upgrade',
   U_CustomerName: 'Acme Industries',
   ProductDescription: 'Finished pump',
@@ -53,6 +54,7 @@ describe('normalizeProductionOrder', () => {
     expect(view.Type).toBe('bopotSpecial')
     expect(view.ProductionCategory).toBe('INT')
     expect(view.DrawingNo).toBe('DWG-42')
+    expect(view.ParentProductionOrderNo).toBe('9')
     expect(view.ProjectName).toBe('Refinery upgrade')
     expect(view.CustomerName).toBe('Acme Industries')
     expect(view.SalesOrderDocNum).toBe(252610128)
@@ -66,6 +68,7 @@ describe('normalizeProductionOrder', () => {
       'ProductionOrderType',
       'U_ProdType',
       'U_DwgNo',
+      'U_ParentProdOrd',
       'U_PrjName',
       'U_CustomerName',
       'ProductionOrderOriginNumber',
@@ -100,6 +103,7 @@ describe('toProductionOrderPayload', () => {
       Type: 'bopotDisassembly',
       ProductionCategory: 'JOB',
       DrawingNo: 'DWG-7',
+      ParentProductionOrderNo: '10',
       CustomerCode: 'C000017',
       Project: 'PRJ-1',
       Warehouse: 'Subcon',
@@ -120,6 +124,7 @@ describe('toProductionOrderPayload', () => {
     expect(json.ProductionOrderType).toBe('bopotDisassembly')
     expect(json.U_ProdType).toBe('JOB')
     expect(json.U_DwgNo).toBe('DWG-7')
+    expect(json.U_ParentProdOrd).toBe('10')
     expect(json.ProductionOrderOriginNumber).toBe(252610128)
     expect(json.ProductionOrderOriginEntry).toBe(156)
     expect(json.Warehouse).toBe('Subcon')
@@ -129,7 +134,7 @@ describe('toProductionOrderPayload', () => {
     expect(json.ProductionOrderLines).toHaveLength(1)
 
     // Friendly names bind to nothing on the API side, so they must not be what we send.
-    for (const friendly of ['ItemNumber', 'Status', 'Type', 'ProductionCategory', 'DrawingNo', 'SalesOrderDocNum', 'SalesOrderDocEntry']) {
+    for (const friendly of ['ItemNumber', 'Status', 'Type', 'ProductionCategory', 'DrawingNo', 'ParentProductionOrderNo', 'SalesOrderDocNum', 'SalesOrderDocEntry']) {
       expect(json).not.toHaveProperty(friendly)
     }
     // IssWarehouse is a UI-only seed for the line warehouses.
@@ -159,11 +164,13 @@ describe('toProductionOrderPayload', () => {
       ItemNumber: 'FG-001',
       ProductionCategory: '',
       DrawingNo: '',
+      ParentProductionOrderNo: '',
       Remarks: '',
     })
 
     expect(payload).not.toHaveProperty('U_ProdType')
     expect(payload).not.toHaveProperty('U_DwgNo')
+    expect(payload).not.toHaveProperty('U_ParentProdOrd')
     expect(payload).not.toHaveProperty('Remarks')
   })
 
@@ -176,6 +183,7 @@ describe('toProductionOrderPayload', () => {
     expect(payload.ProductionOrderStatus).toBe('boposReleased')
     expect(payload.U_ProdType).toBe('JOB')
     expect(payload.U_DwgNo).toBe('DWG-99')
+    expect(payload.U_ParentProdOrd).toBe('9')
   })
 
   it('takes explicit lines over the ones on the order and keeps line user fields', () => {

@@ -29,6 +29,8 @@ export const ROUTES = {
   PRODUCTION_ORDERS: '/production-orders',
   PRODUCTION_ORDER_FORM: '/production-orders/form',
   PRODUCTION_ORDER_EDIT: '/production-orders/form/:id',
+  PRODUCTION_ORDER_SUBASSEMBLY: '/production-orders/form/:id/subassemblies/:childId?',
+  PRODUCTION_ORDER_SUBASSEMBLY_ITEMS: '/production-orders/form/:id/subassemblies/:childId/items',
   ISSUE_FOR_PRODUCTION: '/issue-for-production',
   ISSUE_FOR_PRODUCTION_FORM: '/issue-for-production/form',
   ISSUE_FOR_PRODUCTION_EDIT: '/issue-for-production/form/:id',
@@ -45,6 +47,22 @@ export const ROUTES = {
   AUDIT_LOGS: '/audit-logs',
   SETTINGS: '/settings',
 } as const
+
+/** Placeholder SAP UDF name until the real parent-production-order field is confirmed. */
+export const PARENT_PRODUCTION_ORDER_UDF = 'U_ParentProdOrd'
+
+export function productionOrderFormPath(id: string | number) {
+  return `${ROUTES.PRODUCTION_ORDER_FORM}/${id}`
+}
+
+export function productionOrderSubassemblyPath(parentId: string | number, childId?: string | number) {
+  const base = `${ROUTES.PRODUCTION_ORDER_FORM}/${parentId}/subassemblies`
+  return childId == null || childId === '' ? base : `${base}/${childId}`
+}
+
+export function productionOrderSubassemblyItemsPath(parentId: string | number, childId: string | number) {
+  return `${productionOrderSubassemblyPath(parentId, childId)}/items`
+}
 
 export const ROLES = {
   SUPER_ADMIN: 'SuperAdmin',

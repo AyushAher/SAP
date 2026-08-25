@@ -20,6 +20,7 @@ import {
   parseRequestBody,
   requiresPaymentFinalizationDetails,
 } from '@/helpers/approvalUtils'
+import { formatDateTime, toIsoDateOnly } from '@/helpers/lib/utils'
 
 interface RequestViewDialogProps {
   request: ApprovalRequest | null
@@ -69,7 +70,7 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
           const ctx = await getApprovalPaymentContext(request.id)
           setPaymentContext(ctx)
           setUtrNo(ctx.utrNo ?? '')
-          setUtrDate(ctx.utrDate ? new Date(ctx.utrDate).toISOString().slice(0, 10) : '')
+          setUtrDate(ctx.utrDate ? toIsoDateOnly(ctx.utrDate) ?? '' : '')
         } else {
           setPaymentContext(null)
         }
@@ -153,7 +154,7 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
               </div>
               <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                 <div><span className="text-slate-500">Requester:</span> <strong className="text-slate-900">{detail.requesterUser?.fullName ?? detail.requesterUser?.userName ?? '—'}</strong></div>
-                <div><span className="text-slate-500">Requested on:</span> <strong className="text-slate-900">{new Date(detail.createdAt).toLocaleString()}</strong></div>
+                <div><span className="text-slate-500">Requested on:</span> <strong className="text-slate-900">{detail.createdAt ? formatDateTime(detail.createdAt) : '—'}</strong></div>
                 {detail.supportingData && (
                   <div><span className="text-slate-500">Reference:</span> <strong className="text-slate-900">{detail.supportingData}</strong></div>
                 )}

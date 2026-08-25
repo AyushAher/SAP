@@ -5,6 +5,7 @@ import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
 import { Button, Card, CardContent, Input, SapDateInput, SearchableSelect, Select, Textarea } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { todayIsoDate } from '@/helpers/lib/utils'
 import { formatCodeWithName, resolveMasterSelectLabels } from '@/helpers/masterLookup'
 import { createInventoryTransfer, getInventoryTransfer, updateInventoryTransfer } from '@/Requests/inventoryTransfers'
 import { searchVendors, searchWarehouses, formatWarehouseOptionLabel } from '@/Requests/masters'
@@ -25,8 +26,8 @@ export function StockTransferFormPage() {
     FromWarehouse: '',
     ToWarehouse: '',
     DutyStatus: 'tYES',
-    DocDate: new Date().toISOString().slice(0, 10),
-    DueDate: new Date().toISOString().slice(0, 10),
+    DocDate: todayIsoDate(),
+    DueDate: todayIsoDate(),
     JournalMemo: '',
     SalesPersonCode: undefined,
     Comments: '',

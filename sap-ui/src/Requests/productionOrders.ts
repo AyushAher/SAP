@@ -15,8 +15,15 @@ import type {
 
 export type { ProductionOrder }
 
-export async function listProductionOrders(request: PaginationRequest): Promise<PaginationResponse<ProductionOrder[]>> {
-  const response = await apiListPost<ProductionOrder>('/production-orders/list', request)
+export async function listProductionOrders(
+  request: PaginationRequest,
+  options?: { excludeSubassemblies?: boolean },
+): Promise<PaginationResponse<ProductionOrder[]>> {
+  const exclude = options?.excludeSubassemblies ?? true
+  const response = await apiListPost<ProductionOrder>(
+    `/production-orders/list?excludeSubassemblies=${exclude}`,
+    request,
+  )
   return { ...response, data: normalizeProductionOrders(response.data) }
 }
 
@@ -163,6 +170,24 @@ export async function updateProductionOrder(id: number, data: ProductionOrder, p
   return apiPut<ProductionOrderWriteResult>(
     `/production-orders/${id}`,
     toProductionOrderPayload(data),
+    { policyRequestId },
+  )
+}
+
+export async function listSubassemblies(parentAbsoluteEntry: string | number) {
+  const { apiGet } = await import('@/helpers/api/client')
+  const rows = await apiGet<ProductionOrder[] | { value?: ProductionOrder[] }>(
+    `/production-orders/${parentAbsoluteEntry}/subassemblies`,
+  )
+  const list = Array.isArray(rows) ? rows : (rows?.value ?? [])
+  return normalizeProductionOrders(list)
+}
+
+export async function cancelProductionOrder(absoluteEntry: number, policyRequestId?: number) {
+  const { apiPost } = await import('@/helpers/api/client')
+  return apiPost<ProductionOrderWriteResult>(
+    `/production-orders/${absoluteEntry}/cancel`,
+    undefined,
     { policyRequestId },
   )
 }

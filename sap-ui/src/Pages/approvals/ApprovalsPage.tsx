@@ -6,6 +6,7 @@ import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
 import { RowActionButton, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Badge, Button, DataTable, Modal, Textarea, type DataTableColumn } from '@/Components/ui'
 import { formatDocumentType, getApprovalStatusBadgeVariant, getBusinessPartnerDisplayFromRequest, getCardCodeFromRequest, isPaymentApprovalDocumentType } from '@/helpers/approvalUtils'
+import { formatDateTime } from '@/helpers/lib/utils'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { bulkApprove, bulkReject, listPendingApprovals, type ApprovalRequest, type BulkActionResultItem } from '@/Requests/approvals'
 import { getBatchByApprovalRequestId } from '@/Requests/stageWisePaymentBatches'
@@ -150,7 +151,7 @@ export function ApprovalsPage() {
         : null,
     },
     { key: 'requester', header: 'Requester', filterable: true, filterOperator: 'contains', accessor: (r) => r.requesterUser?.fullName ?? r.requesterUser?.userName },
-    { key: 'createdAt', header: 'Created At', sortable: true, accessor: (r) => new Date(r.createdAt).toLocaleString() },
+    { key: 'createdAt', header: 'Created At', sortable: true, accessor: (r) => (r.createdAt ? formatDateTime(r.createdAt) : '—') },
     {
       key: 'actions',
       header: 'Action',

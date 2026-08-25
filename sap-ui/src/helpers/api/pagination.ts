@@ -154,16 +154,14 @@ export function getSortForField(sorts: Sort[], field: string): Sort | undefined 
   return sorts.find((s) => s.field === field)
 }
 
-/** Expand a calendar date (yyyy-MM-dd) into local-day gte/lt filters for UTC timestamps. */
+/** Expand an IST calendar date (yyyy-MM-dd) into UTC gte/lt filters. */
 export function buildLocalDayRangeFilters(field: string, isoDate: string): Filter[] {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim())
   if (!match) return []
 
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const start = new Date(year, month - 1, day, 0, 0, 0, 0)
-  const end = new Date(year, month - 1, day + 1, 0, 0, 0, 0)
+  const start = new Date(`${isoDate}T00:00:00+05:30`)
+  if (Number.isNaN(start.getTime())) return []
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
 
   return [
     { field, operator: 'gte', value: start.toISOString() },

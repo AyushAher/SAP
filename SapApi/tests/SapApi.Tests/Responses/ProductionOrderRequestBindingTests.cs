@@ -31,6 +31,7 @@ public class ProductionOrderRequestBindingTests
           "ProductionOrderType": "bopotDisassembly",
           "U_ProdType": "JOB",
           "U_DwgNo": "DWG-7",
+          "U_ParentProdOrd": "10",
           "ProductionOrderOriginNumber": 252610128,
           "ProductionOrderOriginEntry": 156,
           "PlannedQuantity": 5,
@@ -52,6 +53,7 @@ public class ProductionOrderRequestBindingTests
         bound.Type.Should().Be("bopotDisassembly");
         bound.ProductionCategory.Should().Be("JOB");
         bound.DrawingNo.Should().Be("DWG-7");
+        bound.ParentProductionOrderNo.Should().Be("10");
         bound.SalesOrderDocNum.Should().Be(252610128);
         bound.SalesOrderDocEntry.Should().Be(156);
         bound.PlannedQuantity.Should().Be(5);
@@ -59,6 +61,10 @@ public class ProductionOrderRequestBindingTests
         bound.DueDate.Should().Be(new DateTime(2026, 8, 20));
         bound.StartDate.Should().Be(new DateTime(2026, 8, 13));
         bound.ProductionOrderLines!.Single().ItemNo.Should().Be("RM-100");
+
+        JsonSerializer.Serialize(bound, BindingOptions)
+            .Should().Contain("\"U_ParentProdOrd\":\"10\"")
+            .And.NotContain("ParentProductionOrderNo");
     }
 
     [Test]
@@ -71,6 +77,7 @@ public class ProductionOrderRequestBindingTests
           "Type": "bopotStandard",
           "ProductionCategory": "JOB",
           "DrawingNo": "DWG-7",
+          "ParentProductionOrderNo": "10",
           "SalesOrderDocNum": 252610128,
           "SalesOrderDocEntry": 156
         }
@@ -84,6 +91,7 @@ public class ProductionOrderRequestBindingTests
         bound.Type.Should().BeNull();
         bound.ProductionCategory.Should().BeNull();
         bound.DrawingNo.Should().BeNull();
+        bound.ParentProductionOrderNo.Should().BeNull();
         bound.SalesOrderDocNum.Should().BeNull();
         bound.SalesOrderDocEntry.Should().BeNull();
     }
@@ -97,7 +105,12 @@ public class ProductionOrderRequestBindingTests
 
         bound!.ProductionCategory.Should().BeNull();
         bound.DrawingNo.Should().BeNull();
+        bound.ParentProductionOrderNo.Should().BeNull();
 
-        JsonSerializer.Serialize(bound).Should().NotContain("U_ProdType").And.NotContain("U_DwgNo");
+        JsonSerializer.Serialize(bound)
+            .Should().NotContain("U_ProdType")
+            .And.NotContain("U_DwgNo")
+            .And.NotContain("U_ParentProdOrd")
+            .And.NotContain("ParentProductionOrderNo");
     }
 }

@@ -4,7 +4,7 @@ import { PageHeader } from "@/Components/shared/PageHeader";
 import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } from "@/Components/shared/RowActions";
 import { DataTable, type DataTableColumn } from "@/Components/ui";
 import { ROUTES } from "@/config/constants";
-import { formatDate } from "@/helpers/lib/utils";
+import { formatDateTime } from '@/helpers/lib/utils'
 import { formatCodeWithName } from "@/helpers/masterLookup";
 import { useEnrichedListFetch } from "@/hooks/useEnrichedListFetch";
 import {
@@ -43,7 +43,7 @@ export function IssueForProductionListPage() {
         key: "createdOnUtc",
         header: "Date",
         sortable: true,
-        accessor: (r) => (r.createdOnUtc ? formatDate(r.createdOnUtc) : "—"),
+        accessor: (r) => (r.createdOnUtc ? formatDateTime(r.createdOnUtc) : "—"),
       },
       {
         key: "cardName",

@@ -50,3 +50,61 @@ export function validateProductionOrderForm(
   if (lines.some((line) => (line.PlannedQuantity ?? 0) <= 0)) return 'Every component line needs a quantity greater than zero.'
   return null
 }
+
+export function validateSubassemblyHeaderForm(order: ProductionOrder): string | null {
+  if (!order.ItemNumber) return 'Product No. is required.'
+  if (!order.PlannedQuantity || order.PlannedQuantity <= 0) return 'Planned quantity must be greater than zero.'
+  if (!order.ParentProductionOrderNo) return 'Parent production order is required.'
+  if (!order.Warehouse) return 'Receipt Warehouse is required.'
+  return null
+}
+
+export function validateSubassemblyItemsForm(lines: ProductionOrderLine[]): string | null {
+  if (!lines.length) return 'Add at least one item.'
+  if (lines.some((line) => !line.ItemNo)) return 'Every item needs an item code.'
+  if (lines.some((line) => (line.PlannedQuantity ?? 0) <= 0)) return 'Every item needs a quantity greater than zero.'
+  return null
+}
+
+export function productionOrderStatusLabel(status?: string): string {
+  switch (status) {
+    case 'boposPlanned':
+      return 'Planned'
+    case 'boposReleased':
+      return 'Released'
+    case 'boposClosed':
+      return 'Closed'
+    case 'boposCancelled':
+      return 'Cancelled'
+    default:
+      return status || '—'
+  }
+}
+
+/** Seeds a child production order from the saved parent, including the parent UDF. */
+export function buildSubassemblyDraftFromParent(parent: ProductionOrder): ProductionOrder {
+  const parentNo = parent.DocumentNumber != null ? String(parent.DocumentNumber) : ''
+  return {
+    ItemNumber: '',
+    ProductDescription: '',
+    DrawingNo: '',
+    PlannedQuantity: parent.PlannedQuantity && parent.PlannedQuantity > 0 ? parent.PlannedQuantity : 1,
+    Status: 'boposPlanned',
+    Type: parent.Type ?? 'bopotStandard',
+    ProductionCategory: parent.ProductionCategory ?? 'JOB',
+    CustomerCode: parent.CustomerCode,
+    CustomerName: parent.CustomerName,
+    Project: parent.Project,
+    ProjectName: parent.ProjectName,
+    Warehouse: parent.Warehouse,
+    IssWarehouse: parent.IssWarehouse,
+    SalesOrderDocNum: parent.SalesOrderDocNum,
+    SalesOrderDocEntry: parent.SalesOrderDocEntry,
+    PostingDate: parent.PostingDate,
+    StartDate: parent.StartDate,
+    DueDate: parent.DueDate,
+    Remarks: parent.Remarks,
+    ParentProductionOrderNo: parentNo,
+    ProductionOrderLines: [],
+  }
+}

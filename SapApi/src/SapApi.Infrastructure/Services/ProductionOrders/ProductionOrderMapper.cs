@@ -24,6 +24,7 @@ public static class ProductionOrderMapper
         ["project"] = ["Project", "ProjectName"],
         ["projectName"] = ["Project", "ProjectName"],
         ["drawingNo"] = ["DrawingNo"],
+        ["parentProductionOrderNo"] = ["ParentProductionOrderNo"],
         ["warehouse"] = ["Warehouse"],
         ["productionCategory"] = ["ProductionCategory"],
     };
@@ -83,6 +84,7 @@ public static class ProductionOrderMapper
         entity.Type = sap.Type;
         entity.ProductionCategory = NullIfBlank(sap.ProductionCategory);
         entity.DrawingNo = NullIfBlank(sap.DrawingNo);
+        entity.ParentProductionOrderNo = NullIfBlank(sap.ParentProductionOrderNo);
         entity.PlannedQuantity = sap.PlannedQuantity;
         entity.CompletedQuantity = sap.CompletedQuantity;
         entity.RejectedQuantity = sap.RejectedQuantity;
@@ -175,6 +177,9 @@ public static class ProductionOrderMapper
             Type = entity.Type,
             ProductionCategory = entity.ProductionCategory ?? string.Empty,
             DrawingNo = entity.DrawingNo ?? string.Empty,
+            ParentProductionOrderNo = string.IsNullOrWhiteSpace(entity.ParentProductionOrderNo)
+                ? null
+                : entity.ParentProductionOrderNo,
             PlannedQuantity = entity.PlannedQuantity ?? 0,
             CompletedQuantity = entity.CompletedQuantity ?? 0,
             RejectedQuantity = entity.RejectedQuantity ?? 0,

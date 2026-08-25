@@ -21,8 +21,27 @@ namespace SapApi.Infrastructure.Services.Sap
     {
         public Task<PaginationResponse<List<SapProductionOrdersResponse>>> GetAllProductionOrdersPaginated(
             PaginationRequest request,
+            bool excludeSubassemblies = true,
             CancellationToken cancellationToken = default) =>
-            localStore.ListFromDbAsync(request, cancellationToken);
+            localStore.ListFromDbAsync(request, excludeSubassemblies, cancellationToken);
+
+        public Task<List<SapProductionOrdersResponse>?> ListSubassembliesAsync(
+            int parentAbsoluteEntry,
+            CancellationToken cancellationToken = default) =>
+            localStore.ListSubassembliesAsync(parentAbsoluteEntry, cancellationToken);
+
+        public async Task<SapProductionOrdersResponse?> CancelProductionOrderAsync(
+            int absoluteEntry,
+            int? policyRequestId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var order = await GetProductionOrders(absoluteEntry.ToString(), cancellationToken: cancellationToken);
+            if (order is null)
+                return null;
+
+            order.Status = Constants.SapProductionOrderStatus.Cancelled;
+            return await UpdateProductionOrderAsync(order, policyRequestId, cancellationToken);
+        }
 
         public Task<List<SapProductionOrderLines>> GetProductionOrderLines(
             string docEntry,

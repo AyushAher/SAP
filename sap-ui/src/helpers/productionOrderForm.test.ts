@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyProductionCategoryDefaults,
+  buildSubassemblyDraftFromParent,
   validateProductionOrderForm,
+  validateSubassemblyHeaderForm,
+  validateSubassemblyItemsForm,
 } from '@/helpers/productionOrderForm'
 import type { ProductionOrder, ProductionOrderLine } from '@/types/production'
 
@@ -78,5 +81,67 @@ describe('applyProductionCategoryDefaults', () => {
 
     expect(order.Warehouse).toBe('Subcon')
     expect(lines[0].Warehouse).toBe('Store1')
+  })
+})
+
+describe('validateSubassemblyHeaderForm', () => {
+  const validChild: ProductionOrder = {
+    ItemNumber: 'SA-001',
+    PlannedQuantity: 2,
+    ParentProductionOrderNo: '10',
+    Warehouse: 'WIP',
+  }
+
+  it('accepts a complete sub-assembly header', () => {
+    expect(validateSubassemblyHeaderForm(validChild)).toBeNull()
+  })
+
+  it('requires the product, quantity, parent, and receipt warehouse', () => {
+    expect(validateSubassemblyHeaderForm({ ...validChild, ItemNumber: undefined }))
+      .toBe('Product No. is required.')
+    expect(validateSubassemblyHeaderForm({ ...validChild, PlannedQuantity: 0 }))
+      .toBe('Planned quantity must be greater than zero.')
+    expect(validateSubassemblyHeaderForm({ ...validChild, ParentProductionOrderNo: undefined }))
+      .toBe('Parent production order is required.')
+    expect(validateSubassemblyHeaderForm({ ...validChild, Warehouse: undefined }))
+      .toBe('Receipt Warehouse is required.')
+  })
+})
+
+describe('validateSubassemblyItemsForm', () => {
+  it('requires at least one item with a code and quantity', () => {
+    expect(validateSubassemblyItemsForm([])).toBe('Add at least one item.')
+    expect(validateSubassemblyItemsForm([{ PlannedQuantity: 1 }])).toBe('Every item needs an item code.')
+    expect(validateSubassemblyItemsForm([{ ItemNo: 'RM-100', PlannedQuantity: 0 }]))
+      .toBe('Every item needs a quantity greater than zero.')
+    expect(validateSubassemblyItemsForm([{ ItemNo: 'RM-100', PlannedQuantity: 4 }])).toBeNull()
+  })
+})
+
+describe('buildSubassemblyDraftFromParent', () => {
+  it('copies parent fields and stores the parent DocumentNumber on the UDF', () => {
+    const draft = buildSubassemblyDraftFromParent({
+      AbsoluteEntry: 646,
+      DocumentNumber: 10,
+      CustomerCode: 'C000017',
+      Project: 'PRJ-1',
+      Warehouse: 'WIP',
+      IssWarehouse: 'Store1',
+      Type: 'bopotSpecial',
+      ProductionCategory: 'INT',
+      PlannedQuantity: 12,
+      SalesOrderDocNum: 252610128,
+      SalesOrderDocEntry: 156,
+    })
+
+    expect(draft.ParentProductionOrderNo).toBe('10')
+    expect(draft.CustomerCode).toBe('C000017')
+    expect(draft.Project).toBe('PRJ-1')
+    expect(draft.Warehouse).toBe('WIP')
+    expect(draft.Type).toBe('bopotSpecial')
+    expect(draft.ProductionCategory).toBe('INT')
+    expect(draft.SalesOrderDocNum).toBe(252610128)
+    expect(draft.ItemNumber).toBe('')
+    expect(draft.ProductionOrderLines).toEqual([])
   })
 })

@@ -146,6 +146,14 @@ namespace SapApi.Shared
             public const string Customer = "cCustomer";
             public const string Vendor = "cSupplier";
         }
+        public static class SapProductionOrderUdf
+        {
+            /// <summary>
+            /// Placeholder SAP header UDF storing the parent production order DocumentNumber.
+            /// Swap this string when the real field name is confirmed.
+            /// </summary>
+            public const string ParentProductionOrder = "U_ParentProdOrd";
+        }
         public static class SapProductionOrderStatus
         {
             public const string Planned = "boposPlanned";

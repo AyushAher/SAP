@@ -1,6 +1,7 @@
 import { CheckCircle2, Clock, XCircle } from 'lucide-react'
 import { Badge } from '@/Components/ui'
 import { getApprovalStatusBadgeVariant, getApproverDisplayName, groupApprovalsByLevel } from '@/helpers/approvalUtils'
+import { formatDateTime } from '@/helpers/lib/utils'
 import type { UserApproval } from '@/Requests/approvals'
 
 function levelStatus(approvers: UserApproval[]): string {
@@ -54,7 +55,7 @@ export function ApprovalTimeline({ userApprovals }: ApprovalTimelineProps) {
                       <span className="text-slate-400"> · {approval.approvalStatus}</span>
                     )}
                     {approval.actionDate && approval.approvalStatus !== 'Pending' && (
-                      <span className="text-slate-400"> · {new Date(approval.actionDate).toLocaleString()}</span>
+                      <span className="text-slate-400"> · {formatDateTime(approval.actionDate)}</span>
                     )}
                     {approval.comment && (
                       <p className="mt-1 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-600">“{approval.comment}”</p>

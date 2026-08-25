@@ -68,7 +68,8 @@ describe('approvalUtils', () => {
   it('formatApprovalValue formats booleans and ISO dates', () => {
     expect(formatApprovalValue(true)).toBe('Yes')
     expect(formatApprovalValue(false)).toBe('No')
-    expect(formatApprovalValue('2024-06-01T10:00:00Z')).not.toBe('2024-06-01T10:00:00Z')
+    expect(formatApprovalValue('2024-06-01T10:00:00Z')).toBe('01/06/2024, 03:30:00 PM')
+    expect(formatApprovalValue('2024-06-01')).toBe('01/06/2024')
   })
 
   it('canActOnRequest respects read-only and status', () => {

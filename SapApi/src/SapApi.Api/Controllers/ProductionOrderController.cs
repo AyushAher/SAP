@@ -33,8 +33,12 @@ public class ProductionOrderController(
     IServiceProvider services) : ControllerBase
 {
     [HttpPost("list")]
-    public async Task<IActionResult> List([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
-        Ok(await service.GetAllProductionOrdersPaginated(PaginationRequest.Normalize(request), cancellationToken));
+    public async Task<IActionResult> List(
+        [FromBody] PaginationRequest? request,
+        [FromQuery] bool excludeSubassemblies = true,
+        CancellationToken cancellationToken = default) =>
+        Ok(await service.GetAllProductionOrdersPaginated(
+            PaginationRequest.Normalize(request), excludeSubassemblies, cancellationToken));
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id, CancellationToken cancellationToken)
@@ -43,6 +47,27 @@ public class ProductionOrderController(
         return order is null
             ? NotFound(ApiResponse<object>.Fail(BaseErrorCodes.NullValue, "Production order not found"))
             : Ok(ApiResponse<object>.Ok(order));
+    }
+
+    [HttpGet("{parentAbsoluteEntry:int}/subassemblies")]
+    public async Task<IActionResult> ListSubassemblies(int parentAbsoluteEntry, CancellationToken cancellationToken)
+    {
+        var children = await service.ListSubassembliesAsync(parentAbsoluteEntry, cancellationToken);
+        return children is null
+            ? NotFound(ApiResponse<object>.Fail(BaseErrorCodes.NullValue, "Production order not found"))
+            : Ok(ApiResponse<object>.Ok(children));
+    }
+
+    [HttpPost("{absoluteEntry:int}/cancel")]
+    public async Task<IActionResult> Cancel(
+        int absoluteEntry,
+        [FromQuery] int? policyRequestId,
+        CancellationToken cancellationToken)
+    {
+        var result = await service.CancelProductionOrderAsync(absoluteEntry, policyRequestId, cancellationToken);
+        return result is null
+            ? NotFound(ApiResponse<object>.Fail(BaseErrorCodes.NullValue, "Production order not found"))
+            : Ok(ApiResponse<object>.Ok(result));
     }
 
     [HttpGet("{id}/lines")]

@@ -1,5 +1,6 @@
 import type { BadgeProps } from '@/Components/ui'
 import type { ApprovalRequest, UserApproval } from '@/Requests/approvals'
+import { formatDisplayDate } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 
 export function parseRequestBody(requestBody?: string): Record<string, unknown> | null {
@@ -46,7 +47,7 @@ export function formatApprovalValue(value: unknown): string {
     if (!Number.isNaN(date) && value.length >= 8) {
       const parsed = new Date(date)
       if (parsed.getFullYear() > 1900 && parsed.getFullYear() < 2100) {
-        return parsed.toLocaleString()
+        return formatDisplayDate(value)
       }
     }
     return value

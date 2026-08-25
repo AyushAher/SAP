@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ProductionOrderSubassembliesCard } from '@/Components/production/ProductionOrderSubassembliesCard'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { SelectableSapDataGrid } from '@/Components/shared/SelectableSapDataGrid'
 import type { SapColumn } from '@/Components/shared/SapDataGrid'
 import { Button, Card, CardContent, Input, SapDateInput, SearchableSelect, Select } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
-import { toIsoDateOnly } from '@/helpers/lib/utils'
+import { todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import { formatCodeWithName, resolveMasterSelectLabels, resolveProject } from '@/helpers/masterLookup'
 import { applyProductionCategoryDefaults, validateProductionOrderForm } from '@/helpers/productionOrderForm'
 import { toast } from '@/helpers/toast'
@@ -47,14 +48,6 @@ const CATEGORY_OPTIONS = [
   { value: 'INT', label: 'INT - Factory' },
 ]
 
-function today(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 export function ProductionOrderFormPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -67,9 +60,9 @@ export function ProductionOrderFormPage() {
     Status: 'boposPlanned',
     Type: 'bopotStandard',
     ProductionCategory: 'JOB',
-    PostingDate: today(),
-    StartDate: today(),
-    DueDate: today(),
+    PostingDate: todayIsoDate(),
+    StartDate: todayIsoDate(),
+    DueDate: todayIsoDate(),
     ProductionOrderLines: [],
   })
   const [lines, setLines] = useState<ProductionOrderLine[]>([])
@@ -267,9 +260,9 @@ export function ProductionOrderFormPage() {
       const payload: ProductionOrder = {
         ...form,
         ProductionOrderLines: submittedLines,
-        PostingDate: toIsoDateOnly(form.PostingDate) ?? today(),
-        StartDate: toIsoDateOnly(form.StartDate) ?? today(),
-        DueDate: toIsoDateOnly(form.DueDate) ?? today(),
+        PostingDate: toIsoDateOnly(form.PostingDate) ?? todayIsoDate(),
+        StartDate: toIsoDateOnly(form.StartDate) ?? todayIsoDate(),
+        DueDate: toIsoDateOnly(form.DueDate) ?? todayIsoDate(),
       }
       const result = id
         ? await updateProductionOrder(Number(id), payload)
@@ -492,6 +485,7 @@ export function ProductionOrderFormPage() {
           </form>
         </CardContent>
       </Card>
+      <ProductionOrderSubassembliesCard parent={form} />
     </div>
   )
 }

@@ -18,6 +18,8 @@ import { InventoryTransferListPage } from '@/Pages/inventory-transfers/Inventory
 import { StockTransferFormPage } from '@/Pages/inventory-transfers/StockTransferFormPage'
 import { ProductionOrderListPage } from '@/Pages/production-orders/ProductionOrderListPage'
 import { ProductionOrderFormPage } from '@/Pages/production-orders/ProductionOrderFormPage'
+import { SubassemblyFormPage } from '@/Pages/production-orders/SubassemblyFormPage'
+import { SubassemblyItemsPage } from '@/Pages/production-orders/SubassemblyItemsPage'
 import { IssueForProductionListPage } from '@/Pages/production/IssueForProductionListPage'
 import { IssueForProductionFormPage } from '@/Pages/production/IssueForProductionFormPage'
 import { ReceiptFromProductionListPage } from '@/Pages/production/ReceiptFromProductionListPage'
@@ -56,6 +58,8 @@ export const router = createBrowserRouter([
           { path: ROUTES.INVENTORY_TRANSFERS.slice(1), element: <InventoryTransferListPage /> },
           { path: 'inventory-transfers/form/:id?', element: <StockTransferFormPage /> },
           { path: ROUTES.PRODUCTION_ORDERS.slice(1), element: <ProductionOrderListPage /> },
+          { path: 'production-orders/form/:id/subassemblies/:childId/items', element: <SubassemblyItemsPage /> },
+          { path: 'production-orders/form/:id/subassemblies/:childId?', element: <SubassemblyFormPage /> },
           { path: 'production-orders/form/:id?', element: <ProductionOrderFormPage /> },
           { path: ROUTES.ISSUE_FOR_PRODUCTION.slice(1), element: <IssueForProductionListPage /> },
           { path: 'issue-for-production/form/:id?', element: <IssueForProductionFormPage /> },

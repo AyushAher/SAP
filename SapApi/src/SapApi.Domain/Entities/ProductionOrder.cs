@@ -25,6 +25,11 @@ public class ProductionOrder : ISoftDeletable
     /// <summary>U_DwgNo.</summary>
     public string? DrawingNo { get; set; }
 
+    /// <summary>
+    /// Parent production order DocumentNumber (SAP header UDF, placeholder name U_ParentProdOrd).
+    /// </summary>
+    public string? ParentProductionOrderNo { get; set; }
+
     public double? PlannedQuantity { get; set; }
     public double? CompletedQuantity { get; set; }
     public double? RejectedQuantity { get; set; }

@@ -511,6 +511,10 @@ describe('PO display dates', () => {
     expect(formatPoDisplayDate('2026-08-17')).toBe('17/08/2026')
   })
 
+  it('formats UTC datetimes as the IST calendar date', () => {
+    expect(formatPoDisplayDate('2026-08-16T18:30:00Z')).toBe('17/08/2026')
+  })
+
   it('parses dd/MM/yyyy and ddMMyyyy back to ISO', () => {
     expect(parsePoDisplayDate('17/08/2026')).toBe('2026-08-17')
     expect(parsePoDisplayDate('17082026')).toBe('2026-08-17')

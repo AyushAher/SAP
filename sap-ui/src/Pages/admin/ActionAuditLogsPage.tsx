@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { DataTable, type DataTableColumn, Badge, Card, CardContent } from '@/Components/ui'
-import { formatDate } from '@/helpers/lib/utils'
+import { formatDateTime } from '@/helpers/lib/utils'
 import { listActionAuditLogs, type ActionAuditLogRow } from '@/Requests/auditLogs'
 
 function statusVariant(code: number): 'success' | 'danger' | 'warning' | 'default' {
@@ -17,7 +17,7 @@ export function ActionAuditLogsPage() {
       key: 'createdAt',
       header: 'When',
       sortable: true,
-      accessor: (row) => (row.createdAt ? formatDate(row.createdAt) : '—'),
+      accessor: (row) => (row.createdAt ? formatDateTime(row.createdAt) : '—'),
     },
     {
       key: 'action',

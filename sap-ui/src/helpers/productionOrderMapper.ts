@@ -1,3 +1,5 @@
+import { PARENT_PRODUCTION_ORDER_UDF } from '@/config/constants'
+import { todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import type { ProductionOrder, ProductionOrderLine, ProductionOrderSelection } from '@/types/production'
 
 const RELEASED_STATUS = 'boposReleased'
@@ -46,6 +48,13 @@ export function normalizeProductionOrder(raw: ProductionOrder | Record<string, u
     ProjectName: readString(source, 'ProjectName', 'projectName', 'U_PrjName', 'u_PrjName'),
     Warehouse: readString(source, 'Warehouse', 'warehouse'),
     DrawingNo: readString(source, 'DrawingNo', 'drawingNo', 'U_DwgNo', 'u_DwgNo'),
+    ParentProductionOrderNo: readString(
+      source,
+      'ParentProductionOrderNo',
+      'parentProductionOrderNo',
+      PARENT_PRODUCTION_ORDER_UDF,
+      'u_ParentProdOrd',
+    ),
     Remarks: readString(source, 'Remarks', 'remarks'),
     SalesOrderDocNum: readNumber(source, 'SalesOrderDocNum', 'ProductionOrderOriginNumber', 'productionOrderOriginNumber'),
     SalesOrderDocEntry: readNumber(source, 'SalesOrderDocEntry', 'ProductionOrderOriginEntry', 'productionOrderOriginEntry'),
@@ -103,7 +112,7 @@ export function toProductionOrderPayload(
   }
   // SAP holds production order dates at midnight, and the date inputs produce plain dates, so
   // everything is sent date-only: a datetime with no zone would be read as a different instant.
-  const setDate = (key: string, value: string | undefined) => set(key, value?.slice(0, 10))
+  const setDate = (key: string, value: string | undefined) => set(key, toIsoDateOnly(value))
 
   set('AbsoluteEntry', order.AbsoluteEntry)
   set('DocumentNumber', order.DocumentNumber)
@@ -112,6 +121,7 @@ export function toProductionOrderPayload(
   set('ProductionOrderType', order.Type)
   set('U_ProdType', order.ProductionCategory)
   set('U_DwgNo', order.DrawingNo)
+  set(PARENT_PRODUCTION_ORDER_UDF, order.ParentProductionOrderNo)
   set('ProductDescription', order.ProductDescription)
   set('CustomerCode', order.CustomerCode)
   // U_CustomerName does not exist on OWOR; the API drops it before calling SAP, but the issue and
@@ -134,7 +144,7 @@ export function toProductionOrderPayload(
   payload.PlannedQuantity = order.PlannedQuantity ?? 0
   payload.CompletedQuantity = order.CompletedQuantity ?? 0
   payload.RejectedQuantity = order.RejectedQuantity ?? 0
-  payload.PostingDate = (order.PostingDate ?? new Date().toISOString()).slice(0, 10)
+  payload.PostingDate = toIsoDateOnly(order.PostingDate) ?? todayIsoDate()
 
   payload.ProductionOrderLines = (lines ?? order.ProductionOrderLines ?? []).map((line) => ({ ...line }))
 

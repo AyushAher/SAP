@@ -380,6 +380,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.Type).HasMaxLength(32);
             entity.Property(e => e.ProductionCategory).HasMaxLength(10);
             entity.Property(e => e.DrawingNo).HasMaxLength(60);
+            entity.Property(e => e.ParentProductionOrderNo).HasMaxLength(20);
             entity.Property(e => e.Warehouse).HasMaxLength(20);
             entity.Property(e => e.InventoryUom).HasMaxLength(20);
             entity.Property(e => e.CustomerCode).HasMaxLength(50);
@@ -394,6 +395,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.HasIndex(e => new { e.CompanyDb, e.Project });
             entity.HasIndex(e => new { e.CompanyDb, e.ItemNo });
             entity.HasIndex(e => new { e.CompanyDb, e.SalesOrderDocNum });
+            entity.HasIndex(e => new { e.CompanyDb, e.ParentProductionOrderNo });
             entity.HasMany(e => e.Lines).WithOne(l => l.ProductionOrder).HasForeignKey(l => l.ProductionOrderId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

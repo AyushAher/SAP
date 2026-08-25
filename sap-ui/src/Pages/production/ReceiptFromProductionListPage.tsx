@@ -4,7 +4,7 @@ import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
-import { formatDate } from '@/helpers/lib/utils'
+import { formatDateTime } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { downloadReceiptFromProductionPdf, listReceiptFromProduction, type ReceiptFromProductionRequest } from '@/Requests/receiptFromProduction'
@@ -31,7 +31,7 @@ export function ReceiptFromProductionListPage() {
       filterable: true,
       filterType: 'date',
       filterPlaceholder: 'Filter date',
-      accessor: (r) => (r.createdOnUtc ? formatDate(r.createdOnUtc) : '—'),
+      accessor: (r) => (r.createdOnUtc ? formatDateTime(r.createdOnUtc) : '—'),
     },
     {
       key: 'cardName',

@@ -10,6 +10,7 @@ const languageOptions = [
 ]
 
 const timezoneOptions = [
+  { value: 'ist', label: 'India Standard Time (IST)' },
   { value: 'utc', label: 'UTC' },
   { value: 'est', label: 'Eastern Time (EST)' },
   { value: 'pst', label: 'Pacific Time (PST)' },
@@ -19,7 +20,7 @@ const timezoneOptions = [
 export function SettingsPage() {
   const user = useAppSelector((state) => state.auth.user)
   const [language, setLanguage] = useState('en')
-  const [timezone, setTimezone] = useState('utc')
+  const [timezone, setTimezone] = useState('ist')
   const [emailNotifs, setEmailNotifs] = useState(true)
   const [darkMode, setDarkMode] = useState(false)
 

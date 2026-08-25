@@ -79,11 +79,15 @@ public class ProductionOrderLocalStore(
 
     public async Task<PaginationResponse<List<SapProductionOrdersResponse>>> ListFromDbAsync(
         PaginationRequest request,
+        bool excludeSubassemblies = true,
         CancellationToken cancellationToken = default)
     {
         var query = db.ProductionOrders
             .AsNoTracking()
             .Where(x => x.CompanyDb == CompanyDb);
+
+        if (excludeSubassemblies)
+            query = query.Where(x => x.ParentProductionOrderNo == null || x.ParentProductionOrderNo == "");
 
         if (request.Sorts.Count == 0)
             query = query.OrderByDescending(x => x.AbsoluteEntry);
@@ -134,6 +138,40 @@ public class ProductionOrderLocalStore(
     }
 
     /// <summary>
+    /// Child production orders whose parent UDF matches this order's DocumentNumber.
+    /// Cancelled children are omitted.
+    /// </summary>
+    public async Task<List<SapProductionOrdersResponse>?> ListSubassembliesAsync(
+        int parentAbsoluteEntry,
+        CancellationToken cancellationToken = default)
+    {
+        var parent = await db.ProductionOrders
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.CompanyDb == CompanyDb && x.AbsoluteEntry == parentAbsoluteEntry,
+                cancellationToken);
+        if (parent is null)
+            return null;
+
+        var parentNo = parent.DocumentNumber?.ToString();
+        if (string.IsNullOrWhiteSpace(parentNo))
+            return [];
+
+        var cancelled = Constants.SapProductionOrderStatus.Cancelled;
+        var children = await db.ProductionOrders
+            .AsNoTracking()
+            .Where(x =>
+                x.CompanyDb == CompanyDb
+                && x.ParentProductionOrderNo == parentNo
+                && x.Status != cancelled)
+            .OrderBy(x => x.DocumentNumber)
+            .ThenBy(x => x.AbsoluteEntry)
+            .ToListAsync(cancellationToken);
+
+        return children.Select(e => ProductionOrderMapper.ToSapResponse(e, includeLines: false)).ToList();
+    }
+
+    /// <summary>
     /// The UI sends the column keys it displays; the mirror columns are named after the entity.
     /// Only aliases that are not already an entity property are translated.
     /// </summary>
@@ -148,6 +186,8 @@ public class ProductionOrderLocalStore(
         ["U_PrjName"] = "ProjectName",
         ["U_DwgNo"] = "DrawingNo",
         ["U_ProdType"] = "ProductionCategory",
+        [Constants.SapProductionOrderUdf.ParentProductionOrder] = "ParentProductionOrderNo",
+        ["ParentProductionOrderNo"] = "ParentProductionOrderNo",
     };
 
     private static List<FilterModel> MapFilterFields(IEnumerable<FilterModel> filters) =>

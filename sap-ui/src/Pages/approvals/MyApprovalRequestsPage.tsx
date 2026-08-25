@@ -13,6 +13,7 @@ import {
   getBusinessPartnerDisplayFromRequest,
   getCardCodeFromRequest,
 } from '@/helpers/approvalUtils'
+import { formatDateTime } from '@/helpers/lib/utils'
 import { toast } from '@/helpers/toast'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { listMyApprovalRequests, retrySapExecution, type ApprovalRequest } from '@/Requests/approvals'
@@ -91,7 +92,7 @@ export function MyApprovalRequestsPage() {
         ? <span title={r.failureReason} className="inline-flex items-center gap-1 text-red-600"><AlertTriangle className="h-4 w-4" /> Failed</span>
         : null,
     },
-    { key: 'createdAt', header: 'Created', sortable: true, accessor: (r) => new Date(r.createdAt).toLocaleString() },
+    { key: 'createdAt', header: 'Created', sortable: true, accessor: (r) => (r.createdAt ? formatDateTime(r.createdAt) : '—') },
     {
       key: 'actions',
       header: 'Actions',
