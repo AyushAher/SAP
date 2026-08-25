@@ -1,4 +1,5 @@
 using FluentAssertions;
+using SapApi.Infrastructure.Services;
 using SapApi.Shared;
 
 namespace SapApi.Tests.Services;
@@ -22,12 +23,25 @@ public class DownPaymentOutgoingPaymentSplitTests
         double expectedBasicNet,
         double expectedGstNet)
     {
-        var basicNet = Math.Round(Math.Max(0, gross - tds), 2);
-        var gstNet = Math.Round(gst, 2);
+        var basicNet = StageWisePaymentCalculations.NetDownPaymentApplication(gross, isGst: false, tds);
+        var gstNet = StageWisePaymentCalculations.NetDownPaymentApplication(gst, isGst: true, tds: 0);
         var transferSum = Math.Round(basicNet + gstNet, 2);
 
         basicNet.Should().Be(expectedBasicNet);
         gstNet.Should().Be(expectedGstNet);
         transferSum.Should().Be(expectedBasicNet + expectedGstNet);
+    }
+
+    [Test]
+    public void NetOutgoing_DeductsTdsOnEachBasicDownPayment()
+    {
+        var first = StageWisePaymentCalculations.NetDownPaymentApplication(10000, isGst: false, tds: 100);
+        var second = StageWisePaymentCalculations.NetDownPaymentApplication(5000, isGst: false, tds: 50);
+        var gst = StageWisePaymentCalculations.NetDownPaymentApplication(1800, isGst: true, tds: 0);
+
+        first.Should().Be(9900);
+        second.Should().Be(4950);
+        gst.Should().Be(1800);
+        Math.Round(first + second + gst, 2).Should().Be(16650);
     }
 }

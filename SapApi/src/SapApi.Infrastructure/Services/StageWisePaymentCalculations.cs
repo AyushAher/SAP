@@ -84,18 +84,19 @@ public static class StageWisePaymentCalculations
             && r.GrossAmount is > 0);
 
     /// <summary>
-    /// Skip WT collection on a down payment when the term is GST-only, TDS was already
-    /// deducted on this PO, a prior basic DP exists, or this batch already withheld.
-    /// A prior GST-only request with Tds = 0 does not skip WT on a later basic DP.
+    /// Skip WT collection on a down payment only for GST-only terms. Every basic (advance)
+    /// down payment withholds independently so each StageWisePayments row stores that DP's
+    /// SAP WTAmount.
     /// </summary>
-    public static bool SkipDownPaymentWithholding(
-        IEnumerable<StageWisePayment> existingRecords,
-        PaymentTermsUdf? term,
-        bool tdsTakenInBatch = false) =>
-        IsGstOnlyTerm(term)
-        || tdsTakenInBatch
-        || TdsAlreadyTaken(existingRecords)
-        || HasPriorBasicDownPayment(existingRecords);
+    public static bool SkipDownPaymentWithholding(PaymentTermsUdf? term) =>
+        IsGstOnlyTerm(term);
+
+    /// <summary>
+    /// Amount applied on the outgoing payment for one SAP down payment.
+    /// GST DPs are paid in full; basic DPs are net of that DP's SAP WTAmount.
+    /// </summary>
+    public static double NetDownPaymentApplication(double amount, bool isGst, double tds) =>
+        Math.Round(isGst ? amount : Math.Max(0, amount - tds), 2);
 
     /// <summary>
     /// A prior non-cancelled request already selected an AP invoice. Down-payment WT still

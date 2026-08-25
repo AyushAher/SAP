@@ -97,7 +97,7 @@ public class StageWisePaymentService(
 
         var gstOnly = StageWisePaymentCalculations.IsGstOnlyTerm(selectedPaymentTermsUdf);
         var skipDownPaymentWt = StageWisePaymentCalculations.SkipDownPaymentWithholding(
-            existingRecords, selectedPaymentTermsUdf);
+            selectedPaymentTermsUdf);
         var skipInvoiceWt = gstOnly
             || StageWisePaymentCalculations.InvoiceWithholdingAlreadyTaken(existingRecords, entity1.ApInvoiceDocEntry);
 
@@ -319,8 +319,6 @@ public class StageWisePaymentService(
         totalGross = Math.Round(totalGross, 2);
         totalGst = Math.Round(totalGst, 2);
         const string batchDesc = "Batch down payment";
-        var hadTdsDeducted = StageWisePaymentCalculations.TdsAlreadyTaken(existingRecords)
-            || StageWisePaymentCalculations.HasPriorBasicDownPayment(existingRecords);
 
         var entity = new StageWisePayment
         {
@@ -347,7 +345,7 @@ public class StageWisePaymentService(
             {
                 outgoingError = await ExecuteBatchDownPaymentCoreAsync(
                     entity, purchaseOrder, lines, paymentTerms, existingRecords, totalBasic, batchDesc, wtCode, bank,
-                    totalGross, totalGst, hadTdsDeducted, userRemark, postingDate, paymentDate, cancellationToken);
+                    totalGross, totalGst, userRemark, postingDate, paymentDate, cancellationToken);
             }
             else
             {
@@ -356,7 +354,7 @@ public class StageWisePaymentService(
                     {
                         outgoingError = await ExecuteBatchDownPaymentCoreAsync(
                             entity, purchaseOrder, lines, paymentTerms, existingRecords, totalBasic, batchDesc, wtCode, bank,
-                            totalGross, totalGst, hadTdsDeducted, userRemark, postingDate, paymentDate, ct);
+                            totalGross, totalGst, userRemark, postingDate, paymentDate, ct);
                     },
                     cancellationToken);
             }
@@ -400,7 +398,6 @@ public class StageWisePaymentService(
         string? bank,
         double totalGross,
         double totalGst,
-        bool hadTdsDeducted,
         string? userRemark,
         DateTime? postingDate,
         DateTime? paymentDate,
@@ -412,7 +409,6 @@ public class StageWisePaymentService(
             ?? throw new StageWisePaymentCreateAbortedException("Failed to allocate payment request ID.");
 
         double tdsAmount = 0;
-        var tdsTaken = hadTdsDeducted;
         var expectedDpCount = 0;
         var postedDps = new List<PostedDownPayment>();
 
@@ -428,8 +424,7 @@ public class StageWisePaymentService(
 
             var term = StageWisePaymentCalculations.ResolveDownPaymentTerm(paymentTerms, line.PaymentTermsTypes);
             var label = StageWisePaymentCalculations.FormatDownPaymentRemarkLabel(term);
-            var skipTds = StageWisePaymentCalculations.SkipDownPaymentWithholding(
-                existingRecords, term, tdsTaken);
+            var skipTds = StageWisePaymentCalculations.SkipDownPaymentWithholding(term);
             if (gross > 0) expectedDpCount++;
             if (gst > 0) expectedDpCount++;
 
@@ -450,8 +445,6 @@ public class StageWisePaymentService(
                 throw new StageWisePaymentCreateAbortedException(dpMessage);
             tdsAmount += dpTds;
             postedDps.AddRange(posted);
-            if (dpTds > 0)
-                tdsTaken = true;
         }
 
         entity.Tds = Math.Round(tdsAmount, 2);
@@ -466,7 +459,7 @@ public class StageWisePaymentService(
         if (purchaseOrder.DocumentStatus != "bost_Close"
             && HasCompleteDownPaymentDocs(entity, expectedDpCount))
         {
-            var paymentInvoices = BuildDownPaymentInvoices(postedDps, entity.Tds ?? 0);
+            var paymentInvoices = BuildDownPaymentInvoices(postedDps);
             var netOutgoing = Math.Round(paymentInvoices.Sum(x => x.SumApplied), 2);
             var (outgoingResponse, _) = await AddOutgoingPayment(
                 purchaseOrder,
@@ -540,7 +533,8 @@ public class StageWisePaymentService(
                 if (sapResponse.BaseDocNum.HasValue)
                     docNums.Add(sapResponse.BaseDocNum.Value.ToString());
                 docEntries.Add(sapResponse.BaseDocEntry.Value.ToString());
-                posted.Add(new PostedDownPayment(sapResponse.BaseDocEntry.Value, grossAmount, IsGst: false));
+                posted.Add(new PostedDownPayment(
+                    sapResponse.BaseDocEntry.Value, grossAmount, IsGst: false, Tds: basicTds));
                 tdsAmount += basicTds;
             }
             else
@@ -569,7 +563,8 @@ public class StageWisePaymentService(
                 if (sapResponse.BaseDocNum.HasValue)
                     docNums.Add(sapResponse.BaseDocNum.Value.ToString());
                 docEntries.Add(sapResponse.BaseDocEntry.Value.ToString());
-                posted.Add(new PostedDownPayment(sapResponse.BaseDocEntry.Value, gstAmount, IsGst: true));
+                posted.Add(new PostedDownPayment(
+                    sapResponse.BaseDocEntry.Value, gstAmount, IsGst: true, Tds: 0));
             }
             else
             {
@@ -636,7 +631,8 @@ public class StageWisePaymentService(
                 DocEntry = entries[entryIndex++],
                 InvoiceType = Constants.SapVendorPaymentInvoiceType.DownPayment,
                 AppliedFC = 0,
-                SumApplied = Math.Round(Math.Max(0, grossAmount - tdsAmount), 2),
+                SumApplied = StageWisePaymentCalculations.NetDownPaymentApplication(
+                    grossAmount, isGst: false, tdsAmount),
             });
         }
 
@@ -648,7 +644,8 @@ public class StageWisePaymentService(
                 DocEntry = entries[entryIndex],
                 InvoiceType = Constants.SapVendorPaymentInvoiceType.DownPayment,
                 AppliedFC = 0,
-                SumApplied = Math.Round(gstAmount, 2),
+                SumApplied = StageWisePaymentCalculations.NetDownPaymentApplication(
+                    gstAmount, isGst: true, tds: 0),
             });
         }
 
@@ -656,22 +653,14 @@ public class StageWisePaymentService(
     }
 
     private static List<PaymentInvoice> BuildDownPaymentInvoices(
-        IReadOnlyList<PostedDownPayment> posted,
-        double tdsAmount)
+        IReadOnlyList<PostedDownPayment> posted)
     {
-        var remainingTds = tdsAmount;
         var invoices = new List<PaymentInvoice>();
         var lineNumber = 0;
         foreach (var dp in posted)
         {
-            var applied = dp.Amount;
-            if (!dp.IsGst && remainingTds > 0)
-            {
-                var take = Math.Min(remainingTds, applied);
-                applied = Math.Round(applied - take, 2);
-                remainingTds = Math.Round(remainingTds - take, 2);
-            }
-
+            var applied = StageWisePaymentCalculations.NetDownPaymentApplication(
+                dp.Amount, dp.IsGst, dp.Tds);
             if (applied <= 0)
                 continue;
 
@@ -1563,5 +1552,5 @@ public class StageWisePaymentService(
 
     private enum CancelAttempt { NotFound, Succeeded, Failed }
 
-    private sealed record PostedDownPayment(int DocEntry, double Amount, bool IsGst);
+    private sealed record PostedDownPayment(int DocEntry, double Amount, bool IsGst, double Tds);
 }

@@ -173,4 +173,22 @@ public class DownPaymentLineAllocationTests
 
         lines[0].WTLiable.Should().Be(Constants.SapBoolean.SapFalse);
     }
+
+    [Test]
+    public void BuildDownPaymentDocumentLines_AppliesWtOnLaterBasicDownPayment()
+    {
+        var po = new SapPurchaseOrdersResponse
+        {
+            DocEntry = 1,
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests { ItemCode = "A", LineNum = 0, LineTotal = 100 },
+            ],
+        };
+
+        var lines = StageWisePaymentService.BuildDownPaymentDocumentLines(
+            po, po.DocumentLines!, amount: 50, isGst: false, hadTdsDeducted: false);
+
+        lines[0].WTLiable.Should().Be(Constants.SapBoolean.SapTrue);
+    }
 }

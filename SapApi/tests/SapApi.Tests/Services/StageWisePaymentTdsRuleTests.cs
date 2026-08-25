@@ -67,30 +67,29 @@ public class StageWisePaymentTdsRuleTests
     }
 
     [Test]
-    public void SkipDownPaymentWithholding_TakesWtOnFirstBasicEvenAfterGstOnlyPrior()
+    public void SkipDownPaymentWithholding_SkipsGstOnlyAndWithholdsEveryBasicDp()
     {
         var gstTerm = Terms[0];
         var basicTerm = Terms[1];
-        var priorGstOnly = new StageWisePayment
-        {
-            Status = StageWisePaymentStatus.Added,
-            GrossAmount = 0,
-            GstAmount = 740,
-            Tds = 0,
-        };
 
-        StageWisePaymentCalculations.SkipDownPaymentWithholding([], gstTerm)
+        StageWisePaymentCalculations.SkipDownPaymentWithholding(gstTerm)
             .Should().BeTrue();
-        StageWisePaymentCalculations.SkipDownPaymentWithholding([], basicTerm)
-            .Should().BeFalse();
-        StageWisePaymentCalculations.SkipDownPaymentWithholding([priorGstOnly], basicTerm)
+        StageWisePaymentCalculations.SkipDownPaymentWithholding(basicTerm)
             .Should().BeFalse();
         StageWisePaymentCalculations.SkipDownPaymentWithholding(
-                [new StageWisePayment { Status = StageWisePaymentStatus.Added, GrossAmount = 10000, Tds = 100 }],
-                basicTerm)
-            .Should().BeTrue();
-        StageWisePaymentCalculations.SkipDownPaymentWithholding([], basicTerm, tdsTakenInBatch: true)
-            .Should().BeTrue();
+                new PaymentTermsUdf { Id = 3, Basic = 50, Gst = 18, Type = "Advance" })
+            .Should().BeFalse();
+    }
+
+    [Test]
+    public void NetDownPaymentApplication_NetsEachBasicDpIndependently()
+    {
+        StageWisePaymentCalculations.NetDownPaymentApplication(10000, isGst: false, tds: 100)
+            .Should().Be(9900);
+        StageWisePaymentCalculations.NetDownPaymentApplication(5000, isGst: false, tds: 50)
+            .Should().Be(4950);
+        StageWisePaymentCalculations.NetDownPaymentApplication(1800, isGst: true, tds: 100)
+            .Should().Be(1800);
     }
 
     [Test]
