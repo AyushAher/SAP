@@ -233,6 +233,8 @@ public class ApprovalExecutionService(
                             else
                                 item.ApDownPaymentInvoiceEntryNumber += "," + dpResponse?.DocNum;
                             item.DownPaymentDocEntry = AppendDocEntry(item.DownPaymentDocEntry, docEntry);
+                            if (dpResponse?.WTAmount is > 0)
+                                item.Tds = Math.Round((item.Tds ?? 0) + dpResponse.WTAmount.Value, 2);
                             context.AttachModified(item);
                         }
                         await unitOfWork.ExecuteInTransactionAsync(_ => Task.CompletedTask, cancellationToken);

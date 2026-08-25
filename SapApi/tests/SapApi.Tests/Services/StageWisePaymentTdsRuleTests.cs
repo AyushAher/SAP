@@ -53,6 +53,47 @@ public class StageWisePaymentTdsRuleTests
     }
 
     [Test]
+    public void HasPriorBasicDownPayment_IgnoresGstOnlyRows()
+    {
+        StageWisePaymentCalculations.HasPriorBasicDownPayment(
+        [
+            new StageWisePayment { Status = StageWisePaymentStatus.Added, GrossAmount = 0, GstAmount = 740, Tds = 0 },
+        ]).Should().BeFalse();
+
+        StageWisePaymentCalculations.HasPriorBasicDownPayment(
+        [
+            new StageWisePayment { Status = StageWisePaymentStatus.Added, GrossAmount = 50000, GstAmount = 0, Tds = 0 },
+        ]).Should().BeTrue();
+    }
+
+    [Test]
+    public void SkipDownPaymentWithholding_TakesWtOnFirstBasicEvenAfterGstOnlyPrior()
+    {
+        var gstTerm = Terms[0];
+        var basicTerm = Terms[1];
+        var priorGstOnly = new StageWisePayment
+        {
+            Status = StageWisePaymentStatus.Added,
+            GrossAmount = 0,
+            GstAmount = 740,
+            Tds = 0,
+        };
+
+        StageWisePaymentCalculations.SkipDownPaymentWithholding([], gstTerm)
+            .Should().BeTrue();
+        StageWisePaymentCalculations.SkipDownPaymentWithholding([], basicTerm)
+            .Should().BeFalse();
+        StageWisePaymentCalculations.SkipDownPaymentWithholding([priorGstOnly], basicTerm)
+            .Should().BeFalse();
+        StageWisePaymentCalculations.SkipDownPaymentWithholding(
+                [new StageWisePayment { Status = StageWisePaymentStatus.Added, GrossAmount = 10000, Tds = 100 }],
+                basicTerm)
+            .Should().BeTrue();
+        StageWisePaymentCalculations.SkipDownPaymentWithholding([], basicTerm, tdsTakenInBatch: true)
+            .Should().BeTrue();
+    }
+
+    [Test]
     public void HasPriorInvoiceSelectedPayment_IgnoresDownPaymentsWithoutInvoice()
     {
         StageWisePaymentCalculations.HasPriorInvoiceSelectedPayment(

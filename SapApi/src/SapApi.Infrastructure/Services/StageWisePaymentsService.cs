@@ -96,9 +96,8 @@ public class StageWisePaymentService(
         entity1.Status = StageWisePaymentStatus.Added;
 
         var gstOnly = StageWisePaymentCalculations.IsGstOnlyTerm(selectedPaymentTermsUdf);
-        var skipDownPaymentWt = gstOnly
-            || StageWisePaymentCalculations.HasPriorActivePayment(existingRecords)
-            || StageWisePaymentCalculations.TdsAlreadyTaken(existingRecords);
+        var skipDownPaymentWt = StageWisePaymentCalculations.SkipDownPaymentWithholding(
+            existingRecords, selectedPaymentTermsUdf);
         var skipInvoiceWt = gstOnly
             || StageWisePaymentCalculations.InvoiceWithholdingAlreadyTaken(existingRecords, entity1.ApInvoiceDocEntry);
 
@@ -320,8 +319,8 @@ public class StageWisePaymentService(
         totalGross = Math.Round(totalGross, 2);
         totalGst = Math.Round(totalGst, 2);
         const string batchDesc = "Batch down payment";
-        var hadTdsDeducted = StageWisePaymentCalculations.HasPriorActivePayment(existingRecords)
-            || StageWisePaymentCalculations.TdsAlreadyTaken(existingRecords);
+        var hadTdsDeducted = StageWisePaymentCalculations.TdsAlreadyTaken(existingRecords)
+            || StageWisePaymentCalculations.HasPriorBasicDownPayment(existingRecords);
 
         var entity = new StageWisePayment
         {
@@ -429,7 +428,8 @@ public class StageWisePaymentService(
 
             var term = StageWisePaymentCalculations.ResolveDownPaymentTerm(paymentTerms, line.PaymentTermsTypes);
             var label = StageWisePaymentCalculations.FormatDownPaymentRemarkLabel(term);
-            var skipTds = tdsTaken || StageWisePaymentCalculations.IsGstOnlyTerm(term);
+            var skipTds = StageWisePaymentCalculations.SkipDownPaymentWithholding(
+                existingRecords, term, tdsTaken);
             if (gross > 0) expectedDpCount++;
             if (gst > 0) expectedDpCount++;
 
@@ -1057,7 +1057,7 @@ public class StageWisePaymentService(
         {
             sapResponse.BaseDocEntry = sapResponse.DocEntry;
             sapResponse.BaseDocNum = sapResponse.DocNum;
-            tdsAmount = hadTdsDeducted ? 0 : sapResponse.WTAmount ?? 0;
+            tdsAmount = (isGst || hadTdsDeducted) ? 0 : sapResponse.WTAmount ?? 0;
         }
         return (sapResponse, tdsAmount);
     }

@@ -69,11 +69,33 @@ public static class StageWisePaymentCalculations
             && r.Tds is > 0);
 
     /// <summary>
-    /// Any earlier non-cancelled request on this PO. Used to skip WT collection on later
-    /// down payments (not invoice WTAmount — that follows first invoice-selected request).
+    /// Any earlier non-cancelled request on this PO.
     /// </summary>
     public static bool HasPriorActivePayment(IEnumerable<StageWisePayment> records) =>
         records.Any(r => r.Status != StageWisePaymentStatus.Cancelled);
+
+    /// <summary>
+    /// An earlier non-cancelled request already posted a basic (non-GST) amount on this PO.
+    /// GST-only rows store GrossAmount = 0 and must not count as "TDS already used".
+    /// </summary>
+    public static bool HasPriorBasicDownPayment(IEnumerable<StageWisePayment> records) =>
+        records.Any(r =>
+            r.Status != StageWisePaymentStatus.Cancelled
+            && r.GrossAmount is > 0);
+
+    /// <summary>
+    /// Skip WT collection on a down payment when the term is GST-only, TDS was already
+    /// deducted on this PO, a prior basic DP exists, or this batch already withheld.
+    /// A prior GST-only request with Tds = 0 does not skip WT on a later basic DP.
+    /// </summary>
+    public static bool SkipDownPaymentWithholding(
+        IEnumerable<StageWisePayment> existingRecords,
+        PaymentTermsUdf? term,
+        bool tdsTakenInBatch = false) =>
+        IsGstOnlyTerm(term)
+        || tdsTakenInBatch
+        || TdsAlreadyTaken(existingRecords)
+        || HasPriorBasicDownPayment(existingRecords);
 
     /// <summary>
     /// A prior non-cancelled request already selected an AP invoice. Down-payment WT still
