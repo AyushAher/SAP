@@ -31,7 +31,7 @@ public class ProductionOrderRequestBindingTests
           "ProductionOrderType": "bopotDisassembly",
           "U_ProdType": "JOB",
           "U_DwgNo": "DWG-7",
-          "U_ParentProdOrd": "10",
+          "U_DocNum": "10",
           "ProductionOrderOriginNumber": 252610128,
           "ProductionOrderOriginEntry": 156,
           "PlannedQuantity": 5,
@@ -63,7 +63,7 @@ public class ProductionOrderRequestBindingTests
         bound.ProductionOrderLines!.Single().ItemNo.Should().Be("RM-100");
 
         JsonSerializer.Serialize(bound, BindingOptions)
-            .Should().Contain("\"U_ParentProdOrd\":\"10\"")
+            .Should().Contain("\"U_DocNum\":\"10\"")
             .And.NotContain("ParentProductionOrderNo");
     }
 
@@ -110,7 +110,7 @@ public class ProductionOrderRequestBindingTests
         JsonSerializer.Serialize(bound)
             .Should().NotContain("U_ProdType")
             .And.NotContain("U_DwgNo")
-            .And.NotContain("U_ParentProdOrd")
+            .And.NotContain("U_DocNum")
             .And.NotContain("ParentProductionOrderNo");
     }
 }

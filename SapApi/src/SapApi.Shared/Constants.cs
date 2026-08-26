@@ -92,6 +92,21 @@ namespace SapApi.Shared
                 BuildDownPayment(paymentTerms, bplId: null, poNumber);
         }
 
+        /// <summary>
+        /// PBBPL Dispatch Location → warehouse (UI Factory / Office / BP Loc).
+        /// Header U_Warehouse is not a valid OPOR UDF, so the code lives on document lines.
+        /// </summary>
+        public static class PoDispatchWarehouses
+        {
+            public const string Factory = "Store1";
+            public const string Office = "Store5";
+            public const string BpLoc = "PBPL(S)";
+
+            public static bool IsFactoryOrOffice(string? warehouseCode) =>
+                string.Equals(warehouseCode, Factory, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(warehouseCode, Office, StringComparison.OrdinalIgnoreCase);
+        }
+
         public static class Roles
         {
             public const string SuperAdmin = "SuperAdmin";
@@ -120,6 +135,17 @@ namespace SapApi.Shared
         public static string AuthServiceUrl { get; set; } = string.Empty;
         public const string SapBaseUrl = "/b1s/v1";
 
+        /// <summary>HTTP headers understood by SAP Business One Service Layer.</summary>
+        public static class SapServiceLayerHeaders
+        {
+            /// <summary>
+            /// When true, PATCH replaces collection properties (DocumentLines, DocumentSpecialLines)
+            /// instead of merging. Required on PO update because PUT is rejected on this company DB
+            /// with Invalid value [DocumentLines.GrossBuyPrice].
+            /// </summary>
+            public const string ReplaceCollectionsOnPatch = "B1S-ReplaceCollectionsOnPatch";
+        }
+
         // TODO: Get from app settings
         public const string DateTimeFormat = "dd/MM/yyyy hh:mm";
 
@@ -141,6 +167,15 @@ namespace SapApi.Shared
             public const string Document_Item = "dDocument_Items";
         }
 
+        /// <summary>OPOR UDFs written by the API and never shown on the ConnectEdge PO form.</summary>
+        public static class SapPurchaseOrderUdf
+        {
+            public const string GstText = "U_GST_";
+            public const string TdsText = "U_TDS_";
+            public const string GstTextDefault = "Extra at Actuals (If Applicable)";
+            public const string TdsTextDefault = "As per Government rules";
+        }
+
         public static class SapBusinessPartnerType
         {
             public const string Customer = "cCustomer";
@@ -149,10 +184,12 @@ namespace SapApi.Shared
         public static class SapProductionOrderUdf
         {
             /// <summary>
-            /// Placeholder SAP header UDF storing the parent production order DocumentNumber.
-            /// Swap this string when the real field name is confirmed.
+            /// OWOR header UDF storing the sub-assembly number (`{parent DocNum}/{sequence}`)
+            /// and, for legacy rows, the parent production order DocumentNumber.
             /// </summary>
-            public const string ParentProductionOrder = "U_ParentProdOrd";
+            public const string ParentProductionOrder = "U_DocNum";
+            /// <summary>OWOR header UDF for drawing number.</summary>
+            public const string DrawingNo = "U_DwgNo";
         }
         public static class SapProductionOrderStatus
         {

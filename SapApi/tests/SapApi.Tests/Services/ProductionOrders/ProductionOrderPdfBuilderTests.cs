@@ -83,6 +83,7 @@ public class ProductionOrderPdfBuilderTests
         result["uom"].Should().Be("SET");
         result["receiptWarehouse"].Should().Be("WIP");
         result["userName"].Should().Be("Ayush Aher");
+        result["printedOn"].Should().EndWith(" IST");
     }
 
     /// <summary>Codes alone are useless on paper; the mirror stores the resolved names.</summary>

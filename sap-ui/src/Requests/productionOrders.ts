@@ -174,10 +174,14 @@ export async function updateProductionOrder(id: number, data: ProductionOrder, p
   )
 }
 
-export async function listSubassemblies(parentAbsoluteEntry: string | number) {
+export async function listSubassemblies(
+  parentAbsoluteEntry: string | number,
+  options?: { includeCancelled?: boolean },
+) {
   const { apiGet } = await import('@/helpers/api/client')
+  const query = options?.includeCancelled ? '?includeCancelled=true' : ''
   const rows = await apiGet<ProductionOrder[] | { value?: ProductionOrder[] }>(
-    `/production-orders/${parentAbsoluteEntry}/subassemblies`,
+    `/production-orders/${parentAbsoluteEntry}/subassemblies${query}`,
   )
   const list = Array.isArray(rows) ? rows : (rows?.value ?? [])
   return normalizeProductionOrders(list)

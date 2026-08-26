@@ -232,6 +232,14 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_TC"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UTestCerts { get; set; }
 
+        /// <summary>GST remark (OPOR.U_GST_). Defaulted by the API; not shown in the UI.</summary>
+        [JsonPropertyName("U_GST_"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UGstText { get; set; }
+
+        /// <summary>TDS remark (OPOR.U_TDS_). Defaulted by the API; not shown in the UI.</summary>
+        [JsonPropertyName("U_TDS_"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UTdsText { get; set; }
+
         [JsonPropertyName("U_B1"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? UBasic1 { get; set; }
 

@@ -1024,7 +1024,9 @@ public class SapMasterDataService(
         {
             Filter = $"WarehouseCode eq '{safeCode}'",
             Select = SapPaginationBuilder.ResolveSelect(
-                "WarehouseCode,WarehouseName,State,City,Location", WarehouseLookupKeyFields, fields),
+                "WarehouseCode,WarehouseName,State,City,Location,Street,StreetNo,Block,BuildingFloorRoom,ZipCode,Country,FederalTaxID",
+                WarehouseLookupKeyFields,
+                fields),
             Top = "1",
         };
         var response = await GetCachedAsync<SapWarehousesResponse>(
@@ -1067,7 +1069,10 @@ public class SapMasterDataService(
         var queries = new SapQueries
         {
             Filter = $"BPLID eq {bplId.Value}",
-            Select = SapPaginationBuilder.ResolveSelect("BPLID,BPLName,Address", BusinessPlaceLookupKeyFields, fields),
+            Select = SapPaginationBuilder.ResolveSelect(
+                "BPLID,BPLName,Address,FederalTaxID,U_PANNO",
+                BusinessPlaceLookupKeyFields,
+                fields),
             Top = "1",
         };
         var response = await GetCachedAsync<SapGetAllBranchesResponse>(

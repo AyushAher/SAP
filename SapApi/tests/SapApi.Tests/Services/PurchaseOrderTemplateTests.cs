@@ -60,6 +60,7 @@ public class PurchaseOrderTemplateTests
             "Terms of Contract",
             "Prepared by:",
             "PO NO:",
+            "Project:</b> {{projectDisplay}}",
             "Printed by:",
         };
 
@@ -77,6 +78,16 @@ public class PurchaseOrderTemplateTests
     public void Both_template_copies_stay_in_sync()
     {
         TemplateHtml("Templates").Should().Be(TemplateHtml(@"wwwroot/Templates"));
+    }
+
+    [TestCase("Templates")]
+    [TestCase(@"wwwroot/Templates")]
+    public void Signature_names_sit_at_the_bottom_of_the_sign_row(string templateFolder)
+    {
+        var html = TemplateHtml(templateFolder);
+        var signBlock = html.IndexOf(".sign td", StringComparison.Ordinal);
+        signBlock.Should().BeGreaterThanOrEqualTo(0);
+        html.Substring(signBlock, 80).Should().Contain("vertical-align: bottom");
     }
 
     [TestCase("Templates")]

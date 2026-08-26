@@ -12,5 +12,12 @@
         [JsonPropertyName("State")] public string? State { get; set; }
         [JsonPropertyName("Location")] public int? Location { get; set; }
         [JsonPropertyName("City")] public string? City { get; set; }
+        [JsonPropertyName("Street")] public string? Street { get; set; }
+        [JsonPropertyName("StreetNo")] public string? StreetNo { get; set; }
+        [JsonPropertyName("Block")] public string? Block { get; set; }
+        [JsonPropertyName("BuildingFloorRoom")] public string? BuildingFloorRoom { get; set; }
+        [JsonPropertyName("ZipCode")] public string? ZipCode { get; set; }
+        [JsonPropertyName("Country")] public string? Country { get; set; }
+        [JsonPropertyName("FederalTaxID")] public string? FederalTaxID { get; set; }
     }
 }

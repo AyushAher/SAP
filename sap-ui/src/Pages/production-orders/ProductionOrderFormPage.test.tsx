@@ -79,7 +79,7 @@ describe('ProductionOrderFormPage', () => {
     apiPut.mockResolvedValue({ AbsoluteEntry: 646, DocumentNumber: 10 })
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/production-orders/646') return sapOrder as never
-      if (url === '/production-orders/646/subassemblies') return [] as never
+      if (url.startsWith('/production-orders/646/subassemblies')) return [] as never
       return {} as never
     })
   })

@@ -27,8 +27,9 @@ namespace SapApi.Infrastructure.Services.Sap
 
         public Task<List<SapProductionOrdersResponse>?> ListSubassembliesAsync(
             int parentAbsoluteEntry,
+            bool includeCancelled = false,
             CancellationToken cancellationToken = default) =>
-            localStore.ListSubassembliesAsync(parentAbsoluteEntry, cancellationToken);
+            localStore.ListSubassembliesAsync(parentAbsoluteEntry, includeCancelled, cancellationToken);
 
         public async Task<SapProductionOrdersResponse?> CancelProductionOrderAsync(
             int absoluteEntry,

@@ -29,7 +29,10 @@ export interface ProductionOrder {
   ProjectName?: string
   Warehouse?: string
   DrawingNo?: string
-  /** Parent production order DocumentNumber (SAP UDF U_ParentProdOrd until the real name is shared). */
+  /**
+   * Sub-assembly number stored on OWOR U_DocNum: `{parentDocNum}/{sequence}` (legacy rows
+   * may store only the parent DocumentNumber).
+   */
   ParentProductionOrderNo?: string
   Status?: string
   CreationDate?: string

@@ -42,10 +42,15 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             approverEmail = employee?.Email;
         }
 
+        var bplGst = (branch?.FederalTaxID ?? string.Empty).Trim();
+        var bplPan = (branch?.PanNo ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(bplPan))
+            bplPan = PanFromGstin(bplGst);
+
         var buyFrom = await BuildBuyFromAsync(order, cancellationToken);
-        var shipTo = await BuildShipToAsync(order, cancellationToken);
+        var shipTo = await BuildShipToAsync(order, bplGst, bplPan, cancellationToken);
         var currency = string.IsNullOrWhiteSpace(order.DocCurrency) ? "INR" : order.DocCurrency.Trim();
-        var docTotal = order.DocTotal ?? 0;
+        var totalBasic = TotalBasic(order);
         var deliveryFallback = order.DocDueDate ?? order.DueDate;
 
         var lines = order.DocumentLines ?? [];
@@ -99,15 +104,16 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
                 """);
         }
 
-        var terms = BuildTermsOfContract(order);
+        var terms = BuildTermsOfContract();
         var entityName = branch?.BplName ?? string.Empty;
+        var projectDisplay = FormatProject(order.Project, projectName);
 
         return new Dictionary<string, string>
         {
             ["bplName"] = Escape(entityName),
             ["bplAddr"] = Escape(branch?.Address ?? string.Empty),
-            ["bplGst"] = Escape(branch?.FederalTaxID ?? string.Empty),
-            ["bplPan"] = Escape(branch?.PanNo ?? string.Empty),
+            ["bplGst"] = Escape(bplGst),
+            ["bplPan"] = Escape(bplPan),
             ["bplEmail"] = "-",
             ["documentNo"] = Escape(order.DocNum?.ToString(CultureInfo.InvariantCulture) ?? string.Empty),
             ["documentType"] = Escape(FormatDocType(order.DocType)),
@@ -132,10 +138,11 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             ["@items"] = itemsHtml.ToString(),
             ["projectNo"] = Escape(order.Project ?? string.Empty),
             ["projectName"] = Escape(projectName),
+            ["projectDisplay"] = Escape(projectDisplay),
             ["reference"] = Escape(order.NumAtCard ?? string.Empty),
             ["terms"] = Escape(terms),
-            ["amountFigures"] = Escape(FormatMoney(currency, docTotal)),
-            ["amountWords"] = Escape(AmountInWords.ConvertToWords(docTotal)),
+            ["amountFigures"] = Escape(FormatMoney(currency, totalBasic)),
+            ["amountWords"] = Escape(AmountInWords.ConvertToWords(totalBasic)),
             ["buyerName"] = Escape(buyerName ?? string.Empty),
             ["buyerEmail"] = Escape(buyerEmail ?? string.Empty),
             ["approverName"] = Escape(approverName ?? string.Empty),
@@ -143,7 +150,7 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             ["revNo"] = "-",
             ["entityName"] = Escape(entityName),
             ["userName"] = Escape(userName ?? string.Empty),
-            ["printedOn"] = Escape(DateTime.Now.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)),
+            ["printedOn"] = Escape(IndiaTime.FormatPrintedOn()),
             ["@documentSpecialLines"] = BuildDocumentSpecialLinesRow(order.Comments),
         };
     }
@@ -189,25 +196,83 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             contact: contact?.Name ?? order.UContactPerson ?? string.Empty);
     }
 
-    /// <summary>Ship To is the PO's Dispatch To partner (U_DisID) with its address UDF.</summary>
+    /// <summary>
+    /// Ship To contact is the form Contact Person (U_SHIPTO). Address is the warehouse
+    /// for Factory/Office (Store1/Store5) and the ship-to field (U_DispachAdd) for BP Loc.
+    /// </summary>
     private async Task<PartyBlock> BuildShipToAsync(
         SapPurchaseOrdersResponse order,
+        string branchGst,
+        string branchPan,
         CancellationToken cancellationToken)
     {
+        var contact = order.UShipTo ?? order.UContactPerson ?? string.Empty;
+        var warehouseCode = ResolveDispatchWarehouse(order);
+
+        if (Constants.PoDispatchWarehouses.IsFactoryOrOffice(warehouseCode))
+        {
+            var warehouse = await masterDataService.GetWarehouseByCodeAsync(
+                warehouseCode, cancellationToken: cancellationToken);
+            var gstin = NullIfWhiteSpace(warehouse?.FederalTaxID) ?? branchGst;
+            var pan = string.IsNullOrWhiteSpace(PanFromGstin(gstin)) ? branchPan : PanFromGstin(gstin);
+            return new PartyBlock
+            {
+                Name = warehouse?.WarehouseName ?? warehouseCode ?? string.Empty,
+                Address = FormatWarehouseAddress(warehouse),
+                Pin = warehouse?.ZipCode ?? string.Empty,
+                State = warehouse?.State ?? string.Empty,
+                StateCode = GstStateCode(gstin),
+                Gst = gstin,
+                Pan = pan,
+                Contact = contact,
+            };
+        }
+
         var dispatchTo = order.DispatchToCardCode;
         var bp = await masterDataService.GetBusinessPartnerWithAddressesAsync(
             dispatchTo ?? string.Empty, cancellationToken);
 
         var name = !string.IsNullOrWhiteSpace(bp?.CardName)
             ? $"{bp!.CardCode} - {bp.CardName}"
-            : dispatchTo ?? order.ShipToCode ?? order.UWarehouse ?? string.Empty;
+            : dispatchTo ?? order.ShipToCode ?? warehouseCode ?? string.Empty;
 
         return BuildParty(
             name: name,
             address: order.UDispachAdd ?? string.Empty,
             source: PickAddress(bp, "Ship"),
-            contact: order.UShipTo ?? order.UContactPerson ?? string.Empty);
+            contact: contact);
     }
+
+    private static string? ResolveDispatchWarehouse(SapPurchaseOrdersResponse order)
+    {
+        if (!string.IsNullOrWhiteSpace(order.UWarehouse))
+            return order.UWarehouse.Trim();
+
+        return (order.DocumentLines ?? [])
+            .Select(l => l.WarehouseCode)
+            .FirstOrDefault(c => !string.IsNullOrWhiteSpace(c))
+            ?.Trim();
+    }
+
+    private static string FormatWarehouseAddress(WarehouseResponse? warehouse)
+    {
+        if (warehouse is null) return string.Empty;
+        var parts = new[]
+        {
+            warehouse.StreetNo,
+            warehouse.Street,
+            warehouse.BuildingFloorRoom,
+            warehouse.Block,
+            warehouse.City,
+        };
+        return string.Join(", ",
+            parts
+                .Select(p => (p ?? string.Empty).Trim())
+                .Where(p => p.Length > 0));
+    }
+
+    private static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static PartyBlock BuildParty(string name, string address, SapBusinessPartnerAddress? source, string contact)
     {
@@ -241,6 +306,15 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
     private static string PanFromGstin(string gstin) =>
         gstin.Length == 15 ? gstin.Substring(2, 10) : string.Empty;
 
+    private static string FormatProject(string? code, string? name)
+    {
+        var trimmedCode = (code ?? string.Empty).Trim();
+        var trimmedName = (name ?? string.Empty).Trim();
+        if (trimmedCode.Length == 0) return trimmedName;
+        if (trimmedName.Length == 0) return trimmedCode;
+        return $"{trimmedCode} - {trimmedName}";
+    }
+
     private static string FormatSpecialLine(string? freeText) =>
         string.IsNullOrWhiteSpace(freeText) ? string.Empty : $": {Escape(freeText.Trim())}";
 
@@ -267,6 +341,16 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
         return string.IsNullOrWhiteSpace(uom) ? qtyText : $"{qtyText} {uom}";
     }
 
+    private static double TotalBasic(SapPurchaseOrdersResponse order)
+    {
+        var lineBasic = (order.DocumentLines ?? [])
+            .Sum(l => l.LineTotal ?? l.RowTotalAfterDisc);
+        if (lineBasic > 0)
+            return lineBasic;
+
+        return Math.Max(0, (order.DocTotal ?? 0) - (order.VatSum ?? 0));
+    }
+
     private static string FormatMoney(string currency, double? amount)
     {
         if (amount is null) return string.Empty;
@@ -284,31 +368,29 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             _ => string.IsNullOrWhiteSpace(docType) ? "Purchase Order" : docType.Trim(),
         };
 
-    private static string BuildTermsOfContract(SapPurchaseOrdersResponse order)
-    {
-        var parts = new List<string>();
-        void Add(string label, string? value)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-                parts.Add($"{label}: {value.Trim()}");
-        }
-
-        Add("Delivery Terms", order.UDelTerms);
-        Add("Inspection By", order.UInspectionBy);
-        Add("Transportation", order.UTransportation);
-        Add("Supervision", order.USupervision);
-        Add("Transit Insurance", order.UTransitIns);
-        Add("Drawings & Documents", order.UDrawDocs);
-        Add("Loading", order.ULoading);
-        Add("Unloading", order.UUnloading);
-        Add("Warranty", order.UWarranty);
-        Add("Painting", order.UPainting);
-        Add("Test Certificates", order.UTestCerts);
-        Add("Other Remarks", order.UOtherRemark);
-        Add("Price Basis", order.UPriceBasis);
-
-        return parts.Count == 0 ? (order.Comments ?? string.Empty) : string.Join(Environment.NewLine, parts);
-    }
+    private static string BuildTermsOfContract() =>
+        """
+            STANDARD TERMS & CONDITIONS
+            (To Be Printed on All Purchase Orders)
+            1. Price Basis – Order is placed on ____ basis.
+            2. Scope & Quality – Supply/work shall strictly conform to PO specifications, drawings, and quality requirements. Any deviation requires prior written approval. Rejected material shall be replaced at supplier's cost.
+            3. Pricing – Prices are firm and fixed. No escalation shall be entertained unless specifically agreed in writing.
+            4. GST Compliance – GST shall be charged as applicable with correct GSTIN and HSN/SAC. ITC shall be availed only upon compliance with GST laws. Any loss of ITC, interest, penalty, or liability arising due to supplier's non-compliance shall be recoverable from the supplier.
+            5. TDS – TDS shall be deducted as per applicable statutory provisions. Exemption benefits, if any, shall be considered only upon submission of valid supporting documents.
+            6. Delivery – All materials/services shall be delivered/completed within ____. Delivery timelines are binding. Delay may result in penalty, cancellation, or procurement from alternate sources at supplier's risk and cost.
+            7. Inspection – Materials/services shall be subject to inspection and approval by ____. Non-conforming supplies shall be rejected and replaced at supplier's cost.
+            8. Packing & Delivery – Packaging shall be ____. Adequate packing is mandatory. Any transit loss or damage due to improper packing shall be the supplier's responsibility. FOR deliveries shall be made strictly to the specified location.
+            9. Invoicing – Invoice shall mention PO No., GST details, HSN/SAC, item details, and applicable statutory particulars. Supporting documents (DC, LR, E-Way Bill, etc.) shall be submitted to purchase.pune@privilegeboilers.com with account@privilegeboilers.com in CC. Incomplete invoices shall not be processed.
+            10. Payment – Payment shall be made as per PO terms, subject to acceptance of material/services and compliance with contractual requirements. Advances, if any, shall be adjusted as per agreed terms. The Company reserves the right to withhold payment in case of disputes or non-compliance.
+            11. Warranty – Supplier warrants the material/work for 18 months from date of supply or 12 months from commissioning, whichever is earlier. Defects arising during the warranty period shall be rectified/replaced at supplier's cost.
+            12. Confidentiality – All drawings, specifications, and information provided by the Company shall remain confidential and shall not be disclosed without prior written consent.
+            13. Termination – The Company reserves the right to terminate the PO for delay, breach, non-performance, or quality issues without liability except for accepted supplies/services.
+            14. Compliance – Supplier shall comply with all applicable laws including GST, Income Tax, Labour, Environmental, and Safety regulations.
+            15. Force Majeure – Delays caused by events beyond reasonable control shall be promptly notified to the Company.
+            16. Jurisdiction – All disputes shall be subject to the exclusive jurisdiction of courts at Pune, Maharashtra.
+            17. General – No subcontracting shall be permitted without prior written approval. The Company's decision regarding interpretation and execution of the PO shall be final and binding.
+            18. Indemnity – Supplier shall indemnify and hold harmless the Company against any loss, damage, claim, penalty, interest, or liability arising from breach of contract, statutory non-compliance, defective supply, or negligence on the part of the supplier.
+            """;
 
     private static string Escape(string? value) =>
         WebUtility.HtmlEncode(value ?? string.Empty);

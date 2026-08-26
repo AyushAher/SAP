@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   applyProductionCategoryDefaults,
   buildSubassemblyDraftFromParent,
+  formatSubassemblyNo,
+  nextSubassemblyNumber,
   validateProductionOrderForm,
   validateSubassemblyHeaderForm,
   validateSubassemblyItemsForm,
@@ -119,10 +121,12 @@ describe('validateSubassemblyItemsForm', () => {
 })
 
 describe('buildSubassemblyDraftFromParent', () => {
-  it('copies parent fields and stores the parent DocumentNumber on the UDF', () => {
+  it('copies the parent product and assigns the next parent/sequence number', () => {
     const draft = buildSubassemblyDraftFromParent({
       AbsoluteEntry: 646,
       DocumentNumber: 10,
+      ItemNumber: 'FG-001',
+      ProductDescription: 'FINISHED GOOD',
       CustomerCode: 'C000017',
       Project: 'PRJ-1',
       Warehouse: 'WIP',
@@ -134,14 +138,54 @@ describe('buildSubassemblyDraftFromParent', () => {
       SalesOrderDocEntry: 156,
     })
 
-    expect(draft.ParentProductionOrderNo).toBe('10')
+    expect(draft.ParentProductionOrderNo).toBe('10/1')
+    expect(draft.ItemNumber).toBe('FG-001')
+    expect(draft.ProductDescription).toBe('')
+    expect(draft.DrawingNo).toBe('')
     expect(draft.CustomerCode).toBe('C000017')
     expect(draft.Project).toBe('PRJ-1')
     expect(draft.Warehouse).toBe('WIP')
     expect(draft.Type).toBe('bopotSpecial')
     expect(draft.ProductionCategory).toBe('INT')
     expect(draft.SalesOrderDocNum).toBe(252610128)
-    expect(draft.ItemNumber).toBe('')
     expect(draft.ProductionOrderLines).toEqual([])
+  })
+
+  it('increments past existing and legacy sibling numbers', () => {
+    const draft = buildSubassemblyDraftFromParent(
+      { DocumentNumber: 13, ItemNumber: 'FG-001', Warehouse: 'WIP', PlannedQuantity: 1 },
+      [
+        { ParentProductionOrderNo: '13' },
+        { ParentProductionOrderNo: '13' },
+        { ParentProductionOrderNo: '13/3' },
+      ],
+    )
+
+    expect(draft.ParentProductionOrderNo).toBe('13/4')
+  })
+})
+
+describe('nextSubassemblyNumber', () => {
+  it('starts at /1 and skips cancelled numbers that are still stored', () => {
+    expect(nextSubassemblyNumber(13, [])).toBe('13/1')
+    expect(nextSubassemblyNumber(13, [{ ParentProductionOrderNo: '13/1' }])).toBe('13/2')
+    expect(nextSubassemblyNumber(13, [
+      { ParentProductionOrderNo: '13/1' },
+      { ParentProductionOrderNo: '13/2' },
+    ])).toBe('13/3')
+  })
+})
+
+describe('formatSubassemblyNo', () => {
+  it('prefers the stored parent/sequence value', () => {
+    expect(formatSubassemblyNo({ ParentProductionOrderNo: '13/2' }, 13)).toBe('13/2')
+  })
+
+  it('derives a sequence for legacy rows that only stored the parent no', () => {
+    const siblings = [
+      { AbsoluteEntry: 1, ParentProductionOrderNo: '13' },
+      { AbsoluteEntry: 2, ParentProductionOrderNo: '13' },
+    ]
+    expect(formatSubassemblyNo(siblings[1], 13, siblings)).toBe('13/2')
   })
 })

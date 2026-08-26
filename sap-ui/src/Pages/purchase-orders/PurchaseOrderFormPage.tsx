@@ -46,6 +46,7 @@ import {
   resolvePurchaseUnit,
   toDocumentSpecialLines,
   toSapDocumentLine,
+  firstPositiveLocationCode,
   usesPbbplDispatchLocationMapping,
   validatePaymentTermsForSave,
   warehouseForDispatchLocation,
@@ -574,9 +575,11 @@ export function PurchaseOrderFormPage() {
     const taxDate = docDate
     let payload: Record<string, unknown> = {
       ...form,
-      DocumentLines: lines.map((line) => toSapDocumentLine(line, {
+      DocumentLines: lines.map((line, index) => toSapDocumentLine(line, {
         isService: isServiceDoc,
         fallbackProject: form.Project ? String(form.Project) : undefined,
+        lineIndex: id ? undefined : index,
+        fallbackLocationCode: isServiceDoc ? firstPositiveLocationCode(lines) : undefined,
       })),
       DocumentSpecialLines: toDocumentSpecialLines(lines),
       DocType: docType,
@@ -894,6 +897,7 @@ export function PurchaseOrderFormPage() {
                     defaultWarehouse={defaultWarehouse}
                     defaultProject={String(form.Project ?? '')}
                     docType={docType}
+                    assignLineNums={!id}
                   />
                 </TabsContent>
 

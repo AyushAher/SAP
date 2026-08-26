@@ -48,8 +48,8 @@ export const ROUTES = {
   SETTINGS: '/settings',
 } as const
 
-/** Placeholder SAP UDF name until the real parent-production-order field is confirmed. */
-export const PARENT_PRODUCTION_ORDER_UDF = 'U_ParentProdOrd'
+/** OWOR U_DocNum — `{parentDocNum}/{sequence}` on a sub-assembly (legacy: parent DocNum only). */
+export const PARENT_PRODUCTION_ORDER_UDF = 'U_DocNum'
 
 export function productionOrderFormPath(id: string | number) {
   return `${ROUTES.PRODUCTION_ORDER_FORM}/${id}`

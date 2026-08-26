@@ -59,6 +59,58 @@ export function validateSubassemblyHeaderForm(order: ProductionOrder): string | 
   return null
 }
 
+/** Parent DocNum from a stored sub-assembly no (`13/2` → `13`, legacy `13` → `13`). */
+export function parentDocNumFromSubassemblyNo(value?: string | null): string {
+  const raw = (value ?? '').trim()
+  if (!raw) return ''
+  const slash = raw.indexOf('/')
+  return slash < 0 ? raw : raw.slice(0, slash)
+}
+
+/**
+ * Next sub-assembly number: `{parentDocNum}/{i++}`. Sequence includes cancelled siblings so
+ * numbers are not reused.
+ */
+export function nextSubassemblyNumber(
+  parentNo: string | number,
+  existing: ProductionOrder[],
+): string {
+  const parent = String(parentNo)
+  const prefix = `${parent}/`
+  let max = 0
+  for (const row of existing) {
+    const raw = (row.ParentProductionOrderNo ?? '').trim()
+    if (raw.startsWith(prefix)) {
+      const n = Number.parseInt(raw.slice(prefix.length), 10)
+      if (Number.isFinite(n) && n > max) max = n
+    }
+  }
+  const legacyCount = existing.filter((row) => (row.ParentProductionOrderNo ?? '').trim() === parent).length
+  return `${parent}/${Math.max(max, legacyCount) + 1}`
+}
+
+/** UI label for a child: stored `13/2`, or `{parent}/{index}` for legacy rows that only stored the parent no. */
+export function formatSubassemblyNo(
+  order: ProductionOrder,
+  parentNo?: string | number | null,
+  siblings: ProductionOrder[] = [],
+): string {
+  const udf = (order.ParentProductionOrderNo ?? '').trim()
+  if (udf.includes('/')) return udf
+
+  const parent = parentNo != null && String(parentNo) !== ''
+    ? String(parentNo)
+    : udf
+  if (!parent) return order.DocumentNumber != null ? String(order.DocumentNumber) : ''
+  if (siblings.length === 0) return parent
+
+  const sorted = [...siblings].sort(
+    (a, b) => (a.AbsoluteEntry ?? 0) - (b.AbsoluteEntry ?? 0),
+  )
+  const index = sorted.findIndex((row) => row.AbsoluteEntry === order.AbsoluteEntry)
+  return index >= 0 ? `${parent}/${index + 1}` : parent
+}
+
 export function validateSubassemblyItemsForm(lines: ProductionOrderLine[]): string | null {
   if (!lines.length) return 'Add at least one item.'
   if (lines.some((line) => !line.ItemNo)) return 'Every item needs an item code.'
@@ -81,11 +133,14 @@ export function productionOrderStatusLabel(status?: string): string {
   }
 }
 
-/** Seeds a child production order from the saved parent, including the parent UDF. */
-export function buildSubassemblyDraftFromParent(parent: ProductionOrder): ProductionOrder {
+/** Seeds a child from the parent product; only drawing no/name are left blank for the user. */
+export function buildSubassemblyDraftFromParent(
+  parent: ProductionOrder,
+  existing: ProductionOrder[] = [],
+): ProductionOrder {
   const parentNo = parent.DocumentNumber != null ? String(parent.DocumentNumber) : ''
   return {
-    ItemNumber: '',
+    ItemNumber: parent.ItemNumber ?? '',
     ProductDescription: '',
     DrawingNo: '',
     PlannedQuantity: parent.PlannedQuantity && parent.PlannedQuantity > 0 ? parent.PlannedQuantity : 1,
@@ -104,7 +159,7 @@ export function buildSubassemblyDraftFromParent(parent: ProductionOrder): Produc
     StartDate: parent.StartDate,
     DueDate: parent.DueDate,
     Remarks: parent.Remarks,
-    ParentProductionOrderNo: parentNo,
+    ParentProductionOrderNo: parentNo ? nextSubassemblyNumber(parentNo, existing) : '',
     ProductionOrderLines: [],
   }
 }

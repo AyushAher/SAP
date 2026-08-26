@@ -50,9 +50,13 @@ public class ProductionOrderController(
     }
 
     [HttpGet("{parentAbsoluteEntry:int}/subassemblies")]
-    public async Task<IActionResult> ListSubassemblies(int parentAbsoluteEntry, CancellationToken cancellationToken)
+    public async Task<IActionResult> ListSubassemblies(
+        int parentAbsoluteEntry,
+        [FromQuery] bool includeCancelled = false,
+        CancellationToken cancellationToken = default)
     {
-        var children = await service.ListSubassembliesAsync(parentAbsoluteEntry, cancellationToken);
+        var children = await service.ListSubassembliesAsync(
+            parentAbsoluteEntry, includeCancelled, cancellationToken);
         return children is null
             ? NotFound(ApiResponse<object>.Fail(BaseErrorCodes.NullValue, "Production order not found"))
             : Ok(ApiResponse<object>.Ok(children));

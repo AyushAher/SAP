@@ -337,6 +337,7 @@ export function ProductionOrderFormPage() {
           The header planned quantity changed. Component line quantities were left as they were — review them before saving.
         </div>
       )}
+      <ProductionOrderSubassembliesCard parent={form} />
       <Card>
         <CardContent className="space-y-6 pt-6">
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -485,7 +486,6 @@ export function ProductionOrderFormPage() {
           </form>
         </CardContent>
       </Card>
-      <ProductionOrderSubassembliesCard parent={form} />
     </div>
   )
 }

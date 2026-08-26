@@ -46,7 +46,10 @@ namespace SapApi.Infrastructure.Services.Sap
 
             var fromDb = await localStore.GetFromDbAsync(docEntry, includeLines: true, cancellationToken);
             if (fromDb is not null)
+            {
+                SapPurchaseOrderPayloadBuilder.OmitHiddenUdfDefaultsFromClientResponse(fromDb);
                 return fromDb;
+            }
 
             // Not synced yet — fetch once from SAP and persist for subsequent reads.
             var fromSap = await requestHandler.GetAsync<SapPurchaseOrdersResponse>(
@@ -54,6 +57,7 @@ namespace SapApi.Infrastructure.Services.Sap
                 cancellationToken: cancellationToken);
             if (fromSap?.DocEntry is not null)
                 await localStore.UpsertFromSapAsync(fromSap, cancellationToken);
+            SapPurchaseOrderPayloadBuilder.OmitHiddenUdfDefaultsFromClientResponse(fromSap);
             return fromSap;
         }
 
@@ -121,6 +125,7 @@ namespace SapApi.Infrastructure.Services.Sap
                     await localStore.UpsertFromSapAsync(created);
             }
 
+            SapPurchaseOrderPayloadBuilder.OmitHiddenUdfDefaultsFromClientResponse(created);
             return created;
         }
 
@@ -138,10 +143,16 @@ namespace SapApi.Infrastructure.Services.Sap
                 };
             }
 
-            // PUT replaces DocumentLines / DocumentSpecialLines. PATCH merges and keeps
-            // omitted rows, so deleted item lines would stay on the SAP document.
-            var updated = await requestHandler.PutAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(
-                Constants.SapApiUrls.UpdateSapPurchaseOrders(payload.DocEntry), payload);
+            // PUT is rejected on this company DB (Invalid value DocumentLines.GrossBuyPrice).
+            // PATCH + B1S-ReplaceCollectionsOnPatch replaces lines the same way PUT would, so
+            // deleted rows do not stay on the SAP document.
+            var updated = await requestHandler.PatchAsync<SapPurchaseOrdersResponse, SapPurchaseOrdersResponse>(
+                Constants.SapApiUrls.UpdateSapPurchaseOrders(payload.DocEntry),
+                payload,
+                new Dictionary<string, string>
+                {
+                    [Constants.SapServiceLayerHeaders.ReplaceCollectionsOnPatch] = "true",
+                });
             if (payload.DocEntry is not null)
             {
                 var detail = await requestHandler.GetOrThrowAsync<SapPurchaseOrdersResponse>(
@@ -152,7 +163,9 @@ namespace SapApi.Infrastructure.Services.Sap
                     await localStore.UpsertFromSapAsync(updated);
             }
 
-            return updated ?? data;
+            var result = updated ?? data;
+            SapPurchaseOrderPayloadBuilder.OmitHiddenUdfDefaultsFromClientResponse(result);
+            return result;
         }
 
         public Task<PurchaseOrderSyncResult> SyncNewFromSapAsync(int? afterDocEntry = null, CancellationToken cancellationToken = default) =>
@@ -209,7 +222,13 @@ namespace SapApi.Infrastructure.Services.Sap
                 if (warehouse?.Location is > 0)
                     line.LocationCode = warehouse.Location;
             }
+
+            if (IsServiceDocument(payload.DocType))
+                SapPurchaseOrderPayloadBuilder.CopyLocationCodeOntoLinesMissingIt(payload.DocumentLines);
         }
+
+        private static bool IsServiceDocument(string? docType) =>
+            string.Equals(docType, Constants.PurchaseOrderDocType.Document_Service, StringComparison.OrdinalIgnoreCase);
 
         private static string? NullIfWhiteSpace(string? value) =>
             string.IsNullOrWhiteSpace(value) ? null : value.Trim();

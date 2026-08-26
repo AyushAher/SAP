@@ -31,6 +31,7 @@ services:
       Security__AesKeyBase64: ${AES_KEY_BASE64:-}
       Jwt__SecretKey: ${JWT_SECRET_KEY}
       Cors__Origins__0: ${CORS_ORIGIN}
+      Swagger__Enabled: "true"
     depends_on:
       - redis
     deploy:

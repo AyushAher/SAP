@@ -17,6 +17,8 @@ public static class SapPurchaseOrderPayloadBuilder
         var docDue = source.DocDueDate ?? source.DueDate ?? docDate;
         var taxDate = source.TaxDate ?? docDate;
         var dispatchToBp = NullIfWhiteSpace(source.DispatchToCardCode);
+        var isService = IsServiceDocument(source.DocType);
+        var preparedLines = PrepareLines(source.DocumentLines, isUpdate, isService);
 
         var payload = new SapPurchaseOrdersResponse
         {
@@ -76,6 +78,9 @@ public static class SapPurchaseOrderPayloadBuilder
             UOtherRemark = NullIfWhiteSpace(source.UOtherRemark),
             UPainting = NullIfWhiteSpace(source.UPainting),
             UTestCerts = NullIfWhiteSpace(source.UTestCerts),
+            // Fixed legal text for SAP; never taken from the client and never shown in the UI.
+            UGstText = Constants.SapPurchaseOrderUdf.GstTextDefault,
+            UTdsText = Constants.SapPurchaseOrderUdf.TdsTextDefault,
             UBasic1 = source.UBasic1,
             UBasic2 = source.UBasic2,
             UBasic3 = source.UBasic3,
@@ -131,9 +136,9 @@ public static class SapPurchaseOrderPayloadBuilder
             UType9 = NullIfWhiteSpace(source.UType9),
             UType10 = NullIfWhiteSpace(source.UType10),
             UType11 = NullIfWhiteSpace(source.UType11),
-            DocumentLines = PrepareLines(source.DocumentLines, isUpdate, IsServiceDocument(source.DocType)),
+            DocumentLines = preparedLines,
             DocumentSpecialLines = PrepareSpecialLines(
-                source.DocumentLines, source.DocumentSpecialLines, isUpdate),
+                source.DocumentLines, source.DocumentSpecialLines, preparedLines, isService),
         };
 
         if (isUpdate)
@@ -150,6 +155,18 @@ public static class SapPurchaseOrderPayloadBuilder
         NormalizePaymentTermGstToSlot11(payload);
 
         return payload;
+    }
+
+    /// <summary>
+    /// Drops UI-hidden GST/TDS remark UDFs so GET/create/update responses never hydrate them in the form.
+    /// Call only on documents returned to the client — not on the Service Layer write payload.
+    /// </summary>
+    public static void OmitHiddenUdfDefaultsFromClientResponse(SapPurchaseOrdersResponse? document)
+    {
+        if (document is null)
+            return;
+        document.UGstText = null;
+        document.UTdsText = null;
     }
 
     /// <summary>
@@ -230,25 +247,56 @@ public static class SapPurchaseOrderPayloadBuilder
         string.Equals(docType, Constants.PurchaseOrderDocType.Document_Service, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Copies LocationCode from any line that has it onto lines that do not.
+    /// Service POs often send Loc. on only the last added row; SAP still requires it on every line.
+    /// </summary>
+    public static void CopyLocationCodeOntoLinesMissingIt(List<SapInventoryTransferItemsRequests>? lines)
+    {
+        if (lines is not { Count: > 0 })
+            return;
+
+        var location = lines.Select(l => l.LocationCode).FirstOrDefault(c => c is > 0);
+        if (location is not > 0)
+            return;
+
+        foreach (var line in lines)
+        {
+            if (line.LocationCode is not > 0)
+                line.LocationCode = location;
+        }
+    }
+
+    /// <summary>
     /// SAP DocumentSpecialLines (dslt_Text) inserted after the item row whose FreeText they carry.
     /// Header special lines from the client are kept when line FreeText is empty.
+    /// AfterLineNumber follows the LineNum assigned on the prepared document line.
     /// </summary>
     internal static List<SapDocumentSpecialLine>? PrepareSpecialLines(
         List<SapInventoryTransferItemsRequests>? lines,
         List<SapDocumentSpecialLine>? existing,
-        bool isUpdate)
+        List<SapInventoryTransferItemsRequests>? preparedLines,
+        bool isService)
     {
         var fromLines = new List<SapDocumentSpecialLine>();
         if (lines is { Count: > 0 })
         {
-            for (var i = 0; i < lines.Count; i++)
+            var preparedIndex = 0;
+            foreach (var line in lines)
             {
-                var text = NullIfWhiteSpace(lines[i].FreeText) ?? NullIfWhiteSpace(lines[i].UFreeTxt);
+                if (!IsIncludedLine(line, isService))
+                    continue;
+
+                var after = preparedLines is { Count: > 0 } && preparedIndex < preparedLines.Count
+                    ? preparedLines[preparedIndex].LineNum ?? preparedIndex
+                    : preparedIndex;
+                preparedIndex++;
+
+                var text = NullIfWhiteSpace(line.FreeText) ?? NullIfWhiteSpace(line.UFreeTxt);
                 if (text is null)
                     continue;
                 fromLines.Add(new SapDocumentSpecialLine
                 {
-                    AfterLineNumber = isUpdate ? lines[i].LineNum ?? i : i,
+                    AfterLineNumber = after,
                     LineType = "dslt_Text",
                     LineText = text,
                 });
@@ -270,6 +318,11 @@ public static class SapPurchaseOrderPayloadBuilder
         return fromHeader is { Count: > 0 } ? fromHeader : null;
     }
 
+    static bool IsIncludedLine(SapInventoryTransferItemsRequests line, bool isService) =>
+        isService
+            ? !string.IsNullOrWhiteSpace(line.AccountCode)
+            : !string.IsNullOrWhiteSpace(line.ItemCode);
+
     static List<SapInventoryTransferItemsRequests>? PrepareLines(
         List<SapInventoryTransferItemsRequests>? lines,
         bool isUpdate,
@@ -278,14 +331,12 @@ public static class SapPurchaseOrderPayloadBuilder
         if (lines is null || lines.Count == 0)
             return null;
 
-        return lines
-            .Where(l => isService
-                ? !string.IsNullOrWhiteSpace(l.AccountCode)
-                : !string.IsNullOrWhiteSpace(l.ItemCode))
+        var prepared = lines
+            .Where(l => IsIncludedLine(l, isService))
             .Select(line => isService
                 ? new SapInventoryTransferItemsRequests
                 {
-                    LineNum = isUpdate ? line.LineNum : null,
+                    LineNum = line.LineNum,
                     ItemDescription = NullIfWhiteSpace(line.ItemDescription),
                     FreeText = null,
                     UFreeTxt = null,
@@ -322,7 +373,7 @@ public static class SapPurchaseOrderPayloadBuilder
                 }
                 : new SapInventoryTransferItemsRequests
                 {
-                    LineNum = isUpdate ? line.LineNum : null,
+                    LineNum = line.LineNum,
                     ItemCode = NullIfWhiteSpace(line.ItemCode),
                     ItemDescription = NullIfWhiteSpace(line.ItemDescription),
                     // POR1.FreeTxt / U_FreeTxt are ~100 chars. Long remarks go on DocumentSpecialLines.
@@ -368,6 +419,39 @@ public static class SapPurchaseOrderPayloadBuilder
                     TaxLiable = NullIfWhiteSpace(line.TaxLiable),
                 })
             .ToList();
+
+        // Create (and create-approval) payloads need LineNum on every row. On update, a LineNum
+        // that already exists is an in-place edit — inventing one for a new row makes SAP reject
+        // the PUT. Leave missing LineNums null so Service Layer appends the row.
+        if (!isUpdate)
+            AssignMissingLineNums(prepared);
+        // Item lines can belong to different warehouses/locations. Copying Loc. across rows
+        // is only safe for service POs, which share one location.
+        if (isService)
+            CopyLocationCodeOntoLinesMissingIt(prepared);
+        return prepared;
+    }
+
+    static void AssignMissingLineNums(List<SapInventoryTransferItemsRequests> lines)
+    {
+        var used = new HashSet<int>();
+        foreach (var line in lines)
+        {
+            if (line.LineNum is >= 0)
+                used.Add(line.LineNum.Value);
+        }
+
+        var next = 0;
+        foreach (var line in lines)
+        {
+            if (line.LineNum is >= 0)
+                continue;
+            while (used.Contains(next))
+                next++;
+            line.LineNum = next;
+            used.Add(next);
+            next++;
+        }
     }
 
     /// <summary>

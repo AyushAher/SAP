@@ -38,10 +38,10 @@ describe('SubassemblyItemsPage', () => {
       return {
         AbsoluteEntry: 700,
         DocumentNumber: 21,
-        ItemNumber: 'SA-001',
+        ItemNumber: 'FG-001',
         DrawingNo: 'DWG-SA',
-        ProductDescription: 'Sub-assembly',
-        ParentProductionOrderNo: '10',
+        ProductDescription: 'Firewall drawing',
+        ParentProductionOrderNo: '10/1',
         Warehouse: 'WIP',
         PlannedQuantity: 2,
         ProductionOrderLines: [],
@@ -62,7 +62,7 @@ describe('SubassemblyItemsPage', () => {
       </MemoryRouter>,
     )
 
-    await screen.findByText('21')
+    await screen.findByText('10/1')
     await user.click(screen.getByRole('button', { name: 'Add' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Add at least one item.')

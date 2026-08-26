@@ -77,6 +77,37 @@ public class SapMasterDataServiceTests
     }
 
     [Test]
+    public async Task GetBusinessPlaceByIdAsync_SelectsBranchTaxIdentityFields()
+    {
+        string? capturedUrl = null;
+        _http
+            .Setup(h => h.GetAsync<SapGetAllBranchesResponse>(It.IsAny<string>(), true, true, It.IsAny<CancellationToken>()))
+            .Callback<string, bool, bool, CancellationToken>((url, _, _, _) => capturedUrl = url)
+            .ReturnsAsync(new SapGetAllBranchesResponse
+            {
+                Value =
+                [
+                    new SapBranchesResponse
+                    {
+                        BplId = 2,
+                        BplName = "Pune",
+                        FederalTaxID = "27AABCP1234A1Z5",
+                        PanNo = "AABCP1234A",
+                    },
+                ],
+            });
+
+        var branch = await _sut.GetBusinessPlaceByIdAsync(
+            2,
+            fields: ["BPLID", "BPLName", "Address", "FederalTaxID", "U_PANNO"]);
+
+        capturedUrl.Should().NotBeNull();
+        capturedUrl!.Should().Contain("FederalTaxID").And.Contain("U_PANNO");
+        branch!.FederalTaxID.Should().Be("27AABCP1234A1Z5");
+        branch.PanNo.Should().Be("AABCP1234A");
+    }
+
+    [Test]
     public async Task SearchItemsAsync_CalledTwiceWithSameRequest_OnlyHitsSapOnce()
     {
         _http

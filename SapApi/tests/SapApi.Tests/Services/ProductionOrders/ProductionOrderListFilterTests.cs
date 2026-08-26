@@ -249,6 +249,39 @@ public class ProductionOrderListFilterTests
     }
 
     [Test]
+    public async Task ListSubassemblies_matches_parent_slash_sequence_numbers()
+    {
+        SeedChildOrders();
+        _context.ProductionOrders.Add(new ProductionOrder
+        {
+            CompanyDb = CompanyDb,
+            AbsoluteEntry = 204,
+            DocumentNumber = 900204,
+            Status = Constants.SapProductionOrderStatus.Planned,
+            ItemNo = "SF036770000",
+            ParentProductionOrderNo = "900101/1",
+            SyncedAtUtc = DateTime.UtcNow,
+        });
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+
+        var children = await _sut.ListSubassembliesAsync(101);
+
+        children!.Select(x => x.AbsoluteEntry).Should().Equal(201, 204);
+        children.Select(x => x.ParentProductionOrderNo).Should().Equal("900101", "900101/1");
+    }
+
+    [Test]
+    public async Task ListSubassemblies_includeCancelled_returns_cancelled_children()
+    {
+        SeedChildOrders();
+
+        var children = await _sut.ListSubassembliesAsync(101, includeCancelled: true);
+
+        children!.Select(x => x.AbsoluteEntry).Should().Equal(201, 202);
+    }
+
+    [Test]
     public async Task ListSubassemblies_returns_null_when_the_parent_is_missing()
     {
         var children = await _sut.ListSubassembliesAsync(999);

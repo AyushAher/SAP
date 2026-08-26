@@ -138,11 +138,13 @@ public class ProductionOrderLocalStore(
     }
 
     /// <summary>
-    /// Child production orders whose parent UDF matches this order's DocumentNumber.
-    /// Cancelled children are omitted.
+    /// Child production orders whose parent UDF is this order's DocumentNumber, either as the
+    /// bare parent no (legacy) or as <c>{parentNo}/{sequence}</c>. Cancelled children are omitted
+    /// unless <paramref name="includeCancelled"/> is set (used to allocate the next sequence).
     /// </summary>
     public async Task<List<SapProductionOrdersResponse>?> ListSubassembliesAsync(
         int parentAbsoluteEntry,
+        bool includeCancelled = false,
         CancellationToken cancellationToken = default)
     {
         var parent = await db.ProductionOrders
@@ -157,16 +159,20 @@ public class ProductionOrderLocalStore(
         if (string.IsNullOrWhiteSpace(parentNo))
             return [];
 
+        var numberedPrefix = parentNo + "/";
         var cancelled = Constants.SapProductionOrderStatus.Cancelled;
         var children = await db.ProductionOrders
             .AsNoTracking()
             .Where(x =>
                 x.CompanyDb == CompanyDb
-                && x.ParentProductionOrderNo == parentNo
-                && x.Status != cancelled)
-            .OrderBy(x => x.DocumentNumber)
-            .ThenBy(x => x.AbsoluteEntry)
+                && x.ParentProductionOrderNo != null
+                && (x.ParentProductionOrderNo == parentNo
+                    || x.ParentProductionOrderNo.StartsWith(numberedPrefix)))
+            .OrderBy(x => x.AbsoluteEntry)
             .ToListAsync(cancellationToken);
+
+        if (!includeCancelled)
+            children = children.Where(x => x.Status != cancelled).ToList();
 
         return children.Select(e => ProductionOrderMapper.ToSapResponse(e, includeLines: false)).ToList();
     }

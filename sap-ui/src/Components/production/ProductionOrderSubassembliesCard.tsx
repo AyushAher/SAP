@@ -8,7 +8,7 @@ import {
   productionOrderSubassemblyItemsPath,
   productionOrderSubassemblyPath,
 } from '@/config/constants'
-import { productionOrderStatusLabel } from '@/helpers/productionOrderForm'
+import { productionOrderStatusLabel, formatSubassemblyNo } from '@/helpers/productionOrderForm'
 import { toast } from '@/helpers/toast'
 import {
   cancelProductionOrder,
@@ -48,7 +48,7 @@ export function ProductionOrderSubassembliesCard({ parent }: ProductionOrderSuba
 
   const handleDelete = async (row: ProductionOrder) => {
     if (row.AbsoluteEntry == null) return
-    if (!window.confirm(`Cancel sub-assembly ${row.DocumentNumber ?? row.AbsoluteEntry}? This cannot be undone in ConnectEdge.`)) {
+    if (!window.confirm(`Cancel sub-assembly ${formatSubassemblyNo(row, parent.DocumentNumber, rows) || row.AbsoluteEntry}? This cannot be undone in ConnectEdge.`)) {
       return
     }
     setDeletingId(row.AbsoluteEntry)
@@ -90,7 +90,7 @@ export function ProductionOrderSubassembliesCard({ parent }: ProductionOrderSuba
             getRowKey={(row) => row.AbsoluteEntry ?? 0}
             emptyMessage="No sub-assemblies yet."
             columns={[
-              { key: 'DocumentNumber', header: 'Subassembly No.', accessor: (r) => r.DocumentNumber ?? '—' },
+              { key: 'DocumentNumber', header: 'Subassembly No.', accessor: (r) => formatSubassemblyNo(r, parent.DocumentNumber, rows) || '—' },
               { key: 'ItemNumber', header: 'Product', accessor: (r) => r.ItemNumber ?? '—' },
               { key: 'DrawingNo', header: 'Drawing No.', accessor: (r) => r.DrawingNo || '—' },
               { key: 'ProductDescription', header: 'Drawing Name', accessor: (r) => r.ProductDescription || '—' },

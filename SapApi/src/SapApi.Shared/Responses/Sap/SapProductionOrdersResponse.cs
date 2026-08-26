@@ -1,4 +1,4 @@
-﻿using SapApi.Shared;
+using SapApi.Shared;
 
 namespace SapApi.Shared.Responses.Sap
 {
@@ -39,12 +39,11 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_CustomerName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? CustomerName { get; set; }
 
-        [JsonPropertyName("U_DwgNo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName(Constants.SapProductionOrderUdf.DrawingNo), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? DrawingNo { get; set; }
 
         /// <summary>
-        /// Parent production order DocumentNumber. JSON name is
-        /// <see cref="Constants.SapProductionOrderUdf.ParentProductionOrder"/> until the SAP UDF is confirmed.
+        /// Parent production order DocumentNumber on a child sub-assembly (OWOR U_DocNum).
         /// </summary>
         [JsonPropertyName(Constants.SapProductionOrderUdf.ParentProductionOrder), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ParentProductionOrderNo { get; set; }
@@ -259,6 +258,7 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_FreeTxt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? FreeText { get; set; }
 
+        /// <summary>WOR1 U_DocNum — distinct from the OWOR header U_DocNum (parent production order).</summary>
         [JsonPropertyName("U_DocNum"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? DocNum { get; set; }
 

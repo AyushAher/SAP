@@ -145,7 +145,7 @@ public class SapProductionOrdersServiceWriteTests
         json.Should().Contain("\"ProductionOrderType\":\"bopotSpecial\"");
         json.Should().Contain("\"U_ProdType\":\"JOB\"");
         json.Should().Contain("\"U_DwgNo\":\"DWG-7\"");
-        json.Should().Contain("\"U_ParentProdOrd\":\"10\"");
+        json.Should().Contain("\"U_DocNum\":\"10\"");
         json.Should().Contain("\"ProductionOrderOriginNumber\":252610128");
         json.Should().Contain("\"ProductionOrderOriginEntry\":156");
         json.Should().Contain("\"Warehouse\":\"Subcon\"");
@@ -273,6 +273,6 @@ public class SapProductionOrdersServiceWriteTests
         var json = JsonSerializer.Serialize(posted);
         json.Should().NotContain("U_ProdType");
         json.Should().NotContain("U_DwgNo");
-        json.Should().NotContain("U_ParentProdOrd");
+        json.Should().NotContain("U_DocNum");
     }
 }

@@ -143,10 +143,37 @@ public class HttpRequestHandler(
         return await HandleResponseAsync<TResponse>(request, response, cancellationToken);
     }
 
-    public async Task<TResponse?> PatchAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default)
+    public Task<TResponse?> PatchAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default) =>
+        PatchCoreAsync<TRequest, TResponse>(url, data, headers: null, cancellationToken);
+
+    public Task<TResponse?> PatchAsync<TRequest, TResponse>(
+        string url,
+        TRequest data,
+        IReadOnlyDictionary<string, string> headers,
+        CancellationToken cancellationToken = default) =>
+        PatchCoreAsync<TRequest, TResponse>(url, data, headers, cancellationToken);
+
+    private async Task<TResponse?> PatchCoreAsync<TRequest, TResponse>(
+        string url,
+        TRequest data,
+        IReadOnlyDictionary<string, string>? headers,
+        CancellationToken cancellationToken)
     {
+        var companyDb = companyDbAccessor.GetCompanyDb()?.ToString() ?? "(none)";
+        Log.Information(
+            "SAP PATCH {CompanyDb} {Url} body: {Body}",
+            companyDb,
+            url,
+            JsonSerializer.Serialize(data));
+
         var request = await BuildSapRequestAsync(HttpMethod.Patch, url, cancellationToken);
-        request.Content = new StringContent(JsonSerializer.Serialize(data), Encoding.UTF8, "application/json");
+        if (headers is not null)
+        {
+            foreach (var (name, value) in headers)
+                request.Headers.TryAddWithoutValidation(name, value);
+        }
+
+        request.Content = CreateJsonContent(data);
         var response = await client.SendAsync(request, cancellationToken);
         return await HandleResponseAsync<TResponse>(request, response, cancellationToken);
     }

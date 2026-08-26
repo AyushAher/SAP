@@ -21,6 +21,8 @@ import {
   resolvePurchaseUnit,
   toSapDocumentLine,
   toDocumentSpecialLines,
+  firstPositiveLocationCode,
+  nextUnusedLineNum,
   usesPbbplDispatchLocationMapping,
   validatePaymentTermsForSave,
   warehouseForDispatchLocation,
@@ -473,6 +475,46 @@ describe('toSapDocumentLine', () => {
     expect(payload.MeasureUnit).toBeUndefined()
     expect(payload.ItemCode).toBeUndefined()
     expect(payload.GrossTotal).toBeUndefined()
+  })
+
+  it('assigns LineNum from the row index and copies LocationCode from a sibling line', () => {
+    const first = toSapDocumentLine(
+      {
+        ItemDescription: 'PLANT AND MACHINERY',
+        AccountCode: '_SYS00000000677',
+        Quantity: 1,
+        UnitPrice: 12000,
+        TaxCode: 'SGST18',
+        SACEntry: 12,
+        LineNum: 0,
+      },
+      { isService: true, lineIndex: 0, fallbackLocationCode: 2 },
+    )
+    const second = toSapDocumentLine(
+      {
+        ItemDescription: 'LAND',
+        AccountCode: '_SYS00000000670',
+        Quantity: 1,
+        UnitPrice: 120000,
+        TaxCode: 'SGST18',
+        SACEntry: 15,
+        LocationCode: 2,
+      },
+      { isService: true, lineIndex: 1, fallbackLocationCode: 2 },
+    )
+    expect(first.LineNum).toBe(0)
+    expect(first.LocationCode).toBe(2)
+    expect(second.LineNum).toBe(1)
+    expect(second.LocationCode).toBe(2)
+  })
+
+  it('picks the first positive location and next unused LineNum', () => {
+    expect(firstPositiveLocationCode([
+      { ItemDescription: 'A' },
+      { ItemDescription: 'B', LocationCode: 2 },
+    ])).toBe(2)
+    expect(nextUnusedLineNum([{ LineNum: 0 }, { ItemDescription: 'new' }])).toBe(1)
+    expect(nextUnusedLineNum([{ LineNum: 1 }])).toBe(0)
   })
 
   it('copies warehouse location onto every line', () => {

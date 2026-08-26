@@ -78,7 +78,7 @@ public class SapPurchaseOrderPayloadBuilderTests
         line.LineTotal.Should().BeNull();
         line.TaxTotal.Should().BeNull();
         line.GrossTotal.Should().BeNull();
-        line.LineNum.Should().BeNull();
+        line.LineNum.Should().Be(0);
     }
 
     [Test]
@@ -237,6 +237,42 @@ public class SapPurchaseOrderPayloadBuilderTests
     }
 
     [Test]
+    public void Prepare_Update_DoesNotCopyLocationCodeAcrossItemLines()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            DocEntry = 100,
+            CardCode = "V001",
+            DocType = "dDocument_Items",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    LineNum = 0,
+                    ItemCode = "I1",
+                    Quantity = 1,
+                    UnitPrice = 5,
+                    WarehouseCode = "01",
+                },
+                new SapInventoryTransferItemsRequests
+                {
+                    LineNum = 1,
+                    ItemCode = "I2",
+                    Quantity = 1,
+                    UnitPrice = 5,
+                    WarehouseCode = "02",
+                    LocationCode = 4,
+                },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: true);
+
+        payload.DocumentLines![0].LocationCode.Should().BeNull();
+        payload.DocumentLines[1].LocationCode.Should().Be(4);
+    }
+
+    [Test]
     public void Prepare_ServiceDocument_MapsAccountCode_WithoutItemCode()
     {
         var source = new SapPurchaseOrdersResponse
@@ -276,6 +312,51 @@ public class SapPurchaseOrderPayloadBuilderTests
         line.GrossTotal.Should().BeNull();
         line.InventoryQuantity.Should().BeNull();
         line.LocationCode.Should().Be(2);
+    }
+
+    [Test]
+    public void Prepare_Create_AssignsLineNumAndCopiesLocationCodeOnEveryServiceLine()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "S000035",
+            DocType = "dDocument_Service",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    LineNum = 0,
+                    Quantity = 1,
+                    UnitPrice = 12000,
+                    TaxCode = "SGST18",
+                    ItemDescription = "PLANT AND MACHINERY",
+                    AccountCode = "_SYS00000000677",
+                    SACEntry = 12,
+                    ProjectCode = "COMMON",
+                },
+                new SapInventoryTransferItemsRequests
+                {
+                    Quantity = 1,
+                    UnitPrice = 120000,
+                    TaxCode = "SGST18",
+                    LocationCode = 2,
+                    ItemDescription = "LAND",
+                    AccountCode = "_SYS00000000670",
+                    SACEntry = 15,
+                    ProjectCode = "COMMON",
+                },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.DocumentLines.Should().HaveCount(2);
+        payload.DocumentLines![0].LineNum.Should().Be(0);
+        payload.DocumentLines[1].LineNum.Should().Be(1);
+        payload.DocumentLines[0].LocationCode.Should().Be(2);
+        payload.DocumentLines[1].LocationCode.Should().Be(2);
+        payload.DocumentLines[0].WarehouseCode.Should().BeNull();
+        payload.DocumentLines[1].WarehouseCode.Should().BeNull();
     }
 
     [Test]
@@ -488,6 +569,33 @@ public class SapPurchaseOrderPayloadBuilderTests
         CardCode = "V001",
         DocumentLines = [line],
     };
+
+    [Test]
+    public void Prepare_AlwaysSendsDefaultGstAndTdsUdfText()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            UGstText = "client must not override",
+            UTdsText = "client must not override",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+
+        payload.UGstText.Should().Be("Extra at Actuals (If Applicable)");
+        payload.UTdsText.Should().Be("As per Government rules");
+        json.Should().Contain("\"U_GST_\":\"Extra at Actuals (If Applicable)\"");
+        json.Should().Contain("\"U_TDS_\":\"As per Government rules\"");
+
+        SapPurchaseOrderPayloadBuilder.OmitHiddenUdfDefaultsFromClientResponse(payload);
+        payload.UGstText.Should().BeNull();
+        payload.UTdsText.Should().BeNull();
+    }
 
     [Test]
     public void Prepare_MovesLegacyGstPercentFromUG3ToUG11()

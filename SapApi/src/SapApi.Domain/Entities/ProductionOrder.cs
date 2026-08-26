@@ -26,7 +26,8 @@ public class ProductionOrder : ISoftDeletable
     public string? DrawingNo { get; set; }
 
     /// <summary>
-    /// Parent production order DocumentNumber (SAP header UDF, placeholder name U_ParentProdOrd).
+    /// Sub-assembly number on OWOR U_DocNum: {parent DocumentNumber}/{sequence}.
+    /// Legacy rows may store only the parent DocumentNumber.
     /// </summary>
     public string? ParentProductionOrderNo { get; set; }
 

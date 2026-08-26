@@ -3,39 +3,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import * as apiClient from '@/helpers/api/client'
+import * as productionOrders from '@/Requests/productionOrders'
 import { SubassemblyFormPage } from './SubassemblyFormPage'
 
-vi.mock('@/helpers/api/client', () => ({
-  apiGet: vi.fn(),
-  apiPost: vi.fn(),
-  apiPut: vi.fn(),
-  invalidateCachedGets: vi.fn(),
+vi.mock('@/Requests/productionOrders', () => ({
+  getProductionOrder: vi.fn(),
+  listSubassemblies: vi.fn(),
+  createProductionOrder: vi.fn(),
+  updateProductionOrder: vi.fn(),
 }))
 
-vi.mock('@/helpers/masterLookup', () => ({
-  formatCodeWithName: (code?: string | number | null, name?: string | null) =>
-    [code, name].filter(Boolean).join(' - ') || '—',
-  resolveSelectOptionByCode: vi.fn().mockResolvedValue(undefined),
-  resolveItem: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('@/Requests/masters', () => ({
-  searchItems: vi.fn().mockResolvedValue({ data: [] }),
-}))
-
-const apiGet = vi.mocked(apiClient.apiGet)
-const apiPost = vi.mocked(apiClient.apiPost)
+const getProductionOrder = vi.mocked(productionOrders.getProductionOrder)
+const listSubassemblies = vi.mocked(productionOrders.listSubassemblies)
+const createProductionOrder = vi.mocked(productionOrders.createProductionOrder)
 
 const parentOrder = {
   AbsoluteEntry: 646,
   DocumentNumber: 10,
-  ItemNo: 'FG-001',
-  ProductionOrderStatus: 'boposPlanned',
+  ItemNumber: 'FG-001',
+  ProductDescription: 'FINISHED GOOD',
+  Status: 'boposPlanned',
   Warehouse: 'WIP',
   PlannedQuantity: 12,
-  ProductionOrderOriginNumber: 252610128,
-  ProductionOrderOriginEntry: 156,
+  SalesOrderDocNum: 252610128,
+  SalesOrderDocEntry: 156,
   CustomerCode: 'C000017',
   Project: 'PRJ-1',
 }
@@ -53,19 +44,37 @@ function renderNewSubassembly() {
 describe('SubassemblyFormPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiPost.mockResolvedValue({ AbsoluteEntry: 700, DocumentNumber: 21 })
-    apiGet.mockImplementation(async (url: string) => (
-      url === '/production-orders/646' ? parentOrder : {}
-    ) as never)
+    createProductionOrder.mockResolvedValue({ AbsoluteEntry: 700, DocumentNumber: 21 })
+    getProductionOrder.mockResolvedValue(parentOrder)
+    listSubassemblies.mockResolvedValue([])
   })
 
-  it('requires a product before creating the child production order', async () => {
+  it('inherits the parent product and numbers the child as parent/sequence', async () => {
     const user = userEvent.setup()
     renderNewSubassembly()
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }))
+    expect(await screen.findByDisplayValue('10/1')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('FG-001 - FINISHED GOOD')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search item...')).not.toBeInTheDocument()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Product No. is required.')
-    expect(apiPost).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(createProductionOrder).toHaveBeenCalledTimes(1)
+    const body = createProductionOrder.mock.calls[0][0]
+    expect(body.ItemNumber).toBe('FG-001')
+    expect(body.ParentProductionOrderNo).toBe('10/1')
+    expect(body.ProductDescription).toBe('')
+  })
+
+  it('increments the sequence from existing siblings including cancelled', async () => {
+    listSubassemblies.mockResolvedValue([
+      { AbsoluteEntry: 700, ParentProductionOrderNo: '10/1' },
+      { AbsoluteEntry: 701, ParentProductionOrderNo: '10/2' },
+    ])
+
+    renderNewSubassembly()
+
+    expect(await screen.findByDisplayValue('10/3')).toBeInTheDocument()
+    expect(listSubassemblies).toHaveBeenCalledWith('646', { includeCancelled: true })
   })
 })

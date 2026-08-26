@@ -1,23 +1,23 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { PageHeader } from '@/Components/shared/PageHeader'
-import { Button, Card, CardContent, Input, SearchableSelect } from '@/Components/ui'
+import { Button, Card, CardContent, Input } from '@/Components/ui'
 import {
   productionOrderFormPath,
   productionOrderSubassemblyItemsPath,
 } from '@/config/constants'
 import {
   buildSubassemblyDraftFromParent,
+  formatSubassemblyNo,
   validateSubassemblyHeaderForm,
 } from '@/helpers/productionOrderForm'
 import { toast } from '@/helpers/toast'
 import {
   createProductionOrder,
   getProductionOrder,
+  listSubassemblies,
   updateProductionOrder,
 } from '@/Requests/productionOrders'
-import { searchItems } from '@/Requests/masters'
-import type { SelectOption } from '@/types'
 import type { ProductionOrder } from '@/types/production'
 
 export function SubassemblyFormPage() {
@@ -25,7 +25,6 @@ export function SubassemblyFormPage() {
   const navigate = useNavigate()
   const [parent, setParent] = useState<ProductionOrder | null>(null)
   const [form, setForm] = useState<ProductionOrder>({})
-  const [itemLabel, setItemLabel] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,19 +35,21 @@ export function SubassemblyFormPage() {
     setLoading(true)
     void (async () => {
       try {
-        const parentOrder = await getProductionOrder(id)
+        const [parentOrder, siblings] = await Promise.all([
+          getProductionOrder(id),
+          listSubassemblies(id, { includeCancelled: true }),
+        ])
         if (cancelled) return
         setParent(parentOrder)
         if (childId) {
           const child = await getProductionOrder(childId)
           if (cancelled) return
-          setForm(child)
-          setItemLabel(child.ItemNumber
-            ? `${child.ItemNumber}${child.ProductDescription ? ` - ${child.ProductDescription}` : ''}`
-            : '')
+          setForm({
+            ...child,
+            ItemNumber: parentOrder.ItemNumber ?? child.ItemNumber,
+          })
         } else {
-          setForm(buildSubassemblyDraftFromParent(parentOrder))
-          setItemLabel('')
+          setForm(buildSubassemblyDraftFromParent(parentOrder, siblings))
         }
       } catch (err) {
         if (!cancelled) {
@@ -63,17 +64,13 @@ export function SubassemblyFormPage() {
     }
   }, [id, childId])
 
-  const searchItemOptions = async (search: string): Promise<SelectOption[]> => {
-    const response = await searchItems(search)
-    return (response.data ?? []).map((item) => ({
-      value: item.ItemCode ?? '',
-      label: `${item.ItemCode ?? ''} - ${item.ItemName ?? ''}`.trim(),
-    })).filter((o) => o.value)
-  }
-
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
-    const message = validateSubassemblyHeaderForm(form)
+    const payload: ProductionOrder = {
+      ...form,
+      ItemNumber: parent?.ItemNumber ?? form.ItemNumber,
+    }
+    const message = validateSubassemblyHeaderForm(payload)
     if (message) {
       setError(message)
       toast.error(message)
@@ -82,12 +79,12 @@ export function SubassemblyFormPage() {
     setSaving(true)
     setError(null)
     try {
-      if (form.AbsoluteEntry) {
-        await updateProductionOrder(form.AbsoluteEntry, form)
+      if (payload.AbsoluteEntry) {
+        await updateProductionOrder(payload.AbsoluteEntry, payload)
         toast.success('Sub-assembly updated.')
-        navigate(productionOrderSubassemblyItemsPath(id!, form.AbsoluteEntry))
+        navigate(productionOrderSubassemblyItemsPath(id!, payload.AbsoluteEntry))
       } else {
-        const created = await createProductionOrder(form)
+        const created = await createProductionOrder(payload)
         const childEntry = created.AbsoluteEntry
         toast.success('Sub-assembly created.')
         if (childEntry) {
@@ -106,6 +103,13 @@ export function SubassemblyFormPage() {
   }
 
   if (loading) return <div className="py-12 text-center">Loading...</div>
+
+  const productLabel = [parent?.ItemNumber ?? form.ItemNumber, parent?.ProductDescription]
+    .filter(Boolean)
+    .join(' - ')
+  const subassemblyNo = form.AbsoluteEntry
+    ? formatSubassemblyNo(form, parent?.DocumentNumber)
+    : (form.ParentProductionOrderNo ?? '')
 
   return (
     <div className="space-y-6">
@@ -126,9 +130,23 @@ export function SubassemblyFormPage() {
             <div className="grid gap-4 md:grid-cols-3">
               <Input
                 label="Subassembly No."
-                value={form.DocumentNumber != null ? String(form.DocumentNumber) : ''}
+                value={subassemblyNo}
                 disabled
-                hint="Assigned by SAP after save."
+                hint="Parent production order / sequence."
+              />
+              <Input
+                label="Product No."
+                value={productLabel}
+                disabled
+                hint="Same product as the parent production order."
+              />
+              <Input
+                label="Planned Qty"
+                type="number"
+                nonNegative
+                required
+                value={String(form.PlannedQuantity ?? 0)}
+                onChange={(e) => setForm({ ...form, PlannedQuantity: Number(e.target.value) })}
               />
               <Input
                 label="Drawing No."
@@ -139,33 +157,6 @@ export function SubassemblyFormPage() {
                 label="Drawing Name"
                 value={form.ProductDescription ?? ''}
                 onChange={(e) => setForm({ ...form, ProductDescription: e.target.value })}
-              />
-              <SearchableSelect
-                label="Product No."
-                required
-                lookupKind="item"
-                value={form.ItemNumber ?? ''}
-                selectedLabel={itemLabel}
-                placeholder="Search item..."
-                onSearch={searchItemOptions}
-                onChange={(code, option) => {
-                  const label = option?.label ?? code
-                  const name = label.includes(' - ') ? label.split(' - ').slice(1).join(' - ') : ''
-                  setItemLabel(label)
-                  setForm({
-                    ...form,
-                    ItemNumber: code,
-                    ProductDescription: form.ProductDescription || name,
-                  })
-                }}
-              />
-              <Input
-                label="Planned Qty"
-                type="number"
-                nonNegative
-                required
-                value={String(form.PlannedQuantity ?? 0)}
-                onChange={(e) => setForm({ ...form, PlannedQuantity: Number(e.target.value) })}
               />
             </div>
             <div className="flex gap-3">

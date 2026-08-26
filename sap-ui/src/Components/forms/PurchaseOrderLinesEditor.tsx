@@ -13,6 +13,7 @@ import {
   calculateLineTotals,
   calcItemsPerUnit,
   calcUseBaseUnits,
+  nextUnusedLineNum,
   resolveLineUoms,
   resolvePurchaseUnit,
   withItemsPerUnit,
@@ -57,6 +58,8 @@ interface PurchaseOrderLinesEditorProps {
   docType?: string
   title?: string
   readOnly?: boolean
+  /** Assign LineNum on newly added rows. On edit, omit it so SAP appends the line. */
+  assignLineNums?: boolean
 }
 
 type LineRow = PurchaseOrderLineItem & { __rowIndex: number }
@@ -119,6 +122,7 @@ export function PurchaseOrderLinesEditor({
   docType,
   title,
   readOnly = false,
+  assignLineNums = false,
 }: PurchaseOrderLinesEditorProps) {
   const isService = isServicePoDocType(docType)
   const resolvedTitle = title ?? (isService ? 'Service Lines' : 'Items')
@@ -385,6 +389,9 @@ export function PurchaseOrderLinesEditor({
 
     const nextLine = enrichLine(applyStockPurchaseQty({
       ...draft,
+      LineNum: draft.LineNum
+        ?? (editingIndex != null ? lines[editingIndex]?.LineNum : undefined)
+        ?? (assignLineNums ? (editingIndex ?? nextUnusedLineNum(lines)) : undefined),
       ItemCode: isService ? undefined : draft.ItemCode,
       WarehouseCode: warehouseCode,
       LocationCode: locationCode,

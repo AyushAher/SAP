@@ -472,12 +472,18 @@ export function resolvePurchaseUnit(line: Pick<PurchaseOrderLineItem, 'MeasureUn
  */
 export function toSapDocumentLine(
   line: PurchaseOrderLineItem,
-  options: { isService: boolean; fallbackProject?: string },
+  options: { isService: boolean; fallbackProject?: string; lineIndex?: number; fallbackLocationCode?: number },
 ): Record<string, unknown> {
-  const { isService, fallbackProject } = options
+  const { isService, fallbackProject, lineIndex, fallbackLocationCode } = options
   const projectCode = line.ProjectCode || fallbackProject || undefined
   const accountCode = line.AccountCode?.trim() || undefined
   const sendAccountCode = isService || isNonInventoryItem(line.InventoryItem)
+  const lineNum = line.LineNum ?? lineIndex
+  const locationCode = line.LocationCode != null && line.LocationCode > 0
+    ? line.LocationCode
+    : fallbackLocationCode != null && fallbackLocationCode > 0
+      ? fallbackLocationCode
+      : undefined
 
   if (isService) {
     return {
@@ -489,11 +495,11 @@ export function toSapDocumentLine(
       TaxCode: line.TaxCode,
       SACEntry: line.SACEntry,
       ProjectCode: projectCode,
-      LocationCode: line.LocationCode != null && line.LocationCode > 0 ? line.LocationCode : undefined,
+      LocationCode: locationCode,
       // Sent so the API can resolve Loc. from OWHS; the SAP payload builder strips WarehouseCode
       // on service documents (it triggers GrossBuyPrice).
       WarehouseCode: line.WarehouseCode || undefined,
-      LineNum: line.LineNum,
+      LineNum: lineNum,
     }
   }
 
@@ -508,7 +514,7 @@ export function toSapDocumentLine(
     UnitPrice: line.UnitPrice,
     DiscountPercent: line.DiscountPercent,
     WarehouseCode: line.WarehouseCode,
-    LocationCode: line.LocationCode,
+    LocationCode: locationCode,
     TaxCode: line.TaxCode,
     HSNEntry: line.HSNEntry,
     SACEntry: line.SACEntry,
@@ -518,7 +524,7 @@ export function toSapDocumentLine(
     InventoryQuantity: line.StockQty,
     UseBaseUnits: line.UseBaseUnits ?? calcUseBaseUnits(itemsPerUnit),
     ProjectCode: projectCode,
-    LineNum: line.LineNum,
+    LineNum: lineNum,
   }
 }
 
@@ -564,6 +570,23 @@ export function applyWarehouseToPoLines(
     LocationCode: loc ?? line.LocationCode,
     LocationLabel: loc != null ? String(loc) : line.LocationLabel,
   }))
+}
+
+/** First warehouse location present on any line — used so every row gets Loc. in the SAP payload. */
+export function firstPositiveLocationCode(lines: PurchaseOrderLineItem[]): number | undefined {
+  return lines.map((line) => line.LocationCode).find((code) => code != null && code > 0)
+}
+
+/** Next unused SAP LineNum (0-based) so newly added rows are numbered in the approval payload. */
+export function nextUnusedLineNum(lines: PurchaseOrderLineItem[]): number {
+  const used = new Set(
+    lines
+      .map((line) => line.LineNum)
+      .filter((n): n is number => n != null && Number.isFinite(n) && n >= 0),
+  )
+  let next = 0
+  while (used.has(next)) next += 1
+  return next
 }
 
 export function readPoLineLocationCode(line: Record<string, unknown> | PurchaseOrderLineItem): number | undefined {

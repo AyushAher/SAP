@@ -14,7 +14,7 @@ const sapOrder = {
   ProductionOrderType: 'bopotSpecial',
   U_ProdType: 'INT',
   U_DwgNo: 'DWG-42',
-  U_ParentProdOrd: '9',
+  U_DocNum: '9',
   U_PrjName: 'Refinery upgrade',
   U_CustomerName: 'Acme Industries',
   ProductDescription: 'Finished pump',
@@ -68,7 +68,7 @@ describe('normalizeProductionOrder', () => {
       'ProductionOrderType',
       'U_ProdType',
       'U_DwgNo',
-      'U_ParentProdOrd',
+      'U_DocNum',
       'U_PrjName',
       'U_CustomerName',
       'ProductionOrderOriginNumber',
@@ -124,7 +124,7 @@ describe('toProductionOrderPayload', () => {
     expect(json.ProductionOrderType).toBe('bopotDisassembly')
     expect(json.U_ProdType).toBe('JOB')
     expect(json.U_DwgNo).toBe('DWG-7')
-    expect(json.U_ParentProdOrd).toBe('10')
+    expect(json.U_DocNum).toBe('10')
     expect(json.ProductionOrderOriginNumber).toBe(252610128)
     expect(json.ProductionOrderOriginEntry).toBe(156)
     expect(json.Warehouse).toBe('Subcon')
@@ -170,7 +170,7 @@ describe('toProductionOrderPayload', () => {
 
     expect(payload).not.toHaveProperty('U_ProdType')
     expect(payload).not.toHaveProperty('U_DwgNo')
-    expect(payload).not.toHaveProperty('U_ParentProdOrd')
+    expect(payload).not.toHaveProperty('U_DocNum')
     expect(payload).not.toHaveProperty('Remarks')
   })
 
@@ -183,7 +183,7 @@ describe('toProductionOrderPayload', () => {
     expect(payload.ProductionOrderStatus).toBe('boposReleased')
     expect(payload.U_ProdType).toBe('JOB')
     expect(payload.U_DwgNo).toBe('DWG-99')
-    expect(payload.U_ParentProdOrd).toBe('9')
+    expect(payload.U_DocNum).toBe('9')
   })
 
   it('takes explicit lines over the ones on the order and keeps line user fields', () => {

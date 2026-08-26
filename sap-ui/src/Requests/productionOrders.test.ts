@@ -65,7 +65,7 @@ describe('createProductionOrder', () => {
     expect(body.ProductionOrderType).toBe('bopotStandard')
     expect(body.U_ProdType).toBe('JOB')
     expect(body.U_DwgNo).toBe('DWG-7')
-    expect(body.U_ParentProdOrd).toBe('10')
+    expect(body.U_DocNum).toBe('10')
     expect(body.ProductionOrderOriginNumber).toBe(252610128)
     expect(body.ProductionOrderOriginEntry).toBe(156)
     expect(body.DueDate).toBe('2026-08-20')
@@ -138,7 +138,7 @@ describe('listSubassemblies', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiGet.mockResolvedValue([
-      { AbsoluteEntry: 700, DocumentNumber: 21, ItemNo: 'SA-001', U_ParentProdOrd: '10' },
+      { AbsoluteEntry: 700, DocumentNumber: 21, ItemNo: 'SA-001', U_DocNum: '10' },
     ])
   })
 
@@ -149,6 +149,12 @@ describe('listSubassemblies', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].ItemNumber).toBe('SA-001')
     expect(rows[0].ParentProductionOrderNo).toBe('10')
+  })
+
+  it('asks the API for cancelled siblings when allocating the next number', async () => {
+    await listSubassemblies(646, { includeCancelled: true })
+
+    expect(apiGet).toHaveBeenCalledWith('/production-orders/646/subassemblies?includeCancelled=true')
   })
 })
 

@@ -145,7 +145,7 @@ public class PurchaseOrderController(
 
         var placeholders = await pdfBuilder.BuildPlaceholdersAsync(
             order,
-            User.Identity?.Name,
+            ClaimsPrincipalDisplayName.GetDisplayName(User),
             cancellationToken);
 
         var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(

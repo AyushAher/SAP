@@ -88,11 +88,14 @@
 
         .terms {
             white-space: pre-wrap;
+            font-size: 8px;
+            line-height: 1.3;
             min-height: 60px;
         }
 
         .sign td {
             height: 62px;
+            vertical-align: bottom;
         }
 
         .right { text-align: right; }
@@ -113,8 +116,8 @@
     <table class="sheet">
         <colgroup>
             <col style="width: 6%" />
-            <col style="width: 13%" />
-            <col style="width: 26%" />
+            <col style="width: 18%" />
+            <col style="width: 21%" />
             <col style="width: 10%" />
             <col style="width: 11%" />
             <col style="width: 10%" />
@@ -165,7 +168,7 @@
             <td colspan="2"><b>Date:</b> {{documentDate}}</td>
         </tr>
         <tr>
-            <td colspan="8"><b>Project Details:</b> {{projectNo}} - {{projectName}}</td>
+            <td colspan="8"><b>Project Details:</b> {{projectDisplay}}</td>
         </tr>
         <tr>
             <td colspan="8"><b>Reference:</b> {{reference}}</td>
@@ -221,7 +224,7 @@
         <tr>
             <td style="width: 34%"><b>PO NO:</b> {{poReference}}</td>
             <td style="width: 16%"><b>Rev No:</b> {{revNo}}</td>
-            <td style="width: 50%"><b>Project:</b> {{projectNo}}</td>
+            <td style="width: 50%"><b>Project:</b> {{projectDisplay}}</td>
         </tr>
         <tr>
             <td colspan="3"><b>Printed by:</b> {{userName}} on {{printedOn}}</td>

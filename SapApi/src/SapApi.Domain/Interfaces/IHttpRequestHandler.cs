@@ -32,5 +32,15 @@ public interface IHttpRequestHandler
     Task<TResponse?> PostAsync<TRequest, TResponse>(string url, TRequest? data, CancellationToken cancellationToken = default);
     Task<TResponse?> PutAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default);
     Task<TResponse?> PatchAsync<TRequest, TResponse>(string url, TRequest data, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Same as <see cref="PatchAsync{TRequest, TResponse}(string, TRequest, CancellationToken)"/>
+    /// with extra Service Layer headers (for example <c>B1S-ReplaceCollectionsOnPatch</c>).
+    /// </summary>
+    Task<TResponse?> PatchAsync<TRequest, TResponse>(
+        string url,
+        TRequest data,
+        IReadOnlyDictionary<string, string> headers,
+        CancellationToken cancellationToken = default);
     Task<T?> ExecuteSqlQueryAsync<T>(string queryName, Dictionary<string, object> parameters, CancellationToken cancellationToken = default);
 }

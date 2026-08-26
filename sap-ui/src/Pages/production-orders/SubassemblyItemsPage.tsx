@@ -6,7 +6,7 @@ import { SapDataGrid } from '@/Components/shared/SapDataGrid'
 import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Button, Card, CardContent, Input, SearchableSelect } from '@/Components/ui'
 import { productionOrderFormPath, productionOrderSubassemblyPath } from '@/config/constants'
-import { validateSubassemblyItemsForm } from '@/helpers/productionOrderForm'
+import { formatSubassemblyNo, validateSubassemblyItemsForm } from '@/helpers/productionOrderForm'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import { getProductionOrder, updateProductionOrder } from '@/Requests/productionOrders'
@@ -138,7 +138,9 @@ export function SubassemblyItemsPage() {
             </div>
             <div>
               <div className="text-slate-500">Subassembly No.</div>
-              <div className="font-medium text-slate-900">{child?.DocumentNumber ?? '—'}</div>
+              <div className="font-medium text-slate-900">
+                {formatSubassemblyNo(child ?? {}, parent?.DocumentNumber) || '—'}
+              </div>
             </div>
             <div>
               <div className="text-slate-500">Drawing No.</div>

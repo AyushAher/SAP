@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using SapApi.Shared;
+using SapApi.Shared.Helpers;
 using SapApi.Shared.Responses.Sap;
 using SapApi.Shared.Sap;
 
@@ -82,7 +83,7 @@ public class ProductionOrderPdfBuilder
             ["totalIssuedQty"] = Escape(FormatQty(totalIssued)),
             ["remarks"] = Escape(Text(order.Remarks)),
             ["userName"] = Escape(Text(userName)),
-            ["printedOn"] = Escape(DateTime.Now.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)),
+            ["printedOn"] = Escape(IndiaTime.FormatPrintedOn()),
         };
     }
 
