@@ -80,7 +80,7 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             itemsHtml.Append($"""
                 <tr>
                     <td class="center">{sr}</td>
-                    <td>{Escape(line.ItemCode)}</td>
+                    <td class="part-no">{Escape(line.ItemCode)}</td>
                     <td>{Escape(line.ItemDescription)}</td>
                     <td class="center">{Escape(FormatDate(deliveryFallback))}</td>
                     <td class="center">{Escape(purchaseQty)}</td>
@@ -104,7 +104,7 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
                 """);
         }
 
-        var terms = BuildTermsOfContract();
+        var terms = FormatTermsHtml(BuildTermsOfContract());
         var entityName = branch?.BplName ?? string.Empty;
         var projectDisplay = FormatProject(order.Project, projectName);
 
@@ -140,7 +140,7 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             ["projectName"] = Escape(projectName),
             ["projectDisplay"] = Escape(projectDisplay),
             ["reference"] = Escape(order.NumAtCard ?? string.Empty),
-            ["terms"] = Escape(terms),
+            ["@terms"] = terms,
             ["amountFigures"] = Escape(FormatMoney(currency, totalBasic)),
             ["amountWords"] = Escape(AmountInWords.ConvertToWords(totalBasic)),
             ["buyerName"] = Escape(buyerName ?? string.Empty),
@@ -234,7 +234,7 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
 
         var name = !string.IsNullOrWhiteSpace(bp?.CardName)
             ? $"{bp!.CardCode} - {bp.CardName}"
-            : dispatchTo ?? order.ShipToCode ?? warehouseCode ?? string.Empty;
+            : dispatchTo ?? warehouseCode ?? string.Empty;
 
         return BuildParty(
             name: name,
@@ -314,6 +314,12 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
         if (trimmedName.Length == 0) return trimmedCode;
         return $"{trimmedCode} - {trimmedName}";
     }
+
+    private static string FormatTermsHtml(string terms) =>
+        string.Join("<br>",
+            terms.Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Split('\n')
+                .Select(Escape));
 
     private static string FormatSpecialLine(string? freeText) =>
         string.IsNullOrWhiteSpace(freeText) ? string.Empty : $": {Escape(freeText.Trim())}";

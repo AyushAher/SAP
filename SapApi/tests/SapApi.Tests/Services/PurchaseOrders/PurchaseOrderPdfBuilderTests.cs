@@ -93,15 +93,16 @@ public class PurchaseOrderPdfBuilderTests
 
         var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
 
-        result["terms"].Should().Contain("STANDARD TERMS &amp; CONDITIONS");
-        result["terms"].Should().Contain("Order is placed on ____ basis.");
-        result["terms"].Should().Contain("delivered/completed within ____.");
-        result["terms"].Should().Contain("inspection and approval by ____.");
-        result["terms"].Should().Contain("Packaging shall be ____.");
-        result["terms"].Should().NotContain("F.O.R.");
-        result["terms"].Should().Contain("courts at Pune, Maharashtra");
-        result["terms"].Should().Contain("18 months from date of supply");
-        result["terms"].Should().Contain("purchase.pune@privilegeboilers.com");
+        result["@terms"].Should().Contain("STANDARD TERMS &amp; CONDITIONS");
+        result["@terms"].Should().Contain("Order is placed on ____ basis.");
+        result["@terms"].Should().Contain("delivered/completed within ____.");
+        result["@terms"].Should().Contain("inspection and approval by ____.");
+        result["@terms"].Should().Contain("Packaging shall be ____.");
+        result["@terms"].Should().Contain("<br>");
+        result["@terms"].Should().NotContain("F.O.R.");
+        result["@terms"].Should().Contain("courts at Pune, Maharashtra");
+        result["@terms"].Should().Contain("18 months from date of supply");
+        result["@terms"].Should().Contain("purchase.pune@privilegeboilers.com");
     }
 
     [Test]
@@ -156,6 +157,7 @@ public class PurchaseOrderPdfBuilderTests
         order.UShipTo = "Ravi Kumar";
         order.UDispachAdd = "KRANTI S S K LTD, SANGLI, MH, 416309";
         order.UDisId = "C000030";
+        order.ShipToCode = "PLOT NO- X-38,";
         order.DocumentLines = [new() { WarehouseCode = "Store1" }];
 
         var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
@@ -167,6 +169,7 @@ public class PurchaseOrderPdfBuilderTests
         result["shipToAddress"].Should().NotContain("KRANTI");
         result["shipToContact"].Should().Be("Ravi Kumar");
         result["shipToGst"].Should().Be("27AABCP1234A1Z5");
+        result["shipToName"].Should().NotContain("PLOT");
     }
 
     [Test]
