@@ -125,6 +125,7 @@ describe('toProductionOrderPayload', () => {
     expect(json.U_ProdType).toBe('JOB')
     expect(json.U_DwgNo).toBe('DWG-7')
     expect(json.U_DocNum).toBe('10')
+    expect(json.ProductionOrderLines[0].U_DocNum).toBe('10')
     expect(json.ProductionOrderOriginNumber).toBe(252610128)
     expect(json.ProductionOrderOriginEntry).toBe(156)
     expect(json.Warehouse).toBe('Subcon')

@@ -83,23 +83,39 @@ public class PurchaseOrderPdfBuilderTests
     }
 
     [Test]
-    public async Task Terms_of_contract_print_the_standard_clauses_with_blanks()
+    public async Task Terms_of_contract_print_the_clauses_with_price_basis_from_the_po()
     {
         SetupBranchAndProject();
         var order = MinimalOrder();
         order.UPriceBasis = "F.O.R.";
         order.UDelTerms = "4 weeks";
         order.UInspectionBy = "PBBPL QC";
+        order.UTransportation = "Road";
+        order.UBasic1 = 20;
+        order.UType1 = "Advance";
+        order.UDes1 = "20% Basic As Advance";
+        order.UGst11 = 100;
+        order.UType11 = "Invoice";
+        order.UDes11 = "100% GST Against Invoice";
 
         var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
 
-        result["@terms"].Should().Contain("STANDARD TERMS &amp; CONDITIONS");
-        result["@terms"].Should().Contain("Order is placed on ____ basis.");
-        result["@terms"].Should().Contain("delivered/completed within ____.");
-        result["@terms"].Should().Contain("inspection and approval by ____.");
-        result["@terms"].Should().Contain("Packaging shall be ____.");
+        result["@terms"].Should().Contain("PAYMENT TERMS");
+        result["@terms"].Should().Contain("1. 20% Basic As Advance");
+        result["@terms"].Should().Contain("2. 100% GST Against Invoice");
+        var paymentHead = result["@terms"].IndexOf("PAYMENT TERMS", StringComparison.Ordinal);
+        var termsHead = result["@terms"].IndexOf("TERMS &amp; CONDITIONS", StringComparison.Ordinal);
+        paymentHead.Should().BeGreaterThanOrEqualTo(0);
+        termsHead.Should().BeGreaterThan(paymentHead);
+        result["@terms"].Should().NotContain("STANDARD");
+        result["@terms"].Should().NotContain("To Be Printed");
+        result["@terms"].Should().Contain("Order is placed on F.O.R. basis.");
+        result["@terms"].Should().NotContain("Order is placed on ____ basis.");
+        result["@terms"].Should().Contain("delivered/completed within 4 weeks.");
+        result["@terms"].Should().Contain("inspection and approval by PBBPL QC.");
+        result["@terms"].Should().Contain("Packaging shall be Road.");
+        result["@terms"].Should().NotContain("____");
         result["@terms"].Should().Contain("<br>");
-        result["@terms"].Should().NotContain("F.O.R.");
         result["@terms"].Should().Contain("courts at Pune, Maharashtra");
         result["@terms"].Should().Contain("18 months from date of supply");
         result["@terms"].Should().Contain("purchase.pune@privilegeboilers.com");
@@ -217,6 +233,95 @@ public class PurchaseOrderPdfBuilderTests
         result["shipToState"].Should().Be("MH");
         result["shipToGst"].Should().Be("27AAAAA0000A1Z5");
         result["shipToContact"].Should().Be("KIRAN DURAPE");
+    }
+
+    [Test]
+    public async Task Item_rows_print_sap_document_special_lines_after_the_matching_line()
+    {
+        SetupBranchAndProject();
+        var order = MinimalOrder();
+        order.Comments = "header comments are not special lines";
+        order.DocumentLines =
+        [
+            new()
+            {
+                LineNum = 0,
+                ItemCode = "RM1",
+                ItemDescription = "Plate",
+                Quantity = 1,
+                UnitPrice = 10,
+                LineTotal = 10,
+            },
+            new()
+            {
+                LineNum = 1,
+                ItemCode = "RM2",
+                ItemDescription = "Rod",
+                Quantity = 1,
+                UnitPrice = 10,
+                LineTotal = 10,
+            },
+        ];
+        order.DocumentSpecialLines =
+        [
+            new SapDocumentSpecialLine
+            {
+                AfterLineNumber = 0,
+                LineType = "dslt_Text",
+                LineText = "Make as per drawing D-101",
+            },
+        ];
+
+        var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
+
+        result["@items"].Should().Contain("Make as per drawing D-101");
+        result["@items"].Should().Contain("Document Special Lines: Make as per drawing D-101");
+        result["@items"].Should().NotContain("header comments");
+        var firstItem = result["@items"].IndexOf("RM1", StringComparison.Ordinal);
+        var special = result["@items"].IndexOf("Make as per drawing D-101", StringComparison.Ordinal);
+        var secondItem = result["@items"].IndexOf("RM2", StringComparison.Ordinal);
+        firstItem.Should().BeGreaterThanOrEqualTo(0);
+        special.Should().BeGreaterThan(firstItem);
+        secondItem.Should().BeGreaterThan(special);
+    }
+
+    [Test]
+    public async Task Empty_document_special_lines_are_omitted_from_the_layout()
+    {
+        SetupBranchAndProject();
+        var order = MinimalOrder();
+        order.DocumentLines =
+        [
+            new() { LineNum = 0, ItemCode = "RM1", ItemDescription = "Plate", Quantity = 1, LineTotal = 10 },
+        ];
+
+        var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
+
+        result["@items"].Should().Contain("RM1");
+        result["@items"].Should().NotContain("Document Special Lines");
+    }
+
+    [Test]
+    public async Task Line_free_text_is_used_when_sap_special_lines_are_missing()
+    {
+        SetupBranchAndProject();
+        var order = MinimalOrder();
+        order.DocumentLines =
+        [
+            new()
+            {
+                LineNum = 0,
+                ItemCode = "RM1",
+                ItemDescription = "Plate",
+                FreeText = "Cut to 3.2 m",
+                Quantity = 1,
+                LineTotal = 10,
+            },
+        ];
+
+        var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
+
+        result["@items"].Should().Contain("Document Special Lines: Cut to 3.2 m");
     }
 
     private static WarehouseResponse FactoryWarehouse() => new()

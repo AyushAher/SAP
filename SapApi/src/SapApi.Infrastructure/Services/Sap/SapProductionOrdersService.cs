@@ -109,11 +109,14 @@ namespace SapApi.Infrastructure.Services.Sap
                 };
             }
 
+            var parentNo = NullIfBlank(addedLines.ParentProductionOrderNo);
             var payload = PrepareProductionOrderForSap(addedLines);
             var updated = await httpRequestHandler.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 Constants.SapApiUrls.GetProductionOrders(payload.AbsoluteEntry?.ToString() ?? "0"), payload);
 
             await RefreshMirrorAfterWriteAsync(payload.AbsoluteEntry, updated, cancellationToken);
+            await localStore.PreserveParentProductionOrderNoAsync(
+                payload.AbsoluteEntry, parentNo, cancellationToken);
             return updated;
         }
 
@@ -169,11 +172,14 @@ namespace SapApi.Infrastructure.Services.Sap
                 };
             }
 
+            var parentNo = NullIfBlank(addedLines.ParentProductionOrderNo);
             var payload = PrepareProductionOrderForSap(addedLines);
             var created = await httpRequestHandler.PostAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 Constants.SapApiUrls.CreateProductionOrder, payload);
 
             await RefreshMirrorAfterWriteAsync(created?.AbsoluteEntry, created, cancellationToken);
+            await localStore.PreserveParentProductionOrderNoAsync(
+                created?.AbsoluteEntry, parentNo, cancellationToken);
             return created;
         }
 
@@ -208,7 +214,14 @@ namespace SapApi.Infrastructure.Services.Sap
         /// </summary>
         static SapProductionOrdersResponse PrepareProductionOrderForSap(SapProductionOrdersResponse order)
         {
-            order.ProductionOrderLines = order.ProductionOrderLines?
+            var parentNo = NullIfBlank(order.ParentProductionOrderNo);
+            // Service Layer metadata for ProductionOrder does not expose OWOR U_DocNum (name
+            // collision with DocumentNumber). Sending it fails the whole write. WOR1 U_DocNum
+            // ("Subassembly") is exposed on lines — stamp the parent/sequence there instead.
+            order.ParentProductionOrderNo = null;
+
+            var lines = order.ProductionOrderLines?
+                .Where(line => !string.IsNullOrWhiteSpace(line.ItemNo))
                 .Select((line, index) =>
                 {
                     line.VisualOrder = index;
@@ -217,9 +230,15 @@ namespace SapApi.Infrastructure.Services.Sap
                     line.BatchNumbers = null;
                     // ProductionOrderLine.UoMCode must be a whole number (UoM entry). Drop inventory UoM names like "KG".
                     line.UoMCode = SapProductionOrderUoMNormalizer.NormalizeUoMCode(line.UoMCode);
+                    if (parentNo is not null && string.IsNullOrWhiteSpace(line.DocNum))
+                        line.DocNum = parentNo;
                     return line;
                 })
-                .ToList() ?? [];
+                .ToList();
+            // Empty [] blocks BOM explosion and SAP rejects "Must have components". Omit the
+            // collection when there are no item rows so a create can still succeed, or an update
+            // leaves existing lines alone.
+            order.ProductionOrderLines = lines is { Count: > 0 } ? lines : null;
 
             // Project/customer names are display-only values resolved from master data. They map to UDFs
             // that do not exist on ProductionOrders in every company DB, and SAP rejects unknown
@@ -236,6 +255,9 @@ namespace SapApi.Infrastructure.Services.Sap
 
             return order;
         }
+
+        static string? NullIfBlank(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
         static SapProductionOrderLines PrepareLineForSapPatch(SapProductionOrderLines line)
         {

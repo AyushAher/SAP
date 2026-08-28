@@ -82,6 +82,28 @@ public class PurchaseOrderTemplateTests
 
     [TestCase("Templates")]
     [TestCase(@"wwwroot/Templates")]
+    public void Qty_headers_use_purchase_and_system_unit_labels(string templateFolder)
+    {
+        var html = TemplateHtml(templateFolder);
+        html.Should().Contain("Qty in Purchase Unit");
+        html.Should().Contain("Qty in System Unit");
+        html.Should().NotContain(">Purchase Qty<");
+        html.Should().NotContain(">Stock Qty<");
+    }
+
+    [TestCase("Templates")]
+    [TestCase(@"wwwroot/Templates")]
+    public void Terms_font_matches_body_size(string templateFolder)
+    {
+        var html = TemplateHtml(templateFolder);
+        var start = html.IndexOf(".terms {", StringComparison.Ordinal);
+        start.Should().BeGreaterThanOrEqualTo(0);
+        html.Substring(start, 90).Should().Contain("font-size: 10px");
+        html.Substring(start, 90).Should().NotContain("font-size: 8px");
+    }
+
+    [TestCase("Templates")]
+    [TestCase(@"wwwroot/Templates")]
     public void Signature_names_sit_at_the_bottom_of_the_sign_row(string templateFolder)
     {
         var html = TemplateHtml(templateFolder);

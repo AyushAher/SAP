@@ -46,8 +46,7 @@ public static class SapPaginationProfiles
         // so SAP rejects them in $select ("Property 'U_CustomerName' ... is invalid"). Names are
         // resolved from master data in SapProductionOrdersService instead.
         Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,"
-            + Constants.SapProductionOrderUdf.DrawingNo + ","
-            + Constants.SapProductionOrderUdf.ParentProductionOrder + ",CreationDate",
+            + Constants.SapProductionOrderUdf.DrawingNo + ",CreationDate",
         KeyFields = ["AbsoluteEntry"],
         DefaultSortField = "AbsoluteEntry",
         DefaultSortDirection = "desc",

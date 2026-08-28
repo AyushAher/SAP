@@ -107,6 +107,7 @@ public class SapPaginationBuilderTests
 
         query.Select.Should().NotContain("U_CustomerName");
         query.Select.Should().NotContain("U_PrjName");
+        query.Select.Should().NotContain("U_DocNum");
     }
 
     [Test]

@@ -61,6 +61,39 @@ public class ProductionOrderMapperTests
     }
 
     [Test]
+    public void ApplyHeader_keeps_existing_parent_when_SAP_omits_the_header_udf()
+    {
+        var entity = new ProductionOrder { ParentProductionOrderNo = "13/1" };
+
+        ProductionOrderMapper.ApplyHeader(
+            entity,
+            new SapProductionOrdersResponse { AbsoluteEntry = 1, ParentProductionOrderNo = null },
+            SyncedAt);
+
+        entity.ParentProductionOrderNo.Should().Be("13/1");
+    }
+
+    [Test]
+    public void ApplyHeader_recovers_parent_from_line_udf_when_header_is_blank()
+    {
+        var entity = new ProductionOrder();
+
+        ProductionOrderMapper.ApplyHeader(
+            entity,
+            new SapProductionOrdersResponse
+            {
+                AbsoluteEntry = 1,
+                ProductionOrderLines =
+                [
+                    new SapProductionOrderLines { ItemNo = "RM-100", DocNum = "13/2" },
+                ],
+            },
+            SyncedAt);
+
+        entity.ParentProductionOrderNo.Should().Be("13/2");
+    }
+
+    [Test]
     public void ApplyHeader_keeps_a_previously_resolved_project_name_when_SAP_sends_none()
     {
         var entity = new ProductionOrder { ProjectName = "Resolved from project master" };

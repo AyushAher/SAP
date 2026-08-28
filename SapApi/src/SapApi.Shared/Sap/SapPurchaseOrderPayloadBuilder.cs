@@ -78,6 +78,8 @@ public static class SapPurchaseOrderPayloadBuilder
             UOtherRemark = NullIfWhiteSpace(source.UOtherRemark),
             UPainting = NullIfWhiteSpace(source.UPainting),
             UTestCerts = NullIfWhiteSpace(source.UTestCerts),
+            UPackingForwarding = NullIfWhiteSpace(source.UPackingForwarding),
+            UTcDispatchAddress = NullIfWhiteSpace(source.UTcDispatchAddress),
             // Fixed legal text for SAP; never taken from the client and never shown in the UI.
             UGstText = Constants.SapPurchaseOrderUdf.GstTextDefault,
             UTdsText = Constants.SapPurchaseOrderUdf.TdsTextDefault,
@@ -139,6 +141,7 @@ public static class SapPurchaseOrderPayloadBuilder
             DocumentLines = preparedLines,
             DocumentSpecialLines = PrepareSpecialLines(
                 source.DocumentLines, source.DocumentSpecialLines, preparedLines, isService),
+            AdditionalUdf = PurchaseOrderOtherTermUdf.CopyWritableAdditionalUdf(source.AdditionalUdf),
         };
 
         if (isUpdate)
@@ -167,6 +170,93 @@ public static class SapPurchaseOrderPayloadBuilder
             return;
         document.UGstText = null;
         document.UTdsText = null;
+    }
+
+    /// <summary>
+    /// Local PO cache does not store POR12 text rows. Copy SAP DocumentSpecialLines (and line FreeText)
+    /// onto the cached document so print/UI show the remarks that live in Service Layer.
+    /// </summary>
+    public static void MergeDocumentSpecialLinesFromSap(
+        SapPurchaseOrdersResponse local,
+        SapPurchaseOrdersResponse? sap)
+    {
+        if (sap is null)
+            return;
+
+        if (sap.DocumentSpecialLines is { Count: > 0 })
+            local.DocumentSpecialLines = sap.DocumentSpecialLines;
+
+        MergeOtherTermUdfFromSap(local, sap);
+
+        if (local.DocumentLines is not { Count: > 0 })
+            return;
+
+        if (sap.DocumentLines is { Count: > 0 })
+        {
+            foreach (var line in local.DocumentLines)
+            {
+                if (!string.IsNullOrWhiteSpace(line.FreeText))
+                    continue;
+                var sapLine = sap.DocumentLines.FirstOrDefault(s => s.LineNum == line.LineNum);
+                if (!string.IsNullOrWhiteSpace(sapLine?.FreeText))
+                    line.FreeText = sapLine.FreeText;
+            }
+        }
+
+        ApplySpecialLineTextOntoDocumentLines(local);
+    }
+
+    /// <summary>
+    /// Local cache does not store Packing Forwarding / TC Dispatch Address. Copy those UDFs
+    /// (and Unloading / Transportation / Transit Insurance) from the live SAP document.
+    /// </summary>
+    public static void MergeOtherTermUdfFromSap(
+        SapPurchaseOrdersResponse local,
+        SapPurchaseOrdersResponse sap)
+    {
+        if (!string.IsNullOrWhiteSpace(sap.UUnloading))
+            local.UUnloading = sap.UUnloading;
+        if (!string.IsNullOrWhiteSpace(sap.UTransportation))
+            local.UTransportation = sap.UTransportation;
+        if (!string.IsNullOrWhiteSpace(sap.UTransitIns))
+            local.UTransitIns = sap.UTransitIns;
+        if (!string.IsNullOrWhiteSpace(sap.UPackingForwarding))
+            local.UPackingForwarding = sap.UPackingForwarding;
+        if (!string.IsNullOrWhiteSpace(sap.UTcDispatchAddress))
+            local.UTcDispatchAddress = sap.UTcDispatchAddress;
+
+        local.AdditionalUdf = PurchaseOrderOtherTermUdf.MergeWritableAdditionalUdf(
+            local.AdditionalUdf, sap.AdditionalUdf);
+    }
+
+    internal static void ApplySpecialLineTextOntoDocumentLines(SapPurchaseOrdersResponse document)
+    {
+        if (document.DocumentLines is not { Count: > 0 }
+            || document.DocumentSpecialLines is not { Count: > 0 })
+            return;
+
+        for (var i = 0; i < document.DocumentLines.Count; i++)
+        {
+            var line = document.DocumentLines[i];
+            if (!string.IsNullOrWhiteSpace(line.FreeText))
+                continue;
+            var after = line.LineNum ?? i;
+            var text = document.DocumentSpecialLines
+                .Where(s => SpecialLineFollows(s, after, i))
+                .Select(s => s.LineText)
+                .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+            if (!string.IsNullOrWhiteSpace(text))
+                line.FreeText = text.Trim();
+        }
+    }
+
+    public static bool SpecialLineFollows(SapDocumentSpecialLine special, int lineNum, int index)
+    {
+        if (special.AfterLineNumber is int after)
+            return after == lineNum || after == index;
+        if (special.LineNum is int num)
+            return num == lineNum || num == index;
+        return false;
     }
 
     /// <summary>

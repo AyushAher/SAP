@@ -47,6 +47,10 @@ namespace SapApi.Infrastructure.Services.Sap
             var fromDb = await localStore.GetFromDbAsync(docEntry, includeLines: true, cancellationToken);
             if (fromDb is not null)
             {
+                var sapDetail = await requestHandler.GetAsync<SapPurchaseOrdersResponse>(
+                    Constants.SapApiUrls.UpdateSapPurchaseOrders(docEntry),
+                    cancellationToken: cancellationToken);
+                SapPurchaseOrderPayloadBuilder.MergeDocumentSpecialLinesFromSap(fromDb, sapDetail);
                 SapPurchaseOrderPayloadBuilder.OmitHiddenUdfDefaultsFromClientResponse(fromDb);
                 return fromDb;
             }

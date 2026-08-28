@@ -1231,6 +1231,12 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Property<string>("UTestCerts")
                         .HasColumnType("text");
 
+                    b.Property<string>("UPackingForwarding")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UTcDispatchAddress")
+                        .HasColumnType("text");
+
                     b.Property<string>("UTransitIns")
                         .HasColumnType("text");
 

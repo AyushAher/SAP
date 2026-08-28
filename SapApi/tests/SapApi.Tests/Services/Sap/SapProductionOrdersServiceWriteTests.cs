@@ -145,6 +145,9 @@ public class SapProductionOrdersServiceWriteTests
         json.Should().Contain("\"ProductionOrderType\":\"bopotSpecial\"");
         json.Should().Contain("\"U_ProdType\":\"JOB\"");
         json.Should().Contain("\"U_DwgNo\":\"DWG-7\"");
+        json.Should().NotContain("\"ParentProductionOrderNo\"");
+        posted!.ParentProductionOrderNo.Should().BeNull();
+        posted.ProductionOrderLines!.Single().DocNum.Should().Be("10");
         json.Should().Contain("\"U_DocNum\":\"10\"");
         json.Should().Contain("\"ProductionOrderOriginNumber\":252610128");
         json.Should().Contain("\"ProductionOrderOriginEntry\":156");

@@ -4,6 +4,8 @@ import {
   GST_PAYMENT_TERM_TYPES,
   MAX_BASIC_PAYMENT_TERMS,
   MAX_PAYMENT_TERMS,
+  PACKING_FORWARDING_UDF_CANDIDATES,
+  TC_DISPATCH_ADDRESS_UDF_CANDIDATES,
 } from '@/types/purchaseOrder'
 import { isNonInventoryItem } from '@/helpers/purchaseOrderTnValidation'
 
@@ -314,8 +316,26 @@ export function formatBpDispatchAddress(address: {
   return (address.AddressName ?? '').trim().slice(0, 120)
 }
 
+export interface OtherTermsUdfFields {
+  packingForwardingField?: string
+  tcDispatchAddressField?: string
+}
+
+function udfKeys(field: string | undefined, candidates: readonly string[]): string[] {
+  const names = [field, ...candidates].filter((name): name is string => Boolean(name && name.trim()))
+  const unique = [...new Set(names.map((name) => name.replace(/^U_/i, '')))]
+  return unique.map((name) => `U_${name}`)
+}
+
+function deleteUdfKeys(target: PoRecord, keys: string[]) {
+  for (const key of keys) delete target[key]
+}
+
 /** OPOR Other Terms UDFs (Service Layer names from UserFieldsMD). */
-export function readOtherTermsFromPo(po: PoRecord): PurchaseOrderOtherTerms {
+export function readOtherTermsFromPo(
+  po: PoRecord,
+  udfFields?: OtherTermsUdfFields,
+): PurchaseOrderOtherTerms {
   return {
     deliveryTerms: readString(po, 'U_DL', 'U_DelTerms'),
     inspectionBy: readString(po, 'U_INSPBY', 'U_InspectionBy'),
@@ -326,13 +346,19 @@ export function readOtherTermsFromPo(po: PoRecord): PurchaseOrderOtherTerms {
     loading: readString(po, 'U_LOAD', 'U_Loading'),
     warranty: readString(po, 'U_WARR', 'U_Warranty'),
     unloading: readString(po, 'U_UN_LOAD', 'U_Unloading'),
+    packingForwarding: readString(po, 'U_PAC_FOR', ...udfKeys(udfFields?.packingForwardingField, PACKING_FORWARDING_UDF_CANDIDATES)),
     otherRemark: readString(po, 'U_ANOTHREM', 'U_OtherRemark'),
     painting: readString(po, 'U_PAIN', 'U_Painting'),
     testCertificates: readString(po, 'U_TC', 'U_TestCerts'),
+    tcDispatchAddress: readString(po, 'U_TCDISADD', ...udfKeys(udfFields?.tcDispatchAddressField, TC_DISPATCH_ADDRESS_UDF_CANDIDATES)),
   }
 }
 
-export function applyOtherTermsToPo(po: PoRecord, terms: PurchaseOrderOtherTerms): PoRecord {
+export function applyOtherTermsToPo(
+  po: PoRecord,
+  terms: PurchaseOrderOtherTerms,
+  udfFields?: OtherTermsUdfFields,
+): PoRecord {
   const next: PoRecord = { ...po }
   // Drop legacy invented names so they are never posted to Service Layer.
   for (const legacy of [
@@ -353,6 +379,23 @@ export function applyOtherTermsToPo(po: PoRecord, terms: PurchaseOrderOtherTerms
   next.U_ANOTHREM = terms.otherRemark || undefined
   next.U_PAIN = terms.painting || undefined
   next.U_TC = terms.testCertificates || undefined
+
+  const packingKeys = udfKeys(udfFields?.packingForwardingField, PACKING_FORWARDING_UDF_CANDIDATES)
+  deleteUdfKeys(next, packingKeys)
+  next.U_PAC_FOR = terms.packingForwarding || undefined
+  if (udfFields?.packingForwardingField) {
+    const discovered = `U_${udfFields.packingForwardingField.replace(/^U_/i, '')}`
+    if (discovered !== 'U_PAC_FOR') next[discovered] = terms.packingForwarding || undefined
+  }
+
+  const tcKeys = udfKeys(udfFields?.tcDispatchAddressField, TC_DISPATCH_ADDRESS_UDF_CANDIDATES)
+  deleteUdfKeys(next, tcKeys)
+  next.U_TCDISADD = terms.tcDispatchAddress || undefined
+  if (udfFields?.tcDispatchAddressField) {
+    const discovered = `U_${udfFields.tcDispatchAddressField.replace(/^U_/i, '')}`
+    if (discovered !== 'U_TCDISADD') next[discovered] = terms.tcDispatchAddress || undefined
+  }
+
   return next
 }
 

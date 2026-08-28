@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SapApi.Shared.Requests;
 
 namespace SapApi.Shared.Responses.Sap
@@ -232,6 +233,14 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("U_TC"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UTestCerts { get; set; }
 
+        /// <summary>Packing &amp; Forwarding (OPOR.U_PAC_FOR).</summary>
+        [JsonPropertyName("U_PAC_FOR"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UPackingForwarding { get; set; }
+
+        /// <summary>TC Dispatch Address (OPOR.U_TCDISADD).</summary>
+        [JsonPropertyName("U_TCDISADD"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? UTcDispatchAddress { get; set; }
+
         /// <summary>GST remark (OPOR.U_GST_). Defaulted by the API; not shown in the UI.</summary>
         [JsonPropertyName("U_GST_"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UGstText { get; set; }
@@ -403,6 +412,13 @@ namespace SapApi.Shared.Responses.Sap
 
         [JsonPropertyName("U_T11"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? UType11 { get; set; }
+
+        /// <summary>
+        /// Unknown OPOR UDFs from Service Layer / the UI (Packing Forwarding, TC Dispatch Address).
+        /// Only allow-listed U_ keys are posted back — see <c>PurchaseOrderOtherTermUdf</c>.
+        /// </summary>
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement>? AdditionalUdf { get; set; }
 
         public List<PaymentTermsUdf> CreateUdfList()
         {

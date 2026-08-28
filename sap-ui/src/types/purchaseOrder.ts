@@ -84,12 +84,16 @@ export interface PurchaseOrderOtherTerms {
   warranty?: string
   /** U_UN_LOAD */
   unloading?: string
+  /** U_PAC_FOR */
+  packingForwarding?: string
   /** U_ANOTHREM */
   otherRemark?: string
   /** U_PAIN */
   painting?: string
   /** U_TC */
   testCertificates?: string
+  /** U_TCDISADD */
+  tcDispatchAddress?: string
 }
 
 export interface PurchaseOrderLogistics {
@@ -122,6 +126,42 @@ export const MODE_OF_TRANSPORT_OPTIONS = [
   { value: '2', label: 'Rail' },
   { value: '3', label: 'Air' },
   { value: '4', label: 'Ship' },
+] as const
+
+/** Candidate OPOR/ADOC Names (no U_ prefix). Primary SAP names: PAC_FOR, TCDISADD. */
+export const PACKING_FORWARDING_UDF_CANDIDATES = [
+  'PAC_FOR', 'PACK_FOR', 'PACKFORW', 'PACK_FWD', 'PACKFWD', 'PCKFWD', 'PCK_FWD', 'PKGFWD', 'PACKING', 'PACK_FRW', 'PNF',
+] as const
+
+export const TC_DISPATCH_ADDRESS_UDF_CANDIDATES = [
+  'TCDISADD', 'TC_DISP', 'TCDISP', 'TC_DISPAD', 'TCADD', 'TC_ADD', 'TCDISPADD', 'TC_DISADD', 'TCDISPATCH', 'DISP_TC',
+] as const
+
+/** Fallback when SAP UserFieldsMD is unavailable — match PBBPL ValidValues. */
+export const UNLOADING_OPTIONS = [
+  { value: 'IN OUR SCOPE', label: 'IN OUR SCOPE' },
+  { value: 'IN YOUR SCOPE', label: 'IN YOUR SCOPE' },
+  { value: 'NOT APPLY', label: 'NOT APPLICABLE' },
+] as const
+
+export const TRANSPORTATION_OPTIONS = [
+  { value: 'IN OUR SCOPE', label: 'IN OUR SCOPE' },
+  { value: 'IN YOUR SCOPE', label: 'IN YOUR SCOPE' },
+] as const
+
+export const TRANSIT_INSURANCE_OPTIONS = UNLOADING_OPTIONS
+
+export const PACKING_FORWARDING_OPTIONS = [
+  { value: 'IN OUR SCOPE', label: 'IN OUR SCOPE' },
+  { value: 'IN YOUR SCOPE', label: 'IN YOUR SCOPE' },
+  { value: 'NOT APLY', label: 'NOT APPLICABLE' },
+] as const
+
+export const TC_DISPATCH_ADDRESS_OPTIONS = [
+  { value: 'SUPA FAXTORY ADDRESS', label: 'SUPA FAXTORY ADDRESS' },
+  { value: 'H.O. ADDRESS', label: 'H.O. ADDRESS' },
+  { value: 'NOT APPLY', label: 'NOT APPLICABLE' },
+  { value: 'SUPA FACTORY ADDRESS', label: 'SUPA FACTORY ADDRESS' },
 ] as const
 
 /** Types that store Payment% in U_G11 (GST) rather than U_Bn (Basic). */

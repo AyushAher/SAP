@@ -56,6 +56,10 @@ export function validateSubassemblyHeaderForm(order: ProductionOrder): string | 
   if (!order.PlannedQuantity || order.PlannedQuantity <= 0) return 'Planned quantity must be greater than zero.'
   if (!order.ParentProductionOrderNo) return 'Parent production order is required.'
   if (!order.Warehouse) return 'Receipt Warehouse is required.'
+  const lines = order.ProductionOrderLines ?? []
+  if (!lines.some((line) => line.ItemNo)) {
+    return 'Parent production order has no component lines to copy onto the sub-assembly.'
+  }
   return null
 }
 
@@ -133,15 +137,16 @@ export function productionOrderStatusLabel(status?: string): string {
   }
 }
 
-/** Seeds a child from the parent product; only drawing no/name are left blank for the user. */
+/** Seeds a child from the parent product and copies parent component lines so SAP will accept the create. */
 export function buildSubassemblyDraftFromParent(
   parent: ProductionOrder,
   existing: ProductionOrder[] = [],
 ): ProductionOrder {
   const parentNo = parent.DocumentNumber != null ? String(parent.DocumentNumber) : ''
+  const issuingWarehouse = parent.IssWarehouse || undefined
   return {
     ItemNumber: parent.ItemNumber ?? '',
-    ProductDescription: '',
+    ProductDescription: parent.ProductDescription ?? '',
     DrawingNo: '',
     PlannedQuantity: parent.PlannedQuantity && parent.PlannedQuantity > 0 ? parent.PlannedQuantity : 1,
     Status: 'boposPlanned',
@@ -160,6 +165,14 @@ export function buildSubassemblyDraftFromParent(
     DueDate: parent.DueDate,
     Remarks: parent.Remarks,
     ParentProductionOrderNo: parentNo ? nextSubassemblyNumber(parentNo, existing) : '',
-    ProductionOrderLines: [],
+    ProductionOrderLines: (parent.ProductionOrderLines ?? [])
+      .filter((line) => line.ItemNo)
+      .map((line) => ({
+        ItemNo: line.ItemNo,
+        ItemName: line.ItemName,
+        PlannedQuantity: line.PlannedQuantity,
+        Warehouse: issuingWarehouse || line.Warehouse,
+        ProductionOrderIssueType: line.ProductionOrderIssueType,
+      })),
   }
 }

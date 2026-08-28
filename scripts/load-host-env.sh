@@ -44,13 +44,8 @@ load_host_env_file() {
     export DB_CONNECTION="Host=${DB_CONNECTION}"
   fi
 
-  # Passwords with @ must be quoted or Npgsql fails to parse the connection string.
-  if [[ -n "${DB_CONNECTION:-}" ]] && [[ "$DB_CONNECTION" =~ Password=([^;]+) ]]; then
-    local pass="${BASH_REMATCH[1]}"
-    if [[ "$pass" == *@* ]] && [[ "$pass" != "'"* ]]; then
-      export DB_CONNECTION="${DB_CONNECTION//Password=${pass}/Password='${pass}'}"
-    fi
-  fi
+  # Do not rewrite Password=... with ${var/pat/repl}: a quoted replacement like
+  # Password='${pass}' is stored literally as ${pass} and truncates '@' passwords.
 
   # Normalize legacy spaced Npgsql keys that break System.Data connection string parsing.
   DB_CONNECTION="${DB_CONNECTION//Connection Idle Lifetime=/ConnectionIdleLifetime=}"

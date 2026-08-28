@@ -148,7 +148,13 @@ export function toProductionOrderPayload(
   payload.RejectedQuantity = order.RejectedQuantity ?? 0
   payload.PostingDate = toIsoDateOnly(order.PostingDate) ?? todayIsoDate()
 
-  payload.ProductionOrderLines = (lines ?? order.ProductionOrderLines ?? []).map((line) => ({ ...line }))
+  payload.ProductionOrderLines = (lines ?? order.ProductionOrderLines ?? []).map((line) => {
+    const next: Record<string, unknown> = { ...line }
+    if (order.ParentProductionOrderNo && next.U_DocNum == null && next.DocNum == null) {
+      next.U_DocNum = order.ParentProductionOrderNo
+    }
+    return next
+  })
 
   return payload
 }

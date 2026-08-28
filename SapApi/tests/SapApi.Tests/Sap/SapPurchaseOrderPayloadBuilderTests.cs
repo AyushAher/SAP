@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
@@ -176,6 +177,55 @@ public class SapPurchaseOrderPayloadBuilderTests
         json.Should().NotContain("U_DelTerms");
         json.Should().NotContain("U_InspectionBy");
         json.Should().NotContain("U_Warranty");
+    }
+
+    [Test]
+    public void Prepare_Create_IncludesPackingForwardingAndTcDispatchUdf()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "V001",
+            UPackingForwarding = "IN OUR SCOPE",
+            UTcDispatchAddress = "H.O. ADDRESS",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+        var json = JsonSerializer.Serialize(payload);
+
+        json.Should().Contain("\"U_PAC_FOR\":\"IN OUR SCOPE\"");
+        json.Should().Contain("\"U_TCDISADD\":\"H.O. ADDRESS\"");
+    }
+
+    [Test]
+    public void MergeOtherTermUdfFromSap_CopiesUnloadingAndAdditionalUdf()
+    {
+        var local = new SapPurchaseOrdersResponse { UUnloading = "old" };
+        var sap = new SapPurchaseOrdersResponse
+        {
+            UUnloading = "Buyer",
+            UTransportation = "Vendor",
+            UTransitIns = "Inclusive",
+            UPackingForwarding = "IN OUR SCOPE",
+            UTcDispatchAddress = "H.O. ADDRESS",
+            AdditionalUdf = new Dictionary<string, JsonElement>
+            {
+                ["U_PACK_FOR"] = JsonSerializer.SerializeToElement("Extra"),
+            },
+        };
+
+        SapPurchaseOrderPayloadBuilder.MergeOtherTermUdfFromSap(local, sap);
+
+        local.UUnloading.Should().Be("Buyer");
+        local.UTransportation.Should().Be("Vendor");
+        local.UTransitIns.Should().Be("Inclusive");
+        local.UPackingForwarding.Should().Be("IN OUR SCOPE");
+        local.UTcDispatchAddress.Should().Be("H.O. ADDRESS");
+        local.AdditionalUdf.Should().ContainKey("U_PACK_FOR");
+        local.AdditionalUdf!["U_PACK_FOR"].GetString().Should().Be("Extra");
     }
 
     [Test]
@@ -620,5 +670,50 @@ public class SapPurchaseOrderPayloadBuilderTests
         payload.UBasic1.Should().Be(20);
         payload.UBasic2.Should().Be(80);
         payload.UBasic11.Should().BeNull();
+    }
+
+    [Test]
+    public void MergeDocumentSpecialLinesFromSap_copies_por12_text_onto_the_cached_document()
+    {
+        var local = new SapPurchaseOrdersResponse
+        {
+            DocEntry = 4549,
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests { LineNum = 0, ItemCode = "RM1" },
+            ],
+        };
+        var sap = new SapPurchaseOrdersResponse
+        {
+            DocEntry = 4549,
+            DocumentSpecialLines =
+            [
+                new SapDocumentSpecialLine
+                {
+                    AfterLineNumber = 0,
+                    LineType = "dslt_Text",
+                    LineText = "Make as per drawing D-101",
+                },
+            ],
+        };
+
+        SapPurchaseOrderPayloadBuilder.MergeDocumentSpecialLinesFromSap(local, sap);
+
+        local.DocumentSpecialLines.Should().ContainSingle().Which.LineText.Should().Be("Make as per drawing D-101");
+        local.DocumentLines![0].FreeText.Should().Be("Make as per drawing D-101");
+    }
+
+    [Test]
+    public void MergeDocumentSpecialLinesFromSap_does_nothing_when_sap_has_no_special_lines()
+    {
+        var local = new SapPurchaseOrdersResponse
+        {
+            DocumentLines = [new SapInventoryTransferItemsRequests { LineNum = 0, ItemCode = "RM1", FreeText = "keep" }],
+        };
+
+        SapPurchaseOrderPayloadBuilder.MergeDocumentSpecialLinesFromSap(local, new SapPurchaseOrdersResponse { DocEntry = 1 });
+
+        local.DocumentSpecialLines.Should().BeNull();
+        local.DocumentLines![0].FreeText.Should().Be("keep");
     }
 }

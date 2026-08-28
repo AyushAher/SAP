@@ -655,6 +655,61 @@ export async function fetchPaymentTermTypes(): Promise<PaymentTermTypeOption[]> 
 export interface PurchaseOrderLogisticsUdfOptions {
   priceBasis: PaymentTermTypeOption[]
   modeOfTransport: PaymentTermTypeOption[]
+  unloading: PaymentTermTypeOption[]
+  transportation: PaymentTermTypeOption[]
+  transitInsurance: PaymentTermTypeOption[]
+  packingForwarding: PaymentTermTypeOption[]
+  packingForwardingField: string
+  tcDispatchAddress: PaymentTermTypeOption[]
+  tcDispatchAddressField: string
+}
+
+function mapUdfField(raw: unknown): { field: string; options: PaymentTermTypeOption[] } {
+  if (!raw || typeof raw !== 'object') return { field: '', options: [] }
+  const source = raw as Record<string, unknown>
+  const field = String(source.field ?? source.Field ?? '').replace(/^U_/i, '').trim()
+  const options = mapUdfOptions(source.options ?? source.Options)
+  return { field, options }
+}
+
+/** SAP ValidValues for PO Logistics + Other Terms dropdowns. */
+export async function fetchPurchaseOrderLogisticsOptions(): Promise<PurchaseOrderLogisticsUdfOptions> {
+  const { apiGet } = await import('@/helpers/api/client')
+  const { PRICE_BASIS_OPTIONS, MODE_OF_TRANSPORT_OPTIONS, UNLOADING_OPTIONS, TRANSPORTATION_OPTIONS, TRANSIT_INSURANCE_OPTIONS, PACKING_FORWARDING_OPTIONS, TC_DISPATCH_ADDRESS_OPTIONS } = await import('@/types/purchaseOrder')
+  const fallback: PurchaseOrderLogisticsUdfOptions = {
+    priceBasis: PRICE_BASIS_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+    modeOfTransport: MODE_OF_TRANSPORT_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+    unloading: UNLOADING_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+    transportation: TRANSPORTATION_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+    transitInsurance: TRANSIT_INSURANCE_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+    packingForwarding: PACKING_FORWARDING_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+    packingForwardingField: 'PAC_FOR',
+    tcDispatchAddress: TC_DISPATCH_ADDRESS_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
+    tcDispatchAddressField: 'TCDISADD',
+  }
+  try {
+    const raw = await apiGet<Record<string, unknown>>('/masters/purchase-order-logistics-options')
+    const priceBasis = mapUdfOptions(raw.priceBasis ?? raw.PriceBasis)
+    const modeOfTransport = mapUdfOptions(raw.modeOfTransport ?? raw.ModeOfTransport)
+    const packing = mapUdfField(raw.packingForwarding ?? raw.PackingForwarding)
+    const tcDispatch = mapUdfField(raw.tcDispatchAddress ?? raw.TcDispatchAddress)
+    const unloading = mapUdfOptions(raw.unloading ?? raw.Unloading)
+    const transportation = mapUdfOptions(raw.transportation ?? raw.Transportation)
+    const transitInsurance = mapUdfOptions(raw.transitInsurance ?? raw.TransitInsurance)
+    return {
+      priceBasis: priceBasis.length > 0 ? priceBasis : fallback.priceBasis,
+      modeOfTransport: modeOfTransport.length > 0 ? modeOfTransport : fallback.modeOfTransport,
+      unloading: unloading.length > 0 ? unloading : fallback.unloading,
+      transportation: transportation.length > 0 ? transportation : fallback.transportation,
+      transitInsurance: transitInsurance.length > 0 ? transitInsurance : fallback.transitInsurance,
+      packingForwarding: packing.options.length > 0 ? packing.options : fallback.packingForwarding,
+      packingForwardingField: packing.field || fallback.packingForwardingField,
+      tcDispatchAddress: tcDispatch.options.length > 0 ? tcDispatch.options : fallback.tcDispatchAddress,
+      tcDispatchAddressField: tcDispatch.field || fallback.tcDispatchAddressField,
+    }
+  } catch {
+    return fallback
+  }
 }
 
 function mapUdfOptions(raw: unknown): PaymentTermTypeOption[] {
@@ -666,25 +721,4 @@ function mapUdfOptions(raw: unknown): PaymentTermTypeOption[] {
     if (!value) return undefined
     return { value, description: description || value } satisfies PaymentTermTypeOption
   }).filter(Boolean) as PaymentTermTypeOption[]
-}
-
-/** SAP U_PRI_BAS + U_TransMode ValidValues for PO Logistics dropdowns. */
-export async function fetchPurchaseOrderLogisticsOptions(): Promise<PurchaseOrderLogisticsUdfOptions> {
-  const { apiGet } = await import('@/helpers/api/client')
-  const { PRICE_BASIS_OPTIONS, MODE_OF_TRANSPORT_OPTIONS } = await import('@/types/purchaseOrder')
-  const fallback: PurchaseOrderLogisticsUdfOptions = {
-    priceBasis: PRICE_BASIS_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
-    modeOfTransport: MODE_OF_TRANSPORT_OPTIONS.map((o) => ({ value: o.value, description: o.label })),
-  }
-  try {
-    const raw = await apiGet<Record<string, unknown>>('/masters/purchase-order-logistics-options')
-    const priceBasis = mapUdfOptions(raw.priceBasis ?? raw.PriceBasis)
-    const modeOfTransport = mapUdfOptions(raw.modeOfTransport ?? raw.ModeOfTransport)
-    return {
-      priceBasis: priceBasis.length > 0 ? priceBasis : fallback.priceBasis,
-      modeOfTransport: modeOfTransport.length > 0 ? modeOfTransport : fallback.modeOfTransport,
-    }
-  } catch {
-    return fallback
-  }
 }

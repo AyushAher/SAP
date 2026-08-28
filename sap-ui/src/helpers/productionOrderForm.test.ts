@@ -92,13 +92,14 @@ describe('validateSubassemblyHeaderForm', () => {
     PlannedQuantity: 2,
     ParentProductionOrderNo: '10',
     Warehouse: 'WIP',
+    ProductionOrderLines: [{ ItemNo: 'RM-100', PlannedQuantity: 1 }],
   }
 
   it('accepts a complete sub-assembly header', () => {
     expect(validateSubassemblyHeaderForm(validChild)).toBeNull()
   })
 
-  it('requires the product, quantity, parent, and receipt warehouse', () => {
+  it('requires the product, quantity, parent, warehouse, and parent component lines', () => {
     expect(validateSubassemblyHeaderForm({ ...validChild, ItemNumber: undefined }))
       .toBe('Product No. is required.')
     expect(validateSubassemblyHeaderForm({ ...validChild, PlannedQuantity: 0 }))
@@ -107,6 +108,8 @@ describe('validateSubassemblyHeaderForm', () => {
       .toBe('Parent production order is required.')
     expect(validateSubassemblyHeaderForm({ ...validChild, Warehouse: undefined }))
       .toBe('Receipt Warehouse is required.')
+    expect(validateSubassemblyHeaderForm({ ...validChild, ProductionOrderLines: [] }))
+      .toBe('Parent production order has no component lines to copy onto the sub-assembly.')
   })
 })
 
@@ -121,7 +124,7 @@ describe('validateSubassemblyItemsForm', () => {
 })
 
 describe('buildSubassemblyDraftFromParent', () => {
-  it('copies the parent product and assigns the next parent/sequence number', () => {
+  it('copies the parent product, component lines, and assigns the next parent/sequence number', () => {
     const draft = buildSubassemblyDraftFromParent({
       AbsoluteEntry: 646,
       DocumentNumber: 10,
@@ -136,11 +139,14 @@ describe('buildSubassemblyDraftFromParent', () => {
       PlannedQuantity: 12,
       SalesOrderDocNum: 252610128,
       SalesOrderDocEntry: 156,
+      ProductionOrderLines: [
+        { LineNumber: 0, ItemNo: 'RM-100', ItemName: 'Steel', PlannedQuantity: 4, Warehouse: 'WIP' },
+      ],
     })
 
     expect(draft.ParentProductionOrderNo).toBe('10/1')
     expect(draft.ItemNumber).toBe('FG-001')
-    expect(draft.ProductDescription).toBe('')
+    expect(draft.ProductDescription).toBe('FINISHED GOOD')
     expect(draft.DrawingNo).toBe('')
     expect(draft.CustomerCode).toBe('C000017')
     expect(draft.Project).toBe('PRJ-1')
@@ -148,7 +154,9 @@ describe('buildSubassemblyDraftFromParent', () => {
     expect(draft.Type).toBe('bopotSpecial')
     expect(draft.ProductionCategory).toBe('INT')
     expect(draft.SalesOrderDocNum).toBe(252610128)
-    expect(draft.ProductionOrderLines).toEqual([])
+    expect(draft.ProductionOrderLines).toEqual([
+      { ItemNo: 'RM-100', ItemName: 'Steel', PlannedQuantity: 4, Warehouse: 'Store1', ProductionOrderIssueType: undefined },
+    ])
   })
 
   it('increments past existing and legacy sibling numbers', () => {

@@ -101,6 +101,11 @@ import {
   PAYMENT_TERM_TYPE_OPTIONS,
   PRICE_BASIS_OPTIONS,
   MODE_OF_TRANSPORT_OPTIONS,
+  UNLOADING_OPTIONS,
+  TRANSPORTATION_OPTIONS,
+  TRANSIT_INSURANCE_OPTIONS,
+  PACKING_FORWARDING_OPTIONS,
+  TC_DISPATCH_ADDRESS_OPTIONS,
 } from '@/types/purchaseOrder'
 import { useQuery } from '@tanstack/react-query'
 
@@ -129,6 +134,48 @@ function paymentTermTypeOptionsFromApi(options: PaymentTermTypeOption[] | undefi
     ? options
     : PAYMENT_TERM_TYPE_OPTIONS.map((o) => ({ value: o.value, description: o.label }))
   return source.map((o) => ({ value: o.value, label: o.description || o.value }))
+}
+
+function udfOptionsToSelect(options: PaymentTermTypeOption[] | undefined): SelectOption[] {
+  return (options ?? []).map((o) => ({ value: o.value, label: o.description || o.value }))
+}
+
+function withCurrentSelectOption(options: SelectOption[], value?: string): SelectOption[] {
+  const current = (value ?? '').trim()
+  if (!current || options.some((option) => option.value === current)) return options
+  return [...options, { value: current, label: current }]
+}
+
+function OtherTermUdfField({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value?: string
+  options: SelectOption[]
+  onChange: (value: string) => void
+}) {
+  if (options.length > 0) {
+    return (
+      <Select
+        label={label}
+        options={withCurrentSelectOption(options, value)}
+        value={value ?? ''}
+        onChange={(next) => onChange(next || '')}
+        placeholder={`Select ${label.toLowerCase()}`}
+        clearable
+      />
+    )
+  }
+  return (
+    <Input
+      label={label}
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  )
 }
 
 export function PurchaseOrderFormPage() {
@@ -172,6 +219,45 @@ export function PurchaseOrderFormPage() {
     () => (logisticsUdfOptions?.modeOfTransport?.length
       ? logisticsUdfOptions.modeOfTransport.map((o) => ({ value: o.value, label: o.description || o.value }))
       : MODE_OF_TRANSPORT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
+    [logisticsUdfOptions],
+  )
+
+  const unloadingSelectOptions = useMemo(
+    () => (logisticsUdfOptions?.unloading?.length
+      ? udfOptionsToSelect(logisticsUdfOptions.unloading)
+      : UNLOADING_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
+    [logisticsUdfOptions],
+  )
+  const transportationSelectOptions = useMemo(
+    () => (logisticsUdfOptions?.transportation?.length
+      ? udfOptionsToSelect(logisticsUdfOptions.transportation)
+      : TRANSPORTATION_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
+    [logisticsUdfOptions],
+  )
+  const transitInsuranceSelectOptions = useMemo(
+    () => (logisticsUdfOptions?.transitInsurance?.length
+      ? udfOptionsToSelect(logisticsUdfOptions.transitInsurance)
+      : TRANSIT_INSURANCE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
+    [logisticsUdfOptions],
+  )
+  const packingForwardingSelectOptions = useMemo(
+    () => (logisticsUdfOptions?.packingForwarding?.length
+      ? udfOptionsToSelect(logisticsUdfOptions.packingForwarding)
+      : PACKING_FORWARDING_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
+    [logisticsUdfOptions],
+  )
+  const tcDispatchAddressSelectOptions = useMemo(
+    () => (logisticsUdfOptions?.tcDispatchAddress?.length
+      ? udfOptionsToSelect(logisticsUdfOptions.tcDispatchAddress)
+      : TC_DISPATCH_ADDRESS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
+    [logisticsUdfOptions],
+  )
+
+  const otherTermsUdfFields = useMemo(
+    () => ({
+      packingForwardingField: logisticsUdfOptions?.packingForwardingField,
+      tcDispatchAddressField: logisticsUdfOptions?.tcDispatchAddressField,
+    }),
     [logisticsUdfOptions],
   )
 
@@ -434,7 +520,10 @@ export function PurchaseOrderFormPage() {
       setPaymentTerms(parsePaymentTermsFromPo(record))
       const loadedLogistics = readLogisticsFromPo(record)
       setLogistics(loadedLogistics)
-      setOtherTerms(readOtherTermsFromPo(record))
+      setOtherTerms(readOtherTermsFromPo(record, {
+        packingForwardingField: logisticsUdfOptions?.packingForwardingField,
+        tcDispatchAddressField: logisticsUdfOptions?.tcDispatchAddressField,
+      }))
       setDispatchToLabel('')
       setDispatchAddressOptions([])
       setContactPersonLabel(loadedLogistics.contactPerson ?? '')
@@ -606,7 +695,7 @@ export function PurchaseOrderFormPage() {
     delete payload.ShipToCode
     payload = applyPaymentTermsToPo(payload, paymentTerms, paymentTypeLabelMap)
     payload = applyLogisticsToPo(payload, logistics)
-    payload = applyOtherTermsToPo(payload, otherTerms)
+    payload = applyOtherTermsToPo(payload, otherTerms, otherTermsUdfFields)
     return payload as PurchaseOrder
   }
 
@@ -1102,16 +1191,43 @@ export function PurchaseOrderFormPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <Input label="Delivery Terms" value={otherTerms.deliveryTerms ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, deliveryTerms: e.target.value })} />
                   <Input label="Inspection By" value={otherTerms.inspectionBy ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, inspectionBy: e.target.value })} />
-                  <Input label="Transportation" value={otherTerms.transportation ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, transportation: e.target.value })} />
+                  <OtherTermUdfField
+                    label="Transportation"
+                    value={otherTerms.transportation}
+                    options={transportationSelectOptions}
+                    onChange={(value) => setOtherTerms({ ...otherTerms, transportation: value })}
+                  />
                   <Input label="Supervision" value={otherTerms.supervision ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, supervision: e.target.value })} />
-                  <Input label="Transit Insurance" value={otherTerms.transitInsurance ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, transitInsurance: e.target.value })} />
+                  <OtherTermUdfField
+                    label="Transit Insurance"
+                    value={otherTerms.transitInsurance}
+                    options={transitInsuranceSelectOptions}
+                    onChange={(value) => setOtherTerms({ ...otherTerms, transitInsurance: value })}
+                  />
                   <Input label="Drawing & Documents" value={otherTerms.drawingDocuments ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, drawingDocuments: e.target.value })} />
                   <Input label="Loading" value={otherTerms.loading ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, loading: e.target.value })} />
+                  <OtherTermUdfField
+                    label="Packing Forwarding"
+                    value={otherTerms.packingForwarding}
+                    options={packingForwardingSelectOptions}
+                    onChange={(value) => setOtherTerms({ ...otherTerms, packingForwarding: value })}
+                  />
                   <Input label="Warranty" value={otherTerms.warranty ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, warranty: e.target.value })} />
-                  <Input label="Unloading" value={otherTerms.unloading ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, unloading: e.target.value })} />
+                  <OtherTermUdfField
+                    label="Unloading"
+                    value={otherTerms.unloading}
+                    options={unloadingSelectOptions}
+                    onChange={(value) => setOtherTerms({ ...otherTerms, unloading: value })}
+                  />
                   <Input label="Any Other Remark" value={otherTerms.otherRemark ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, otherRemark: e.target.value })} />
                   <Input label="Painting" value={otherTerms.painting ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, painting: e.target.value })} />
                   <Input label="Test Certificates" value={otherTerms.testCertificates ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, testCertificates: e.target.value })} />
+                  <OtherTermUdfField
+                    label="TC Dispatch Address"
+                    value={otherTerms.tcDispatchAddress}
+                    options={tcDispatchAddressSelectOptions}
+                    onChange={(value) => setOtherTerms({ ...otherTerms, tcDispatchAddress: value })}
+                  />
                 </div>
                 </TabsContent>
               </Tabs>

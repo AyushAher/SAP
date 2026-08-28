@@ -64,6 +64,8 @@ public class PurchaseOrder : ISoftDeletable
     public string? UOtherRemark { get; set; }
     public string? UPainting { get; set; }
     public string? UTestCerts { get; set; }
+    public string? UPackingForwarding { get; set; }
+    public string? UTcDispatchAddress { get; set; }
 
     public DateTime SyncedAtUtc { get; set; }
     public DateTime CreatedOn { get; set; }

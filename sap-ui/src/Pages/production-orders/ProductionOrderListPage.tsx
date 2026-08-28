@@ -6,6 +6,7 @@ import { RowActionButton, RowActionLink, RowActions, rowActionIconClassName } fr
 import { Button, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { formatCodeWithName } from '@/helpers/masterLookup'
+import { productionOrderStatusLabel } from '@/helpers/productionOrderForm'
 import { toast } from '@/helpers/toast'
 import { useDocumentSync } from '@/hooks/useDocumentSync'
 import {
@@ -97,13 +98,7 @@ export function ProductionOrderListPage() {
       filterable: true,
       accessor: (r) => r.SalesOrderDocNum ?? '—',
     },
-    {
-      key: 'Status',
-      header: 'Status',
-      sortable: true,
-      filterable: true,
-      accessor: (r) => String(r.Status ?? r.ProductionOrderStatus ?? ''),
-    },
+    { key: 'Status', header: 'Status', sortable: true, filterable: true, accessor: (r) => productionOrderStatusLabel(String(r.Status ?? r.ProductionOrderStatus ?? '')) },
     {
       key: 'actions',
       header: 'Actions',

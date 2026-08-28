@@ -258,6 +258,31 @@ public class ProductionOrderLocalStore(
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// OWOR U_DocNum is not a Service Layer header property, so SAP GET never returns the parent
+    /// link. Keep the value the UI posted after the post-write mirror refresh.
+    /// </summary>
+    public async Task PreserveParentProductionOrderNoAsync(
+        int? absoluteEntry,
+        string? parentProductionOrderNo,
+        CancellationToken cancellationToken = default)
+    {
+        if (absoluteEntry is null or <= 0 || string.IsNullOrWhiteSpace(parentProductionOrderNo))
+            return;
+
+        var entity = await db.ProductionOrders
+            .IgnoreQueryFilters()
+            .AsTracking()
+            .FirstOrDefaultAsync(
+                x => x.CompanyDb == CompanyDb && x.AbsoluteEntry == absoluteEntry.Value,
+                cancellationToken);
+        if (entity is null)
+            return;
+
+        entity.ParentProductionOrderNo = parentProductionOrderNo.Trim();
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private static void ApplyResolvedNames(ProductionOrder entity, ResolvedMasterNames? names)
     {
         if (names is null)

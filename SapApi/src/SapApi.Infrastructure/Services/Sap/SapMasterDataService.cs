@@ -550,23 +550,55 @@ public class SapMasterDataService(
     }
 
     /// <summary>
-    /// Price Basis (U_PRI_BAS) and Mode of Transport (U_TransMode) ValidValues for PO Logistics dropdowns.
+    /// Price Basis, Mode of Transport, and Other Terms ValidValues for PO dropdowns.
     /// </summary>
     public async Task<PurchaseOrderLogisticsOptions> GetPurchaseOrderLogisticsOptionsAsync(
         CancellationToken cancellationToken = default)
     {
         await sapLogin.SapLoginAsync(cancellationToken);
         var companyDb = companyDbAccessor.GetCompanyDbName();
-        var cacheKey = $"masterdata:{companyDb}:po-logistics-options";
+        var cacheKey = $"masterdata:{companyDb}:po-logistics-options-v2";
 
         var cached = await cache.GetOrCreateAsync(
             cacheKey,
-            async () => new PurchaseOrderLogisticsOptions
+            async () =>
             {
-                PriceBasis = await FetchUdfValidValuesAsync("PRI_BAS", cancellationToken)
-                    ?? PurchaseOrderLogisticsOptionDefaults.PriceBasis.ToList(),
-                ModeOfTransport = await FetchUdfValidValuesAsync("TransMode", cancellationToken)
-                    ?? PurchaseOrderLogisticsOptionDefaults.ModeOfTransport.ToList(),
+                List<SapUserFieldsMdResponse>? udfHeaders = null;
+                async Task<IReadOnlyList<SapUserFieldsMdResponse>> LoadHeaders() =>
+                    udfHeaders ??= await ListDocumentUdfHeadersAsync(cancellationToken);
+
+                return new PurchaseOrderLogisticsOptions
+                {
+                    PriceBasis = await FetchUdfValidValuesAsync("PRI_BAS", cancellationToken)
+                        ?? PurchaseOrderLogisticsOptionDefaults.PriceBasis.ToList(),
+                    ModeOfTransport = await FetchUdfValidValuesAsync("TransMode", cancellationToken)
+                        ?? PurchaseOrderLogisticsOptionDefaults.ModeOfTransport.ToList(),
+                    Unloading = OrDefaultUdfOptions(
+                        await FetchUdfValidValuesAsync(PurchaseOrderOtherTermUdf.Unloading, cancellationToken),
+                        PurchaseOrderLogisticsOptionDefaults.ScopeOrNotApplicable),
+                    Transportation = OrDefaultUdfOptions(
+                        await FetchUdfValidValuesAsync(PurchaseOrderOtherTermUdf.Transportation, cancellationToken),
+                        PurchaseOrderLogisticsOptionDefaults.Transportation),
+                    TransitInsurance = OrDefaultUdfOptions(
+                        await FetchUdfValidValuesAsync(PurchaseOrderOtherTermUdf.TransitInsurance, cancellationToken),
+                        PurchaseOrderLogisticsOptionDefaults.ScopeOrNotApplicable),
+                    PackingForwarding = WithUdfFieldDefaults(
+                        await ResolveUdfByNameOrDescriptionAsync(
+                            PurchaseOrderOtherTermUdf.PackingForwardingCandidates,
+                            PurchaseOrderOtherTermUdf.IsPackingForwarding,
+                            LoadHeaders,
+                            cancellationToken),
+                        PurchaseOrderOtherTermUdf.PackingForwarding,
+                        PurchaseOrderLogisticsOptionDefaults.PackingForwarding),
+                    TcDispatchAddress = WithUdfFieldDefaults(
+                        await ResolveUdfByNameOrDescriptionAsync(
+                            PurchaseOrderOtherTermUdf.TcDispatchAddressCandidates,
+                            PurchaseOrderOtherTermUdf.IsTcDispatchAddress,
+                            LoadHeaders,
+                            cancellationToken),
+                        PurchaseOrderOtherTermUdf.TcDispatchAddress,
+                        PurchaseOrderLogisticsOptionDefaults.TcDispatchAddress),
+                };
             },
             PaymentTermTypeCacheTtl,
             cancellationToken);
@@ -578,34 +610,128 @@ public class SapMasterDataService(
         };
     }
 
+    private async Task<SapUdfFieldOptions?> ResolveUdfByNameOrDescriptionAsync(
+        IReadOnlyList<string> candidateNames,
+        Func<string?, string?, bool> match,
+        Func<Task<IReadOnlyList<SapUserFieldsMdResponse>>> loadHeaders,
+        CancellationToken cancellationToken)
+    {
+        foreach (var name in candidateNames)
+        {
+            var field = await GetUdfDefinitionAsync(name, cancellationToken);
+            if (field?.Name is not { Length: > 0 })
+                continue;
+            logger?.LogInformation("Resolved PO Other Terms UDF {Name} from UserFieldsMD by name", field.Name);
+            return ToFieldOptions(field);
+        }
+
+        var hit = (await loadHeaders()).FirstOrDefault(f => match(f.Name, f.Description));
+        if (hit?.Name is not { Length: > 0 })
+            return null;
+
+        var definition = await GetUdfDefinitionAsync(hit.Name, cancellationToken) ?? hit;
+        logger?.LogInformation(
+            "Resolved PO Other Terms UDF {Name} ({Description}) from UserFieldsMD by description",
+            definition.Name, hit.Description);
+        return ToFieldOptions(definition);
+    }
+
+    private static List<SapUdfValidValueOption> OrDefaultUdfOptions(
+        List<SapUdfValidValueOption>? fetched,
+        SapUdfValidValueOption[] defaults) =>
+        fetched is { Count: > 0 } ? fetched : defaults.ToList();
+
+    private static SapUdfFieldOptions WithUdfFieldDefaults(
+        SapUdfFieldOptions? resolved,
+        string field,
+        SapUdfValidValueOption[] defaults) =>
+        new()
+        {
+            Field = string.IsNullOrWhiteSpace(resolved?.Field) ? field : resolved.Field,
+            Options = resolved?.Options is { Count: > 0 } ? resolved.Options : defaults.ToList(),
+        };
+
+    private static SapUdfFieldOptions ToFieldOptions(SapUserFieldsMdResponse field) =>
+        new()
+        {
+            Field = field.Name!.Trim(),
+            Options = MapUdfValidValues(field) ?? [],
+        };
+
+    private async Task<List<SapUserFieldsMdResponse>> ListDocumentUdfHeadersAsync(CancellationToken cancellationToken)
+    {
+        var all = new List<SapUserFieldsMdResponse>();
+        foreach (var table in new[] { "ADOC", "OPOR" })
+        {
+            var skip = 0;
+            while (all.Count < MasterListMaxRows)
+            {
+                var filter = $"TableName eq '{table}'";
+                var url =
+                    $"{Constants.SapApiUrls.UserFieldsMdCollection}?$filter={Uri.EscapeDataString(filter)}"
+                    + $"&$select=Name,Description,TableName,FieldID&$skip={skip}&$top={MasterListPageSize}";
+                var page = await http.GetPageAsync<GetAllSapUserFieldsMdResponse>(
+                    url, MasterListPageSize, cancellationToken);
+                var rows = page?.Value ?? [];
+                if (rows.Count == 0)
+                    break;
+                all.AddRange(rows);
+                if (rows.Count < MasterListPageSize)
+                    break;
+                skip += rows.Count;
+            }
+        }
+
+        return all;
+    }
+
     private async Task<List<SapUdfValidValueOption>?> FetchUdfValidValuesAsync(
+        string fieldName,
+        CancellationToken cancellationToken)
+    {
+        var field = await GetUdfDefinitionAsync(fieldName, cancellationToken);
+        return MapUdfValidValues(field);
+    }
+
+    private async Task<SapUserFieldsMdResponse?> GetUdfDefinitionAsync(
         string fieldName,
         CancellationToken cancellationToken)
     {
         // ADOC first — marketing-document UDFs (PRICE BASIS / Transport Mode) are defined on ADOC;
         // OPOR often inherits the same FieldID. Prefer ADOC so we match the SAP client dropdown.
+        SapUserFieldsMdResponse? fallback = null;
         foreach (var table in new[] { "ADOC", "OPOR" })
         {
             var filter =
                 $"TableName eq '{table}' and Name eq '{SapPaginationBuilder.EscapeODataString(fieldName)}'";
             var url = $"{Constants.SapApiUrls.UserFieldsMdCollection}?$filter={Uri.EscapeDataString(filter)}";
             var response = await http.GetAsync<GetAllSapUserFieldsMdResponse>(url, cancellationToken: cancellationToken);
-            var field = response?.Value?.FirstOrDefault();
-            if (field?.ValidValuesMD is null || field.ValidValuesMD.Count == 0)
+            var field = response?.Value?.FirstOrDefault(f =>
+                string.Equals(f.Name, fieldName, StringComparison.OrdinalIgnoreCase));
+            if (field is null)
                 continue;
-
-            // Preserve SAP ValidValues order; label = Description (what the B1 client shows).
-            return field.ValidValuesMD
-                .Where(v => !string.IsNullOrWhiteSpace(v.Value))
-                .Select(v => new SapUdfValidValueOption
-                {
-                    Value = v.Value!.Trim(),
-                    Description = string.IsNullOrWhiteSpace(v.Description) ? v.Value.Trim() : v.Description.Trim(),
-                })
-                .ToList();
+            if (field.ValidValuesMD is { Count: > 0 })
+                return field;
+            fallback ??= field;
         }
 
-        return null;
+        return fallback;
+    }
+
+    private static List<SapUdfValidValueOption>? MapUdfValidValues(SapUserFieldsMdResponse? field)
+    {
+        if (field?.ValidValuesMD is null || field.ValidValuesMD.Count == 0)
+            return null;
+
+        // Preserve SAP ValidValues order; label = Description (what the B1 client shows).
+        return field.ValidValuesMD
+            .Where(v => !string.IsNullOrWhiteSpace(v.Value))
+            .Select(v => new SapUdfValidValueOption
+            {
+                Value = v.Value!.Trim(),
+                Description = string.IsNullOrWhiteSpace(v.Description) ? v.Value.Trim() : v.Description.Trim(),
+            })
+            .ToList();
     }
 
     public Task<PaginationResponse<List<SapBusinessPartner>>> SearchCustomersAsync(PaginationRequest request, CancellationToken cancellationToken = default) =>

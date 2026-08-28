@@ -24,11 +24,13 @@ const parentOrder = {
   ProductDescription: 'FINISHED GOOD',
   Status: 'boposPlanned',
   Warehouse: 'WIP',
+  IssWarehouse: 'Store1',
   PlannedQuantity: 12,
   SalesOrderDocNum: 252610128,
   SalesOrderDocEntry: 156,
   CustomerCode: 'C000017',
   Project: 'PRJ-1',
+  ProductionOrderLines: [{ LineNumber: 0, ItemNo: 'RM-100', ItemName: 'Steel', PlannedQuantity: 4, Warehouse: 'WIP' }],
 }
 
 function renderNewSubassembly() {
@@ -63,7 +65,10 @@ describe('SubassemblyFormPage', () => {
     const body = createProductionOrder.mock.calls[0][0]
     expect(body.ItemNumber).toBe('FG-001')
     expect(body.ParentProductionOrderNo).toBe('10/1')
-    expect(body.ProductDescription).toBe('')
+    expect(body.ProductDescription).toBe('FINISHED GOOD')
+    expect(body.ProductionOrderLines).toEqual([
+      { ItemNo: 'RM-100', ItemName: 'Steel', PlannedQuantity: 4, Warehouse: 'Store1', ProductionOrderIssueType: undefined },
+    ])
   })
 
   it('increments the sequence from existing siblings including cancelled', async () => {

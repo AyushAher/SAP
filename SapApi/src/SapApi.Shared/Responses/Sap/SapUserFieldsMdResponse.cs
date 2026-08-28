@@ -14,6 +14,9 @@ public record SapUserFieldsMdResponse
     [JsonPropertyName("Name"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Name { get; set; }
 
+    [JsonPropertyName("Description"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
     [JsonPropertyName("TableName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TableName { get; set; }
 

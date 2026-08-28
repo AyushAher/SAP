@@ -84,7 +84,12 @@ public static class ProductionOrderMapper
         entity.Type = sap.Type;
         entity.ProductionCategory = NullIfBlank(sap.ProductionCategory);
         entity.DrawingNo = NullIfBlank(sap.DrawingNo);
-        entity.ParentProductionOrderNo = NullIfBlank(sap.ParentProductionOrderNo);
+        var parentNo = NullIfBlank(sap.ParentProductionOrderNo)
+            ?? sap.ProductionOrderLines?
+                .Select(line => NullIfBlank(line.DocNum))
+                .FirstOrDefault(value => value is not null);
+        if (parentNo is not null)
+            entity.ParentProductionOrderNo = parentNo;
         entity.PlannedQuantity = sap.PlannedQuantity;
         entity.CompletedQuantity = sap.CompletedQuantity;
         entity.RejectedQuantity = sap.RejectedQuantity;

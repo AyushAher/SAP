@@ -142,4 +142,54 @@ public class SapPurchaseOrderServiceWriteTests
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }
+
+    [Test]
+    public async Task GetPurchaseOrders_merges_document_special_lines_from_sap()
+    {
+        var po = new PurchaseOrder
+        {
+            CompanyDb = CompanyDb,
+            DocEntry = 4549,
+            DocNum = 262710081,
+            CardCode = "S000035",
+            CreatedOn = DateTime.UtcNow,
+            LastModifiedOn = DateTime.UtcNow,
+            SyncedAtUtc = DateTime.UtcNow,
+        };
+        _context.PurchaseOrders.Add(po);
+        await _context.SaveChangesAsync();
+        _context.PurchaseOrderLines.Add(new PurchaseOrderLine
+        {
+            PurchaseOrderId = po.Id,
+            LineNum = 0,
+            ItemCode = "RM1",
+            ItemDescription = "Plate",
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        _http.Setup(h => h.GetAsync<SapPurchaseOrdersResponse>(
+                It.Is<string>(url => url.Contains("PurchaseOrders(4549)", StringComparison.Ordinal)),
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapPurchaseOrdersResponse
+            {
+                DocEntry = 4549,
+                DocumentSpecialLines =
+                [
+                    new SapDocumentSpecialLine
+                    {
+                        AfterLineNumber = 0,
+                        LineText = "Make as per drawing D-101",
+                    },
+                ],
+            });
+
+        var result = await _sut.GetPurchaseOrders("4549");
+
+        result.Should().NotBeNull();
+        result!.DocumentSpecialLines.Should().ContainSingle().Which.LineText.Should().Be("Make as per drawing D-101");
+        result.DocumentLines.Should().ContainSingle().Which.FreeText.Should().Be("Make as per drawing D-101");
+    }
 }

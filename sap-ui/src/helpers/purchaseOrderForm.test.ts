@@ -114,6 +114,26 @@ describe('other terms OPOR UDFs', () => {
     expect(payload.U_WARR).toBe('new')
     expect(payload).not.toHaveProperty('U_DelTerms')
   })
+
+  it('writes packing forwarding and TC dispatch to SAP names', () => {
+    const payload = applyOtherTermsToPo(
+      { U_PACK_FOR: 'stale', U_PCKFWD: 'also-stale' },
+      { packingForwarding: 'IN OUR SCOPE', tcDispatchAddress: 'H.O. ADDRESS' },
+    )
+    expect(payload.U_PAC_FOR).toBe('IN OUR SCOPE')
+    expect(payload.U_TCDISADD).toBe('H.O. ADDRESS')
+    expect(payload).not.toHaveProperty('U_PACK_FOR')
+    expect(payload).not.toHaveProperty('U_PCKFWD')
+  })
+
+  it('reads packing forwarding and TC dispatch from U_PAC_FOR / U_TCDISADD', () => {
+    expect(readOtherTermsFromPo(
+      { U_PAC_FOR: 'IN YOUR SCOPE', U_TCDISADD: 'SUPA FACTORY ADDRESS' },
+    )).toEqual(expect.objectContaining({
+      packingForwarding: 'IN YOUR SCOPE',
+      tcDispatchAddress: 'SUPA FACTORY ADDRESS',
+    }))
+  })
 })
 
 describe('payment term type → basic/gst mapping', () => {

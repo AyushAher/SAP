@@ -64,6 +64,8 @@ public static class PurchaseOrderMapper
         entity.UOtherRemark = sap.UOtherRemark;
         entity.UPainting = sap.UPainting;
         entity.UTestCerts = sap.UTestCerts;
+        entity.UPackingForwarding = sap.UPackingForwarding;
+        entity.UTcDispatchAddress = sap.UTcDispatchAddress;
         entity.SyncedAtUtc = syncedAtUtc;
         entity.LastModifiedOn = syncedAtUtc;
     }
@@ -193,6 +195,8 @@ public static class PurchaseOrderMapper
             UOtherRemark = entity.UOtherRemark,
             UPainting = entity.UPainting,
             UTestCerts = entity.UTestCerts,
+            UPackingForwarding = entity.UPackingForwarding,
+            UTcDispatchAddress = entity.UTcDispatchAddress,
         };
 
         ApplyPaymentTermSlots(response, entity.PaymentTerms);

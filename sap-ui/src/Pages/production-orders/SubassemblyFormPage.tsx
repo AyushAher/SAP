@@ -25,6 +25,7 @@ export function SubassemblyFormPage() {
   const navigate = useNavigate()
   const [parent, setParent] = useState<ProductionOrder | null>(null)
   const [form, setForm] = useState<ProductionOrder>({})
+  const [drawingName, setDrawingName] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,9 +48,14 @@ export function SubassemblyFormPage() {
           setForm({
             ...child,
             ItemNumber: parentOrder.ItemNumber ?? child.ItemNumber,
+            ProductDescription: parentOrder.ProductDescription ?? child.ProductDescription,
           })
+          const childDesc = (child.ProductDescription ?? '').trim()
+          const parentDesc = (parentOrder.ProductDescription ?? '').trim()
+          setDrawingName(childDesc && childDesc !== parentDesc ? childDesc : '')
         } else {
           setForm(buildSubassemblyDraftFromParent(parentOrder, siblings))
+          setDrawingName('')
         }
       } catch (err) {
         if (!cancelled) {
@@ -69,6 +75,7 @@ export function SubassemblyFormPage() {
     const payload: ProductionOrder = {
       ...form,
       ItemNumber: parent?.ItemNumber ?? form.ItemNumber,
+      ProductDescription: parent?.ProductDescription ?? form.ProductDescription,
     }
     const message = validateSubassemblyHeaderForm(payload)
     if (message) {
@@ -155,8 +162,8 @@ export function SubassemblyFormPage() {
               />
               <Input
                 label="Drawing Name"
-                value={form.ProductDescription ?? ''}
-                onChange={(e) => setForm({ ...form, ProductDescription: e.target.value })}
+                value={drawingName}
+                onChange={(e) => setDrawingName(e.target.value)}
               />
             </div>
             <div className="flex gap-3">
