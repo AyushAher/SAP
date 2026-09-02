@@ -305,7 +305,7 @@ public class ProductionOrderLocalStoreSyncTests
             .ToListAsync();
         lines.Should().HaveCount(2);
         lines[0].ItemNo.Should().Be("RM-A2");
-        lines[0].UoMCode.Should().Be(-1);
+        lines[0].UoMCode.Should().BeNull();
         lines[1].UoMCode.Should().Be(7);
         lines.Should().OnlyContain(l => !l.IsDeleted);
     }
@@ -356,6 +356,26 @@ public class ProductionOrderLocalStoreSyncTests
         result.HasMore.Should().BeFalse();
         result.AddedCount.Should().Be(1);
         _context.ProductionOrders.Select(p => p.AbsoluteEntry).OrderBy(x => x).Should().Equal(10, 11, 13);
+    }
+
+    [Test]
+    public async Task SyncMissingGaps_ignores_virtual_negative_entries()
+    {
+        SeedLocal((-1, null), (10, null), (13, null));
+        SetupDetail(11, new SapProductionOrdersResponse { AbsoluteEntry = 11, DocumentNumber = 900011 });
+        _http.Setup(h => h.GetOrThrowAsync<SapProductionOrdersResponse>(
+                It.Is<string>(u => u.Contains("(12)")), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiErrorException(BaseErrorCodes.ValidationFailed, "Not found"));
+
+        var result = await _sut.SyncMissingGapsFromSapAsync();
+
+        result.AddedCount.Should().Be(1);
+        _http.Verify(
+            h => h.GetOrThrowAsync<SapProductionOrdersResponse>(
+                It.Is<string>(u => u.Contains("ProductionOrders(-1)") || u.Contains("ProductionOrders(0)")),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _context.ProductionOrders.Select(p => p.AbsoluteEntry).OrderBy(x => x).Should().Equal(-1, 10, 11, 13);
     }
 
     [Test]

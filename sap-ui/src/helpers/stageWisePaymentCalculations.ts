@@ -1,3 +1,5 @@
+import { formatSapFixed, SAP_DECIMAL_PLACES } from './sapDecimals'
+
 export interface PaymentTermUdf {
   id?: number
   desc?: string
@@ -130,7 +132,7 @@ export interface PaymentSummaryRow {
 }
 
 export function formatAmount(value: number | undefined | null): string {
-  return Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return formatSapFixed(value, SAP_DECIMAL_PLACES.amounts)
 }
 
 export function paymentTermLabel(term: PaymentTermUdf): string {

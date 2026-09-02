@@ -1,4 +1,4 @@
-import type { ProductionOrder, ProductionOrderLine } from '@/types/production'
+import { PRODUCTION_ORDER_TYPE_SPECIAL, type ProductionOrder, type ProductionOrderLine, type SalesOrderProductLine } from '@/types/production'
 
 /**
  * Receipt and issuing warehouses implied by the production category, mirroring the legacy form:
@@ -32,22 +32,96 @@ export function applyProductionCategoryDefaults(
 }
 
 /**
+ * Inventory quantity the sales order line implies: InventoryQuantity when SAP sent it, otherwise
+ * sales Quantity × items-per-unit (UnitsOfMeasurment).
+ */
+export function salesOrderLineInventoryQty(line: SalesOrderProductLine): number {
+  if (line.InventoryQuantity != null && Number.isFinite(line.InventoryQuantity) && line.InventoryQuantity > 0) {
+    return line.InventoryQuantity
+  }
+  const qty = line.Quantity ?? 0
+  const itemsPerUnit = line.UnitsOfMeasurment != null && line.UnitsOfMeasurment > 0 ? line.UnitsOfMeasurment : 1
+  return qty * itemsPerUnit
+}
+
+/** Sum of inventory qty on the sales order for this finished-good item. */
+export function salesOrderPlannedQtyCap(
+  products: SalesOrderProductLine[] | null | undefined,
+  itemCode?: string | null,
+): number | undefined {
+  const code = (itemCode ?? '').trim().toUpperCase()
+  if (!products || !code) return undefined
+  let cap = 0
+  let matched = false
+  for (const line of products) {
+    if ((line.ItemCode ?? '').trim().toUpperCase() !== code) continue
+    matched = true
+    cap += salesOrderLineInventoryQty(line)
+  }
+  return matched ? cap : undefined
+}
+
+export function isItemOnSalesOrder(
+  products: SalesOrderProductLine[] | null | undefined,
+  itemCode?: string | null,
+): boolean {
+  const code = (itemCode ?? '').trim().toUpperCase()
+  if (!products || !code) return false
+  return products.some((line) => (line.ItemCode ?? '').trim().toUpperCase() === code)
+}
+
+export function filterSalesOrderProducts(
+  products: SalesOrderProductLine[],
+  search: string,
+): SalesOrderProductLine[] {
+  const term = search.trim().toLowerCase()
+  const seen = new Set<string>()
+  const matches: SalesOrderProductLine[] = []
+  for (const line of products) {
+    const code = (line.ItemCode ?? '').trim()
+    if (!code || seen.has(code.toUpperCase())) continue
+    const name = (line.ItemName ?? '').trim()
+    if (term && !code.toLowerCase().includes(term) && !name.toLowerCase().includes(term)) continue
+    seen.add(code.toUpperCase())
+    matches.push(line)
+  }
+  return matches
+}
+
+/**
  * Save rules for the production order form. The first four are what the legacy form required;
  * the quantity and component-line rules are new. An issued-versus-planned check deliberately
  * lives in the issue flow instead, where issued quantities are entered.
+ * When sales-order lines are supplied, Product No. must be on that order and Planned Qty must
+ * not exceed the sales-order inventory quantity (quantity × items per unit).
  */
 export function validateProductionOrderForm(
   order: ProductionOrder,
   lines: ProductionOrderLine[],
+  salesOrderProducts?: SalesOrderProductLine[] | null,
+  options?: { requireSubassemblyWithItems?: boolean; subassemblies?: ProductionOrder[] },
 ): string | null {
+  void lines
   if (!order.ItemNumber) return 'Product No. is required.'
-  if (!order.SalesOrderDocNum) return 'Sales Order is required.'
-  if (!order.Warehouse) return 'Receipt Warehouse is required.'
-  if (!order.IssWarehouse) return 'Issuing Warehouse is required.'
+  // SAP-native orders are often origin Manual with no sales order. Require it only when creating.
+  if (!order.SalesOrderDocNum && order.AbsoluteEntry == null) return 'Sales Order is required.'
+  if (!order.Warehouse) return 'Receipt warehouse could not be set from the production category.'
   if (!order.PlannedQuantity || order.PlannedQuantity <= 0) return 'Planned quantity must be greater than zero.'
-  if (!lines.length) return 'Add at least one component line.'
-  if (lines.some((line) => !line.ItemNo)) return 'Every component line needs an item.'
-  if (lines.some((line) => (line.PlannedQuantity ?? 0) <= 0)) return 'Every component line needs a quantity greater than zero.'
+  if (salesOrderProducts && salesOrderProducts.length > 0) {
+    if (!isItemOnSalesOrder(salesOrderProducts, order.ItemNumber)) {
+      return 'Product No. must be an item on the selected sales order.'
+    }
+    const cap = salesOrderPlannedQtyCap(salesOrderProducts, order.ItemNumber)
+    if (cap != null && order.PlannedQuantity > cap) {
+      return `Planned quantity cannot exceed ${cap} (sales order quantity × items per unit).`
+    }
+  }
+  if (options?.requireSubassemblyWithItems) {
+    const ready = (options.subassemblies ?? []).filter(
+      (row) => (row.ProductionOrderLines ?? []).some((line) => line.ItemNo && (line.PlannedQuantity ?? 0) > 0),
+    )
+    if (ready.length < 1) return 'Add at least one sub-assembly with items.'
+  }
   return null
 }
 
@@ -55,20 +129,36 @@ export function validateSubassemblyHeaderForm(order: ProductionOrder): string | 
   if (!order.ItemNumber) return 'Product No. is required.'
   if (!order.PlannedQuantity || order.PlannedQuantity <= 0) return 'Planned quantity must be greater than zero.'
   if (!order.ParentProductionOrderNo) return 'Parent production order is required.'
-  if (!order.Warehouse) return 'Receipt Warehouse is required.'
-  const lines = order.ProductionOrderLines ?? []
-  if (!lines.some((line) => line.ItemNo)) {
-    return 'Parent production order has no component lines to copy onto the sub-assembly.'
-  }
   return null
 }
 
-/** Parent DocNum from a stored sub-assembly no (`13/2` → `13`, legacy `13` → `13`). */
+export function validateSubassemblyForm(order: ProductionOrder, lines: ProductionOrderLine[]): string | null {
+  return validateSubassemblyHeaderForm(order) ?? validateSubassemblyItemsForm(lines)
+}
+
+/** Parent DocumentNumber used while a new production order is still a local draft. */
+export const DRAFT_PRODUCTION_ORDER_NO = '0'
+
+/** Parent DocNum from a stored sub-assembly no (`13/2` or `13-2` → `13`, legacy `13` → `13`). */
 export function parentDocNumFromSubassemblyNo(value?: string | null): string {
   const raw = (value ?? '').trim()
   if (!raw) return ''
-  const slash = raw.indexOf('/')
-  return slash < 0 ? raw : raw.slice(0, slash)
+  const sep = Math.max(raw.lastIndexOf('/'), raw.lastIndexOf('-'))
+  if (sep <= 0) return raw
+  const parent = raw.slice(0, sep)
+  const sequence = raw.slice(sep + 1)
+  return /^\d+$/.test(parent) && /^\d+$/.test(sequence) ? parent : raw
+}
+
+/** Sequence from `{parent}/{seq}` or `{parent}-{seq}`. */
+export function subassemblySequence(value?: string | null): number {
+  const raw = (value ?? '').trim()
+  const sep = Math.max(raw.lastIndexOf('/'), raw.lastIndexOf('-'))
+  if (sep <= 0) return 0
+  const parent = raw.slice(0, sep)
+  const sequence = Number.parseInt(raw.slice(sep + 1), 10)
+  if (!/^\d+$/.test(parent) || !Number.isFinite(sequence) || sequence <= 0) return 0
+  return sequence
 }
 
 /**
@@ -80,14 +170,10 @@ export function nextSubassemblyNumber(
   existing: ProductionOrder[],
 ): string {
   const parent = String(parentNo)
-  const prefix = `${parent}/`
   let max = 0
   for (const row of existing) {
-    const raw = (row.ParentProductionOrderNo ?? '').trim()
-    if (raw.startsWith(prefix)) {
-      const n = Number.parseInt(raw.slice(prefix.length), 10)
-      if (Number.isFinite(n) && n > max) max = n
-    }
+    const n = subassemblySequence(row.ParentProductionOrderNo)
+    if (n > max) max = n
   }
   const legacyCount = existing.filter((row) => (row.ParentProductionOrderNo ?? '').trim() === parent).length
   return `${parent}/${Math.max(max, legacyCount) + 1}`
@@ -100,11 +186,15 @@ export function formatSubassemblyNo(
   siblings: ProductionOrder[] = [],
 ): string {
   const udf = (order.ParentProductionOrderNo ?? '').trim()
-  if (udf.includes('/')) return udf
-
+  const seq = subassemblySequence(udf)
   const parent = parentNo != null && String(parentNo) !== ''
     ? String(parentNo)
-    : udf
+    : parentDocNumFromSubassemblyNo(udf)
+  if (seq > 0) {
+    if (!parent || parent === DRAFT_PRODUCTION_ORDER_NO) return `Pending/${seq}`
+    return `${parent}/${seq}`
+  }
+
   if (!parent) return order.DocumentNumber != null ? String(order.DocumentNumber) : ''
   if (siblings.length === 0) return parent
 
@@ -137,20 +227,63 @@ export function productionOrderStatusLabel(status?: string): string {
   }
 }
 
-/** Seeds a child from the parent product and copies parent component lines so SAP will accept the create. */
+/**
+ * Component (issue) warehouse for a sub-assembly line. The child header warehouse is the
+ * receipt warehouse (WIP / Subcon); components must issue from Store1 (or the parent's
+ * issuing warehouse). Sending the receipt warehouse on a new component is what SAP rejected
+ * with Error -1 when updating sub-assembly 24/1.
+ */
+export function subassemblyComponentWarehouse(
+  child?: ProductionOrder | null,
+  parent?: ProductionOrder | null,
+  lines: ProductionOrderLine[] = [],
+): string {
+  const receipt = child?.Warehouse || parent?.Warehouse
+  const fromIss = child?.IssWarehouse || parent?.IssWarehouse
+  if (fromIss) return fromIss
+  const fromLine =
+    lines.find((line) => line.Warehouse && line.Warehouse !== receipt)?.Warehouse
+    || lines.find((line) => line.Warehouse)?.Warehouse
+  return fromLine || 'Store1'
+}
+
+/** New component row for the sub-assembly items screen. LineNumber is omitted so SAP appends. */
+export function buildSubassemblyItemLine(
+  draft: ProductionOrderLine,
+  child: ProductionOrder | null,
+  parent: ProductionOrder | null,
+  lines: ProductionOrderLine[],
+): ProductionOrderLine {
+  const drawingName = (child?.ProductDescription ?? '').trim()
+  return {
+    ItemNo: draft.ItemNo,
+    ItemName: draft.ItemName,
+    PlannedQuantity: draft.PlannedQuantity,
+    Warehouse: subassemblyComponentWarehouse(child, parent, lines),
+    ProductionOrderIssueType: draft.ProductionOrderIssueType || 'im_Manual',
+    DrawingNo: (draft.DrawingNo ?? child?.DrawingNo ?? '').trim() || undefined,
+    FreeText: (draft.FreeText ?? drawingName).trim() || undefined,
+  }
+}
+
+export function issuedQuantityTotal(order: ProductionOrder): number {
+  return (order.ProductionOrderLines ?? []).reduce((sum, line) => sum + (line.IssuedQuantity ?? 0), 0)
+}
+
+/** Seeds a child from the parent product. Items are added later and written onto the parent SAP order. */
 export function buildSubassemblyDraftFromParent(
   parent: ProductionOrder,
   existing: ProductionOrder[] = [],
 ): ProductionOrder {
   const parentNo = parent.DocumentNumber != null ? String(parent.DocumentNumber) : ''
-  const issuingWarehouse = parent.IssWarehouse || undefined
   return {
     ItemNumber: parent.ItemNumber ?? '',
     ProductDescription: parent.ProductDescription ?? '',
     DrawingNo: '',
+    Weight: undefined,
     PlannedQuantity: parent.PlannedQuantity && parent.PlannedQuantity > 0 ? parent.PlannedQuantity : 1,
     Status: 'boposPlanned',
-    Type: parent.Type ?? 'bopotStandard',
+    Type: PRODUCTION_ORDER_TYPE_SPECIAL,
     ProductionCategory: parent.ProductionCategory ?? 'JOB',
     CustomerCode: parent.CustomerCode,
     CustomerName: parent.CustomerName,
@@ -164,15 +297,21 @@ export function buildSubassemblyDraftFromParent(
     StartDate: parent.StartDate,
     DueDate: parent.DueDate,
     Remarks: parent.Remarks,
-    ParentProductionOrderNo: parentNo ? nextSubassemblyNumber(parentNo, existing) : '',
-    ProductionOrderLines: (parent.ProductionOrderLines ?? [])
-      .filter((line) => line.ItemNo)
-      .map((line) => ({
-        ItemNo: line.ItemNo,
-        ItemName: line.ItemName,
-        PlannedQuantity: line.PlannedQuantity,
-        Warehouse: issuingWarehouse || line.Warehouse,
-        ProductionOrderIssueType: line.ProductionOrderIssueType,
-      })),
+    ParentProductionOrderNo: nextSubassemblyNumber(parentNo || DRAFT_PRODUCTION_ORDER_NO, existing),
+    ParentAbsoluteEntry: parent.AbsoluteEntry,
+    ProductionOrderLines: [],
   }
 }
+
+/** WOR1 U_DocNum marks a component as belonging to a portal sub-assembly, not the parent BOM. */
+export function isSubassemblyComponentLine(line: ProductionOrderLine): boolean {
+  const raw = line as ProductionOrderLine & { U_DocNum?: string }
+  const tag = (line.DocNum ?? raw.U_DocNum ?? '').toString().trim()
+  if (!tag) return false
+  const sep = Math.max(tag.lastIndexOf('/'), tag.lastIndexOf('-'))
+  if (sep <= 0) return false
+  const parent = tag.slice(0, sep)
+  const sequence = tag.slice(sep + 1)
+  return /^\d+$/.test(parent) && /^\d+$/.test(sequence)
+}
+

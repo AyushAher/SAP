@@ -136,6 +136,44 @@ public class SapMasterDataServiceTests
     }
 
     [Test]
+    public async Task GetSalesOrderByDocEntryAsync_IsNotCached_AndGetsOrderByKeyWithoutExpand()
+    {
+        string? capturedUrl = null;
+        _http
+            .Setup(h => h.GetAsync<SapSalesOrderResponse>(It.IsAny<string>(), true, true, It.IsAny<CancellationToken>()))
+            .Callback<string, bool, bool, CancellationToken>((url, _, _, _) => capturedUrl = url)
+            .ReturnsAsync(new SapSalesOrderResponse
+            {
+                DocEntry = 156,
+                DocumentNumber = 252610128,
+                DocumentLines =
+                [
+                    new SapSalesOrderDocumentLinesResponse
+                    {
+                        ItemCode = "FG-001",
+                        ItemName = "Pump",
+                        Quantity = 2,
+                        UnitsOfMeasurment = 5,
+                        InventoryQuantity = 10,
+                    },
+                ],
+            });
+
+        var first = await _sut.GetSalesOrderByDocEntryAsync(156);
+        var second = await _sut.GetSalesOrderByDocEntryAsync(156);
+
+        capturedUrl.Should().NotBeNull();
+        capturedUrl!.Should().Contain("/Orders(156)");
+        capturedUrl.Should().NotContain("$expand=");
+        capturedUrl.Should().NotContain("$filter=");
+        first!.DocumentLines.Should().ContainSingle(l => l.ItemCode == "FG-001" && l.InventoryQuantity == 10);
+        _http.Verify(
+            h => h.GetAsync<SapSalesOrderResponse>(It.IsAny<string>(), true, true, It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+        second.Should().NotBeNull();
+    }
+
+    [Test]
     public async Task GetBusinessPartnerByCardCodeAsync_DifferentCompanyDbs_DoNotShareCache()
     {
         _companyDb.Setup(c => c.GetCompanyDbName()).Returns(SapCompanyDatabase.PBBPL_UAT.ToString());

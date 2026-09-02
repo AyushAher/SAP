@@ -31,7 +31,7 @@ public class ProductionOrderPdfBuilder
         foreach (var line in lines)
         {
             totalPlanned += line.PlannedQuantity;
-            totalIssued += line.IssuedQuantity;
+            totalIssued += line.IssuedQuantity ?? 0;
 
             itemsHtml.Append($"""
                 <tr>
@@ -39,7 +39,7 @@ public class ProductionOrderPdfBuilder
                     <td>{Escape(line.ItemNo)}</td>
                     <td>{Escape(DescribeLine(line))}</td>
                     <td class="center">{Escape(FormatQty(line.PlannedQuantity))}</td>
-                    <td class="center">{Escape(FormatQty(line.IssuedQuantity))}</td>
+                    <td class="center">{Escape(FormatQty(line.IssuedQuantity ?? 0))}</td>
                     <td class="center">{Escape(Text(line.Warehouse))}</td>
                     <td class="center">{Escape(FormatLineUom(line.UoMCode))}</td>
                 </tr>
@@ -60,7 +60,7 @@ public class ProductionOrderPdfBuilder
         {
             ["productionNo"] = Escape(Text(order.DocumentNumber ?? order.AbsoluteEntry)),
             ["status"] = Escape(Text(Constants.SapProductionOrderStatus.GetDisplay(order.Status))),
-            ["orderDate"] = Escape(FormatDate(order.CreationDate ?? NullIfDefault(order.PostingDate))),
+            ["orderDate"] = Escape(FormatDate(order.CreationDate ?? order.PostingDate)),
             ["productionCategory"] = Escape(Text(order.ProductionCategory)),
             ["startDate"] = Escape(FormatDate(order.StartDate)),
             ["dueDate"] = Escape(FormatDate(order.DueDate)),
@@ -74,8 +74,8 @@ public class ProductionOrderPdfBuilder
             ["productName"] = Escape(Text(order.ProductDescription)),
             ["plannedQty"] = Escape(FormatQty(order.PlannedQuantity)),
             ["uom"] = Escape(Text(order.InventoryUom)),
-            ["completedQty"] = Escape(FormatQty(order.CompletedQuantity)),
-            ["rejectedQty"] = Escape(FormatQty(order.RejectedQuantity)),
+            ["completedQty"] = Escape(FormatQty(order.CompletedQuantity ?? 0)),
+            ["rejectedQty"] = Escape(FormatQty(order.RejectedQuantity ?? 0)),
             ["receiptWarehouse"] = Escape(Text(order.Warehouse)),
             ["issueWarehouse"] = Escape(BuildIssueWarehouse(order)),
             ["@items"] = itemsHtml.ToString(),
@@ -127,8 +127,6 @@ public class ProductionOrderPdfBuilder
 
         return uomCode is string name && !string.IsNullOrWhiteSpace(name) ? name.Trim() : Dash;
     }
-
-    private static DateTime? NullIfDefault(DateTime value) => value == default ? null : value;
 
     private static string FormatDate(DateTime? value) =>
         value is null ? Dash : value.Value.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);

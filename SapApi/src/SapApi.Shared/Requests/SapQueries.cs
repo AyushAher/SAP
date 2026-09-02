@@ -1,4 +1,4 @@
-﻿namespace SapApi.Shared.Requests
+namespace SapApi.Shared.Requests
 {
     public class SapQueries
     {
@@ -7,6 +7,7 @@
         public string? Select { get; set; }
         public string? Skip { get; set; }
         public string? Top { get; set; }
+        public string? Expand { get; set; }
         public bool InlineCount { get; set; }
 
         public string GetQueryValue()
@@ -18,6 +19,9 @@
 
             if (!string.IsNullOrEmpty(Select))
                 parts.Add("$select=" + Uri.EscapeDataString(Select));
+
+            if (!string.IsNullOrEmpty(Expand))
+                parts.Add("$expand=" + Uri.EscapeDataString(Expand));
 
             if (!string.IsNullOrEmpty(OrderBy))
                 parts.Add("$orderby=" + Uri.EscapeDataString(OrderBy));

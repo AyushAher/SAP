@@ -8,6 +8,7 @@ import {
   TC_DISPATCH_ADDRESS_UDF_CANDIDATES,
 } from '@/types/purchaseOrder'
 import { isNonInventoryItem } from '@/helpers/purchaseOrderTnValidation'
+import { formatSapFixed, SAP_DECIMAL_PLACES } from '@/helpers/sapDecimals'
 
 type PoRecord = Record<string, unknown>
 
@@ -468,6 +469,14 @@ export function applyStockPurchaseQty(line: PurchaseOrderLineItem): PurchaseOrde
 }
 
 export function withPurchaseQty(line: PurchaseOrderLineItem, purchaseQty: number): PurchaseOrderLineItem {
+  const factor = line.UnitsOfMeasurment ?? calcItemsPerUnit(line.StockQty, line.Quantity)
+  if (factor != null && Number.isFinite(factor) && factor > 0) {
+    return applyStockPurchaseQty({
+      ...line,
+      Quantity: purchaseQty,
+      StockQty: purchaseQty * factor,
+    })
+  }
   return applyStockPurchaseQty({
     ...line,
     Quantity: purchaseQty,
@@ -548,7 +557,9 @@ export function toSapDocumentLine(
 
   const unit = resolvePurchaseUnit(line)
   const itemsPerUnit = line.UnitsOfMeasurment ?? calcItemsPerUnit(line.StockQty, line.Quantity)
-  const hasUomGroup = line.UoMEntry != null && Number.isFinite(line.UoMEntry)
+  // SAP stores Manual-group rows as UoMEntry -1 / UoMCode "Manual". That is not a real UoM group
+  // — treating -1 as one sends the unit text as UoMCode and SAP rejects the line update.
+  const hasUomGroup = line.UoMEntry != null && Number.isFinite(line.UoMEntry) && line.UoMEntry > 0
   return {
     ItemCode: line.ItemCode,
     ItemDescription: line.ItemDescription,
@@ -729,7 +740,7 @@ export function calculatePurchaseOrderTotals(
 }
 
 export function formatPoAmount(value: number | undefined | null): string {
-  return Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return formatSapFixed(value, SAP_DECIMAL_PLACES.amounts)
 }
 
 /**

@@ -481,8 +481,10 @@ public static class SapPurchaseOrderPayloadBuilder
                     // MeasureUnit is not writable (ODBC -1029). SAP derives it from
                     // UseBaseUnits / UnitsOfMeasurment. AccountCode is sent for non-inventory
                     // items; inventory lines omit it from the client so G/L determination stays.
-                    UoMCode = line.UoMEntry is null ? null : NullIfWhiteSpace(line.UoMCode),
-                    UoMEntry = line.UoMEntry,
+                    // UoMEntry -1 / UoMCode "Manual" is SAP's placeholder for items with no UoM
+                    // group. Sending them on update makes Service Layer reject the line.
+                    UoMCode = ResolveWritableUoMCode(line),
+                    UoMEntry = ResolveWritableUoMEntry(line),
                     MeasureUnit = null,
                     UnitsOfMeasurment = line.UnitsOfMeasurment,
                     InventoryQuantity = line.InventoryQuantity
@@ -564,6 +566,22 @@ public static class SapPurchaseOrderPayloadBuilder
             return null;
 
         return shipTo;
+    }
+
+    /// <summary>
+    /// SAP Manual UoM group rows use UoMEntry -1. That is not a writable group entry.
+    /// </summary>
+    static int? ResolveWritableUoMEntry(SapInventoryTransferItemsRequests line) =>
+        line.UoMEntry is > 0 ? line.UoMEntry : null;
+
+    static string? ResolveWritableUoMCode(SapInventoryTransferItemsRequests line)
+    {
+        if (ResolveWritableUoMEntry(line) is null)
+            return null;
+        var code = NullIfWhiteSpace(line.UoMCode);
+        if (code is not null && code.Equals("Manual", StringComparison.OrdinalIgnoreCase))
+            return null;
+        return code;
     }
 
     static string? NullIfWhiteSpace(string? value) =>

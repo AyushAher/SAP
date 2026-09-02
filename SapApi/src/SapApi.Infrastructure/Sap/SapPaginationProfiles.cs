@@ -42,10 +42,9 @@ public static class SapPaginationProfiles
 
     public static SapPaginationOptions ProductionOrders => new()
     {
-        // Only real ProductionOrders fields: customer/project *names* are not UDFs on this document,
-        // so SAP rejects them in $select ("Property 'U_CustomerName' ... is invalid"). Names are
-        // resolved from master data in SapProductionOrdersService instead.
-        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,Warehouse,ProductionOrderStatus,CustomerCode,"
+        // Real ProductionOrders fields only. U_CustomerName is not a UDF (SAP rejects it in
+        // $select). U_PrjName is a real OWOR field and is selected so project name round-trips.
+        Select = "AbsoluteEntry,DocumentNumber,ItemNo,ProductDescription,PlannedQuantity,Project,U_PrjName,Warehouse,ProductionOrderStatus,CustomerCode,"
             + Constants.SapProductionOrderUdf.DrawingNo + ",CreationDate",
         KeyFields = ["AbsoluteEntry"],
         DefaultSortField = "AbsoluteEntry",
@@ -63,6 +62,7 @@ public static class SapPaginationProfiles
             ["ProductDescription"] = "ProductDescription",
             ["PlannedQuantity"] = "PlannedQuantity",
             ["Project"] = "Project",
+            ["ProjectName"] = "U_PrjName",
             ["Warehouse"] = "Warehouse",
             ["ProductionOrderStatus"] = "ProductionOrderStatus",
             // UI column key is Status; SAP OData field is ProductionOrderStatus.

@@ -39,6 +39,43 @@ export function formatCodeWithName(code?: string | number | null, name?: string 
   return `${codeText} - ${nameText}`
 }
 
+/** Name half of a `CODE - Name` select label, using the code prefix when present. */
+export function nameFromCodeWithNameLabel(label?: string | null, code?: string | null): string | undefined {
+  const text = (label ?? '').trim()
+  if (!text) return undefined
+  const codeText = (code ?? '').trim()
+  if (codeText) {
+    const prefix = `${codeText} - `
+    if (text.startsWith(prefix)) {
+      const name = text.slice(prefix.length).trim()
+      return name || undefined
+    }
+    if (text === codeText) return undefined
+  }
+  const sep = ' - '
+  const idx = text.indexOf(sep)
+  if (idx < 0) return undefined
+  const name = text.slice(idx + sep.length).trim()
+  return name || undefined
+}
+
+/**
+ * Keep a user-typed description; otherwise replace with the next master name
+ * (item name or G/L account name) when the field is empty or still the previous auto-fill.
+ */
+export function nextAutoFilledName(
+  current?: string | null,
+  previousAuto?: string | null,
+  nextName?: string | null,
+): string | undefined {
+  const currentText = (current ?? '').trim()
+  const previous = (previousAuto ?? '').trim()
+  const next = (nextName ?? '').trim()
+  if (!next) return currentText || undefined
+  if (!currentText || currentText === previous) return next
+  return currentText
+}
+
 /** Card code with BP name and legal name (SAP CardForeignName) when they differ. */
 export function formatBusinessPartnerDisplay(
   code?: string | number | null,

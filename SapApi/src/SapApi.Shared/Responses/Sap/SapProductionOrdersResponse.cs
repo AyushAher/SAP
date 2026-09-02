@@ -33,8 +33,8 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("PlannedQuantity")]
         public double PlannedQuantity { get; set; }
 
-        [JsonPropertyName("CompletedQuantity")]
-        public double CompletedQuantity { get; set; }
+        [JsonPropertyName("CompletedQuantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? CompletedQuantity { get; set; }
 
         [JsonPropertyName("U_CustomerName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? CustomerName { get; set; }
@@ -42,11 +42,21 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName(Constants.SapProductionOrderUdf.DrawingNo), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? DrawingNo { get; set; }
 
+        /// <summary>Portal-only sub-assembly weight. Stripped before Service Layer writes.</summary>
+        [JsonPropertyName("Weight"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? Weight { get; set; }
+
         /// <summary>
         /// Parent production order DocumentNumber on a child sub-assembly (OWOR U_DocNum).
         /// </summary>
         [JsonPropertyName(Constants.SapProductionOrderUdf.ParentProductionOrder), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ParentProductionOrderNo { get; set; }
+
+        /// <summary>
+        /// Portal-only: SAP AbsoluteEntry of the parent production order. Stripped before Service Layer writes.
+        /// </summary>
+        [JsonPropertyName("ParentAbsoluteEntry"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? ParentAbsoluteEntry { get; set; }
 
         [JsonPropertyName("ProductionOrderOriginNumber"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? SalesOrderDocNum { get; set; }
@@ -57,11 +67,11 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("ProductionOrderOrigin"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ProductionOrderOrigin { get; set; }
 
-        [JsonPropertyName("RejectedQuantity")]
-        public double RejectedQuantity { get; set; }
+        [JsonPropertyName("RejectedQuantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? RejectedQuantity { get; set; }
 
-        [JsonPropertyName("PostingDate")]
-        public DateTime PostingDate { get; set; }
+        [JsonPropertyName("PostingDate"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DateTime? PostingDate { get; set; }
 
         [JsonPropertyName("DueDate"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DateTime? DueDate { get; set; }
@@ -129,8 +139,8 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("ProductDescription"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ProductDescription { get; set; }
 
-        [JsonPropertyName("Priority")]
-        public int Priority { get; set; } = 100;
+        [JsonPropertyName("Priority"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? Priority { get; set; }
 
         [JsonPropertyName("RoutingDateCalculation"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? RoutingDateCalculation { get; set; }
@@ -153,6 +163,14 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("ProductionOrderLines"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<SapProductionOrderLines>? ProductionOrderLines { get; set; } = [];
 
+        /// <summary>
+        /// Portal-only: sub-assemblies drafted with a new parent. Flattened onto
+        /// <see cref="ProductionOrderLines"/> before the Service Layer create, then stored as
+        /// virtual children. Never sent to SAP.
+        /// </summary>
+        [JsonPropertyName("Subassemblies"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<SapProductionOrdersResponse>? Subassemblies { get; set; }
+
         [JsonPropertyName("ProductionOrdersSalesOrderLines"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<SapProductionOrdersSalesOrderLine>? ProductionOrdersSalesOrderLines { get; set; } = [];
 
@@ -171,6 +189,13 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("LineNumber"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? LineNumber { get; set; }
 
+        /// <summary>
+        /// Present on some Service Layer builds. Closed component rows cannot be deleted or
+        /// recreated; a collection replace that drops their LineNumber fails with Error -1.
+        /// </summary>
+        [JsonPropertyName("LineStatus"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? LineStatus { get; set; }
+
         [JsonPropertyName("ItemNo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ItemNo { get; set; }
 
@@ -183,8 +208,8 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("PlannedQuantity")]
         public double PlannedQuantity { get; set; }
 
-        [JsonPropertyName("IssuedQuantity")]
-        public double IssuedQuantity { get; set; }
+        [JsonPropertyName("IssuedQuantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? IssuedQuantity { get; set; }
 
         [JsonPropertyName("ProductionOrderIssueType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ProductionOrderIssueType { get; set; }
@@ -257,6 +282,9 @@ namespace SapApi.Shared.Responses.Sap
 
         [JsonPropertyName("U_FreeTxt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? FreeText { get; set; }
+
+        [JsonPropertyName(Constants.SapProductionOrderUdf.DrawingNo), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? DrawingNo { get; set; }
 
         /// <summary>WOR1 U_DocNum — distinct from the OWOR header U_DocNum (parent production order).</summary>
         [JsonPropertyName("U_DocNum"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

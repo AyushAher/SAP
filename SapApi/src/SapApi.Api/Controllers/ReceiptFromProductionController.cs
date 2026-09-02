@@ -85,7 +85,7 @@ public class ReceiptFromProductionController(
         for (var index = 0; index < lines.Count; index++)
         {
             var line = lines[index];
-            totalQty += line.IssuedQuantity;
+            totalQty += line.IssuedQuantity ?? 0;
             itemDetailsMap.TryGetValue(line.ItemNo ?? string.Empty, out var itemDetails);
             totalWeight += itemDetails?.InventoryWeight ?? 0;
 

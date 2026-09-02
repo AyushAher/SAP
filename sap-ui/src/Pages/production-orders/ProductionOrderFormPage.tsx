@@ -1,45 +1,60 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { Layers } from 'lucide-react'
 import { ProductionOrderSubassembliesCard } from '@/Components/production/ProductionOrderSubassembliesCard'
 import { PageHeader } from '@/Components/shared/PageHeader'
-import { SelectableSapDataGrid } from '@/Components/shared/SelectableSapDataGrid'
-import type { SapColumn } from '@/Components/shared/SapDataGrid'
-import { Button, Card, CardContent, Input, SapDateInput, SearchableSelect, Select } from '@/Components/ui'
-import { ROUTES } from '@/config/constants'
+import {
+  Button,
+  Card,
+  CardContent,
+  Input,
+  SapDateInput,
+  SearchableSelect,
+  Select,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Textarea,
+} from '@/Components/ui'
+import { ROUTES, productionOrderSubassemblyPath } from '@/config/constants'
 import { todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
-import { formatCodeWithName, resolveMasterSelectLabels, resolveProject } from '@/helpers/masterLookup'
-import { applyProductionCategoryDefaults, validateProductionOrderForm } from '@/helpers/productionOrderForm'
+import { formatCodeWithName, nameFromCodeWithNameLabel, resolveMasterSelectLabels, resolveProject } from '@/helpers/masterLookup'
+import {
+  applyProductionCategoryDefaults,
+  filterSalesOrderProducts,
+  isItemOnSalesOrder,
+  salesOrderPlannedQtyCap,
+  validateProductionOrderForm,
+} from '@/helpers/productionOrderForm'
+import {
+  clearCreateDraft,
+  loadCreateDraft,
+  removeDraftSubassembly,
+  saveCreateDraftHeader,
+} from '@/helpers/productionOrderCreateDraft'
 import { toast } from '@/helpers/toast'
-import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import {
   createProductionOrder,
   downloadProductionOrderPdf,
   getProductionOrder,
+  listSubassemblies,
   updateProductionOrder,
 } from '@/Requests/productionOrders'
 import {
   listSalesOrders,
+  getSalesOrder,
   searchCustomers,
-  searchItems,
-  searchWarehouses,
-  formatWarehouseOptionLabel,
   type MasterSalesOrder,
 } from '@/Requests/masters'
 import type { SelectOption } from '@/types'
-import type { ProductionOrder, ProductionOrderLine } from '@/types/production'
+import { PRODUCTION_ORDER_TYPE_SPECIAL, type ProductionOrder, type SalesOrderProductLine } from '@/types/production'
 
 const STATUS_OPTIONS = [
   { value: 'boposPlanned', label: 'Planned' },
   { value: 'boposReleased', label: 'Released' },
   { value: 'boposClosed', label: 'Closed' },
   { value: 'boposCancelled', label: 'Cancelled' },
-]
-
-// SAP's BoProductionOrderTypeEnum, all three members.
-const TYPE_OPTIONS = [
-  { value: 'bopotStandard', label: 'Standard' },
-  { value: 'bopotSpecial', label: 'Special' },
-  { value: 'bopotDisassembly', label: 'Disassembly' },
 ]
 
 const CATEGORY_OPTIONS = [
@@ -51,34 +66,31 @@ const CATEGORY_OPTIONS = [
 export function ProductionOrderFormPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [form, setForm] = useState<ProductionOrder>({
+  const isDraftParent = !id || id === ROUTES.PRODUCTION_ORDER_DRAFT_ID
+  const jobDefaults = applyProductionCategoryDefaults('JOB', {
     ItemNumber: '',
     PlannedQuantity: 0,
-    Warehouse: '',
-    IssWarehouse: '',
     Project: '',
     Status: 'boposPlanned',
-    Type: 'bopotStandard',
+    Type: PRODUCTION_ORDER_TYPE_SPECIAL,
     ProductionCategory: 'JOB',
     PostingDate: todayIsoDate(),
+    CreationDate: todayIsoDate(),
     StartDate: todayIsoDate(),
     DueDate: todayIsoDate(),
-    ProductionOrderLines: [],
-  })
-  const [lines, setLines] = useState<ProductionOrderLine[]>([])
-  const [draftLine, setDraftLine] = useState<ProductionOrderLine>({ ItemNo: '', PlannedQuantity: 0 })
-  const [draftItemLabel, setDraftItemLabel] = useState('')
+  }, [])
+  const [form, setForm] = useState<ProductionOrder>(jobDefaults.order)
   const [customerLabel, setCustomerLabel] = useState('')
   const [itemLabel, setItemLabel] = useState('')
   const [projectName, setProjectName] = useState('')
-  const [warehouseLabel, setWarehouseLabel] = useState('')
-  const [issWarehouseLabel, setIssWarehouseLabel] = useState('')
   const [salesOrderLabel, setSalesOrderLabel] = useState('')
+  const [salesOrderProducts, setSalesOrderProducts] = useState<SalesOrderProductLine[] | null>(null)
   const [loading, setLoading] = useState(!!id)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [lineReviewWarning, setLineReviewWarning] = useState(false)
+  const [draftSubassemblies, setDraftSubassemblies] = useState<ProductionOrder[]>([])
   // Rows from the last sales order search, so a pick can resolve customer, project and DocEntry.
   const salesOrderRows = useRef<MasterSalesOrder[]>([])
 
@@ -90,21 +102,12 @@ export function ProductionOrderFormPage() {
     })).filter((o) => o.value)
   }, [])
 
-  const searchItemOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchItems(search)
-    return (response.data ?? []).map((item) => ({
+  const searchProductOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
+    return filterSalesOrderProducts(salesOrderProducts ?? [], search).map((item) => ({
       value: item.ItemCode ?? '',
-      label: `${item.ItemCode ?? ''} - ${item.ItemName ?? ''}`.trim(),
+      label: formatCodeWithName(item.ItemCode, item.ItemName),
     })).filter((o) => o.value)
-  }, [])
-
-  const searchWarehouseOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchWarehouses(search)
-    return (response.data ?? []).map((wh) => ({
-      value: wh.WarehouseCode ?? '',
-      label: formatWarehouseOptionLabel(wh),
-    })).filter((o) => o.value)
-  }, [])
+  }, [salesOrderProducts])
 
   const searchSalesOrderOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
     const response = await listSalesOrders(search, form.CustomerCode)
@@ -116,13 +119,53 @@ export function ProductionOrderFormPage() {
   }, [form.CustomerCode])
 
   useEffect(() => {
-    if (!id) return
+    if (!isDraftParent) return
+    const draft = loadCreateDraft()
+    if (!draft) return
+    const applied = applyProductionCategoryDefaults(
+      draft.header.ProductionCategory ?? 'JOB',
+      { ...jobDefaults.order, ...draft.header, Type: PRODUCTION_ORDER_TYPE_SPECIAL },
+      [],
+    )
+    setForm({
+      ...applied.order,
+      Warehouse: draft.header.Warehouse || applied.order.Warehouse,
+      IssWarehouse: draft.header.IssWarehouse || applied.order.IssWarehouse,
+    })
+    setCustomerLabel(draft.labels?.customerLabel ?? '')
+    setItemLabel(draft.labels?.itemLabel ?? '')
+    setSalesOrderLabel(draft.labels?.salesOrderLabel ?? '')
+    setProjectName(draft.labels?.projectName ?? '')
+    setDraftSubassemblies(draft.subassemblies)
+    if (draft.header.SalesOrderDocEntry) {
+      void getSalesOrder(draft.header.SalesOrderDocEntry).then((detail) => {
+        setSalesOrderProducts(detail?.DocumentLines ?? [])
+      })
+    }
+    // Restore a draft once when opening the create form; later keystrokes write back via persistDraftHeader.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDraftParent])
+
+  useEffect(() => {
+    if (id === ROUTES.PRODUCTION_ORDER_DRAFT_ID) {
+      navigate(ROUTES.PRODUCTION_ORDER_FORM, { replace: true })
+    }
+  }, [id, navigate])
+
+  useEffect(() => {
+    if (!id || isDraftParent) return
     getProductionOrder(id)
       .then(async (po) => {
-        // Legacy seeded the issuing warehouse from the last component line; SAP does not store it.
-        const issWarehouse = po.IssWarehouse ?? po.ProductionOrderLines?.at(-1)?.Warehouse ?? ''
-        setForm({ ...po, IssWarehouse: issWarehouse })
-        setLines(po.ProductionOrderLines ?? [])
+        const applied = applyProductionCategoryDefaults(
+          po.ProductionCategory ?? 'JOB',
+          po,
+          [],
+        )
+        setForm({
+          ...applied.order,
+          Warehouse: po.Warehouse || applied.order.Warehouse,
+          IssWarehouse: po.IssWarehouse || applied.order.IssWarehouse,
+        })
         const labels = await resolveMasterSelectLabels({
           customerCode: po.CustomerCode,
           itemCode: po.ItemNumber,
@@ -136,9 +179,16 @@ export function ProductionOrderFormPage() {
         }
         if (po.ProjectName) setProjectName(po.ProjectName)
         else if (po.Project) setProjectName((await resolveProject(po.Project))?.Name ?? '')
-        if (po.Warehouse) setWarehouseLabel(String(po.Warehouse))
-        if (issWarehouse) setIssWarehouseLabel(String(issWarehouse))
         if (po.SalesOrderDocNum) setSalesOrderLabel(String(po.SalesOrderDocNum))
+        if (po.SalesOrderDocEntry) {
+          const detail = await getSalesOrder(po.SalesOrderDocEntry)
+          const products = detail?.DocumentLines ?? []
+          setSalesOrderProducts(products)
+          const cap = salesOrderPlannedQtyCap(products, po.ItemNumber)
+          if (cap != null && (po.PlannedQuantity ?? 0) > cap) {
+            setForm((prev) => ({ ...prev, PlannedQuantity: cap }))
+          }
+        }
       })
       .catch((e: unknown) => {
         const message = e instanceof Error ? e.message : 'Production order could not be loaded.'
@@ -149,106 +199,77 @@ export function ProductionOrderFormPage() {
       .finally(() => setLoading(false))
   }, [id])
 
-  const lineItemCodes = useMemo(() => lines.map((line) => line.ItemNo), [lines])
-  const lineItemMap = useItemMasterMap(lineItemCodes)
-
   const handleSalesOrderChange = async (value: string) => {
     setSalesOrderLabel(value)
     const picked = salesOrderRows.current.find((so) => String(so.DocNum ?? so.DocEntry ?? '') === value)
     const project = picked?.Project ?? ''
-    setForm((prev) => ({
-      ...prev,
-      SalesOrderDocNum: picked?.DocNum ?? (value ? Number(value) : undefined),
-      SalesOrderDocEntry: picked?.DocEntry,
-      CustomerCode: picked?.CardCode ?? prev.CustomerCode,
-      CustomerName: picked?.CardName ?? prev.CustomerName,
-      Project: project,
-    }))
+    const detail = picked?.DocEntry ? await getSalesOrder(picked.DocEntry) : undefined
+    const products = detail?.DocumentLines ?? []
+    setSalesOrderProducts(picked?.DocEntry ? products : null)
+    setForm((prev) => {
+      const keepItem = isItemOnSalesOrder(products, prev.ItemNumber)
+      const nextItem = keepItem ? prev.ItemNumber : ''
+      const cap = salesOrderPlannedQtyCap(products, nextItem)
+      const planned = cap != null && (prev.PlannedQuantity ?? 0) > cap
+        ? cap
+        : (keepItem ? prev.PlannedQuantity : 0)
+      return {
+        ...prev,
+        SalesOrderDocNum: picked?.DocNum ?? (value ? Number(value) : undefined),
+        SalesOrderDocEntry: picked?.DocEntry,
+        CustomerCode: picked?.CardCode ?? prev.CustomerCode,
+        CustomerName: picked?.CardName ?? prev.CustomerName,
+        Project: project,
+        ItemNumber: nextItem,
+        ProductDescription: keepItem ? prev.ProductDescription : undefined,
+        PlannedQuantity: planned,
+      }
+    })
+    if (!isItemOnSalesOrder(products, form.ItemNumber)) setItemLabel('')
     if (picked?.CardCode) setCustomerLabel(formatCodeWithName(picked.CardCode, picked.CardName))
     setProjectName(project ? (await resolveProject(project))?.Name ?? '' : '')
   }
 
   const handlePlannedQuantityChange = (value: number) => {
-    setForm((prev) => ({ ...prev, PlannedQuantity: value }))
-    if (!lines.length) return
-    if (!lineReviewWarning) {
-      toast.info('Header planned quantity changed. Review the component line quantities before saving.')
+    const cap = salesOrderPlannedQtyCap(salesOrderProducts, form.ItemNumber)
+    const next = cap != null && value > cap ? cap : value
+    if (cap != null && value > cap) {
+      toast.error(`Planned quantity cannot exceed ${cap} (sales order quantity × items per unit).`)
     }
-    setLineReviewWarning(true)
+    setForm((prev) => ({ ...prev, PlannedQuantity: next }))
+    if (id && !lineReviewWarning) {
+      toast.info('Header planned quantity changed. Review sub-assembly item quantities before saving.')
+      setLineReviewWarning(true)
+    }
   }
 
-  const updateLine = (index: number, patch: Partial<ProductionOrderLine>) => {
-    setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)))
-  }
+  const persistDraftHeader = useCallback(() => {
+    if (!isDraftParent) return
+    saveCreateDraftHeader(form, {
+      customerLabel,
+      itemLabel,
+      salesOrderLabel,
+      projectName,
+    })
+  }, [isDraftParent, form, customerLabel, itemLabel, salesOrderLabel, projectName])
 
-  const handleAddLine = () => {
-    if (!draftLine.ItemNo) {
-      setError('Select a line item before adding it.')
-      return
+  const persistHeader = async (after: 'list' | 'subassembly') => {
+    const applied = applyProductionCategoryDefaults(form.ProductionCategory ?? 'JOB', form, [])
+    const header = {
+      ...applied.order,
+      Warehouse: form.Warehouse || applied.order.Warehouse,
+      IssWarehouse: form.IssWarehouse || applied.order.IssWarehouse,
     }
-    const nextLine: ProductionOrderLine = {
-      ...draftLine,
-      LineNumber: (lines.reduce((max, line) => Math.max(max, line.LineNumber ?? 0), 0)) + 1,
-      DocumentAbsoluteEntry: form.AbsoluteEntry,
-      Warehouse: draftLine.Warehouse ?? form.IssWarehouse ?? '',
-    }
-    setLines((prev) => [...prev, nextLine])
-    setDraftLine({ ItemNo: '', PlannedQuantity: 0 })
-    setDraftItemLabel('')
-    setError(null)
-  }
-
-  const lineColumns: SapColumn<ProductionOrderLine>[] = [
-    {
-      key: 'ItemNo',
-      header: 'Item',
-      render: (row) => {
-        const index = lines.indexOf(row)
-        return (
-          <SearchableSelect
-            lookupKind="item"
-            value={row.ItemNo ?? ''}
-            selectedLabel={formatCodeWithName(row.ItemNo, row.ItemName ?? lineItemMap[row.ItemNo ?? '']?.name)}
-            placeholder="Search item..."
-            onSearch={searchItemOptions}
-            onChange={(code, option) => {
-              const label = option?.label ?? code
-              updateLine(index, {
-                ItemNo: code,
-                ItemName: label.includes(' - ') ? label.split(' - ').slice(1).join(' - ') : undefined,
-              })
-            }}
-          />
-        )
-      },
-    },
-    {
-      key: 'PlannedQuantity',
-      header: 'Planned Qty',
-      render: (row) => {
-        const index = lines.indexOf(row)
-        return (
-          <Input
-            type="number"
-            nonNegative
-            value={String(row.PlannedQuantity ?? 0)}
-            onChange={(e) => updateLine(index, { PlannedQuantity: Number(e.target.value) })}
-          />
-        )
-      },
-    },
-    { key: 'IssuedQuantity', header: 'Issued Qty', accessor: (r) => r.IssuedQuantity ?? 0 },
-    { key: 'Warehouse', header: 'Warehouse', accessor: (r) => r.Warehouse },
-  ]
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
-    // New lines inherit the issuing warehouse, the way the legacy form seeded them on add.
-    const submittedLines = lines.map((line) => ({
-      ...line,
-      Warehouse: line.Warehouse || form.IssWarehouse || '',
-    }))
-    const validationError = validateProductionOrderForm(form, submittedLines)
+    if (isDraftParent) persistDraftHeader()
+    const subassemblies = isDraftParent
+      ? loadCreateDraft()?.subassemblies ?? draftSubassemblies
+      : id
+        ? await listSubassemblies(id)
+        : []
+    const validationError = validateProductionOrderForm(header, [], salesOrderProducts, {
+      requireSubassemblyWithItems: after === 'list' && isDraftParent,
+      subassemblies,
+    })
     if (validationError) {
       setError(validationError)
       toast.error(validationError)
@@ -258,21 +279,24 @@ export function ProductionOrderFormPage() {
     setError(null)
     try {
       const payload: ProductionOrder = {
-        ...form,
-        ProductionOrderLines: submittedLines,
-        PostingDate: toIsoDateOnly(form.PostingDate) ?? todayIsoDate(),
-        StartDate: toIsoDateOnly(form.StartDate) ?? todayIsoDate(),
-        DueDate: toIsoDateOnly(form.DueDate) ?? todayIsoDate(),
+        ...header,
+        Type: header.Type || PRODUCTION_ORDER_TYPE_SPECIAL,
+        ProjectName: projectName || header.ProjectName,
+        ProductionOrderLines: undefined,
+        Subassemblies: isDraftParent && after === 'list' ? subassemblies : undefined,
+        PostingDate: toIsoDateOnly(header.PostingDate) ?? (isDraftParent ? todayIsoDate() : header.PostingDate),
+        StartDate: toIsoDateOnly(header.StartDate) ?? todayIsoDate(),
+        DueDate: toIsoDateOnly(header.DueDate) ?? todayIsoDate(),
       }
-      const result = id
+      const result = id && !isDraftParent
         ? await updateProductionOrder(Number(id), payload)
         : await createProductionOrder(payload)
 
-      // Above-threshold orders are stored as approval requests and are not in SAP yet.
       if (result?.pendingApproval) {
-        const message = id
+        const message = id && !isDraftParent
           ? 'Production order update submitted for approval. It will reach SAP after approval.'
           : 'Production order submitted for approval. It will appear in SAP after approval.'
+        if (isDraftParent) clearCreateDraft()
         toast.info(message)
         navigate(ROUTES.MY_APPROVAL_REQUESTS, {
           state: { message, approvalRequestId: result.pendingApprovalRequestId },
@@ -282,7 +306,8 @@ export function ProductionOrderFormPage() {
 
       const docNum = result?.DocumentNumber ?? form.DocumentNumber
       const subject = docNum ? `Production order ${docNum}` : 'Production order'
-      toast.success(id ? `${subject} updated in SAP.` : `${subject} created in SAP.`)
+      if (isDraftParent) clearCreateDraft()
+      toast.success(id && !isDraftParent ? `${subject} updated in SAP.` : `${subject} created in SAP.`)
       navigate(ROUTES.PRODUCTION_ORDERS)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Save failed'
@@ -291,6 +316,34 @@ export function ProductionOrderFormPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    await persistHeader('list')
+  }
+
+  const openDraftSubassembly = (childKey?: string) => {
+    persistDraftHeader()
+    const applied = applyProductionCategoryDefaults(form.ProductionCategory ?? 'JOB', form, [])
+    const header = {
+      ...applied.order,
+      Warehouse: form.Warehouse || applied.order.Warehouse,
+      IssWarehouse: form.IssWarehouse || applied.order.IssWarehouse,
+    }
+    const validationError = validateProductionOrderForm(header, [], salesOrderProducts)
+    if (validationError) {
+      setError(validationError)
+      toast.error(validationError)
+      return
+    }
+    navigate(productionOrderSubassemblyPath(ROUTES.PRODUCTION_ORDER_DRAFT_ID, childKey))
+  }
+
+  const handleDeleteDraft = (row: ProductionOrder) => {
+    if (!row.DraftKey) return
+    const next = removeDraftSubassembly(row.DraftKey)
+    setDraftSubassemblies(next.subassemblies)
   }
 
   const handleDownloadPdf = async () => {
@@ -334,14 +387,19 @@ export function ProductionOrderFormPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</div>}
       {lineReviewWarning && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
-          The header planned quantity changed. Component line quantities were left as they were — review them before saving.
+          The header planned quantity changed. Review sub-assembly item quantities before saving.
         </div>
       )}
-      <ProductionOrderSubassembliesCard parent={form} />
-      <Card>
-        <CardContent className="space-y-6 pt-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <Card>
+          <CardContent className="space-y-6 pt-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Input
+                label="Production Order"
+                value={form.DocumentNumber != null ? String(form.DocumentNumber) : ''}
+                readOnly
+                placeholder="Assigned on save"
+              />
               <SearchableSelect
                 label="Customer"
                 lookupKind="businessPartner"
@@ -356,12 +414,67 @@ export function ProductionOrderFormPage() {
               />
               <SearchableSelect
                 label="Sales Order"
-                required
+                required={isDraftParent}
                 value={String(form.SalesOrderDocNum ?? '')}
                 selectedLabel={salesOrderLabel}
                 placeholder="Search sales order..."
                 onSearch={searchSalesOrderOptions}
                 onChange={(value) => void handleSalesOrderChange(value)}
+              />
+              <Select label="Status" value={form.Status ?? 'boposPlanned'} onChange={(value) => setForm({ ...form, Status: value })} options={STATUS_OPTIONS} />
+              <SearchableSelect
+                label="Product No."
+                required
+                disabled={!!form.AbsoluteEntry || salesOrderProducts == null}
+                value={form.ItemNumber ?? ''}
+                selectedLabel={itemLabel}
+                placeholder={salesOrderProducts == null ? 'Select a sales order first' : 'Search sales order item...'}
+                hint={salesOrderProducts != null ? 'Only items on the selected sales order.' : undefined}
+                onSearch={searchProductOptions}
+                onChange={(code, option) => {
+                  const label = option?.label ?? code
+                  const description = nameFromCodeWithNameLabel(label, code)
+                  const cap = salesOrderPlannedQtyCap(salesOrderProducts, code)
+                  const planned = !form.PlannedQuantity || (cap != null && form.PlannedQuantity > cap)
+                    ? (cap ?? form.PlannedQuantity)
+                    : form.PlannedQuantity
+                  setItemLabel(label)
+                  setForm({
+                    ...form,
+                    ItemNumber: code,
+                    ProductDescription: description,
+                    PlannedQuantity: planned,
+                    Type: PRODUCTION_ORDER_TYPE_SPECIAL,
+                  })
+                }}
+              />
+              <Input
+                label="Product Name"
+                value={form.ProductDescription ?? ''}
+                readOnly
+                placeholder="Taken from the selected product"
+              />
+              <Input
+                label="Planned Qty"
+                type="number"
+                nonNegative
+                required
+                max={salesOrderPlannedQtyCap(salesOrderProducts, form.ItemNumber)}
+                hint={(() => {
+                  const cap = salesOrderPlannedQtyCap(salesOrderProducts, form.ItemNumber)
+                  return cap != null ? `Cannot exceed ${cap} from the sales order (quantity × items per unit).` : undefined
+                })()}
+                value={String(form.PlannedQuantity ?? 0)}
+                onChange={(e) => handlePlannedQuantityChange(Number(e.target.value))}
+              />
+              <Select
+                label="Production Category"
+                value={form.ProductionCategory ?? 'JOB'}
+                onChange={(value) => {
+                  const applied = applyProductionCategoryDefaults(value, form, [])
+                  setForm(applied.order)
+                }}
+                options={CATEGORY_OPTIONS}
               />
               <Input
                 label="Project Code"
@@ -371,41 +484,11 @@ export function ProductionOrderFormPage() {
                 placeholder="Select a sales order"
               />
               <Input label="Project Name" value={projectName} readOnly placeholder="Select a sales order" />
-              <SearchableSelect
-                label="Product No."
-                lookupKind="item"
-                required
+              <SapDateInput
+                label="Order Date"
+                value={form.CreationDate ?? form.PostingDate}
+                onChangeIso={(date) => setForm({ ...form, CreationDate: date })}
                 disabled={!!form.AbsoluteEntry}
-                value={form.ItemNumber ?? ''}
-                selectedLabel={itemLabel}
-                placeholder="Search item..."
-                onSearch={searchItemOptions}
-                onChange={(code, option) => {
-                  setItemLabel(option?.label ?? code)
-                  setForm({ ...form, ItemNumber: code })
-                }}
-              />
-              <Select label="Status" value={form.Status ?? 'boposPlanned'} onChange={(value) => setForm({ ...form, Status: value })} options={STATUS_OPTIONS} />
-              <Select label="Type" value={form.Type ?? 'bopotStandard'} onChange={(value) => setForm({ ...form, Type: value })} options={TYPE_OPTIONS} disabled={!!form.AbsoluteEntry} />
-              <Select
-                label="Production Category"
-                value={form.ProductionCategory ?? 'JOB'}
-                onChange={(value) => {
-                  const applied = applyProductionCategoryDefaults(value, form, lines)
-                  setForm(applied.order)
-                  setLines(applied.lines)
-                  setWarehouseLabel(applied.order.Warehouse ?? '')
-                  setIssWarehouseLabel(applied.order.IssWarehouse ?? '')
-                }}
-                options={CATEGORY_OPTIONS}
-              />
-              <Input
-                label="Planned Qty"
-                type="number"
-                nonNegative
-                required
-                value={String(form.PlannedQuantity ?? 0)}
-                onChange={(e) => handlePlannedQuantityChange(Number(e.target.value))}
               />
               <SapDateInput
                 label="Start Date"
@@ -418,74 +501,47 @@ export function ProductionOrderFormPage() {
                 value={form.DueDate}
                 onChangeIso={(date) => setForm({ ...form, DueDate: date })}
               />
-              <SearchableSelect
-                label="Receipt Warehouse"
-                required
-                value={form.Warehouse ?? ''}
-                selectedLabel={warehouseLabel}
-                placeholder="Search warehouse..."
-                onSearch={searchWarehouseOptions}
-                onChange={(code, option) => {
-                  setWarehouseLabel(option?.label ?? code)
-                  setForm({ ...form, Warehouse: code })
-                }}
-              />
-              <SearchableSelect
-                label="Issuing Warehouse"
-                required
-                value={form.IssWarehouse ?? ''}
-                selectedLabel={issWarehouseLabel}
-                placeholder="Search warehouse..."
-                onSearch={searchWarehouseOptions}
-                hint="Seeds the warehouse of every component line."
-                onChange={(code, option) => {
-                  setIssWarehouseLabel(option?.label ?? code)
-                  setForm({ ...form, IssWarehouse: code })
-                }}
-              />
-              <Input label="Drawing No." value={form.DrawingNo ?? ''} onChange={(e) => setForm({ ...form, DrawingNo: e.target.value })} />
-              <Input label="Remarks" value={form.Remarks ?? ''} onChange={(e) => setForm({ ...form, Remarks: e.target.value })} />
             </div>
+          </CardContent>
+        </Card>
 
-            <div className="grid gap-4 md:grid-cols-4">
-              <SearchableSelect
-                label="Line Item"
-                lookupKind="item"
-                value={draftLine.ItemNo ?? ''}
-                selectedLabel={draftItemLabel}
-                placeholder="Search item..."
-                onSearch={searchItemOptions}
-                onChange={(code, option) => {
-                  const label = option?.label ?? code
-                  setDraftItemLabel(label)
-                  setDraftLine({
-                    ...draftLine,
-                    ItemNo: code,
-                    ItemName: label.includes(' - ') ? label.split(' - ').slice(1).join(' - ') : undefined,
-                  })
-                }}
-              />
-              <Input label="Line Planned Qty" type="number" nonNegative value={String(draftLine.PlannedQuantity ?? 0)} onChange={(e) => setDraftLine({ ...draftLine, PlannedQuantity: Number(e.target.value) })} />
-              <div className="flex items-end">
-                <Button type="button" variant="outline" onClick={handleAddLine}>Add Line</Button>
-              </div>
-            </div>
+        <Tabs value="subassemblies" onValueChange={() => undefined}>
+          <TabsList aria-label="Production order sections">
+            <TabsTrigger value="subassemblies" icon={<Layers className="h-4 w-4" />}>
+              Sub-assemblies
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="subassemblies">
+            <ProductionOrderSubassembliesCard
+              parent={form}
+              draftRows={isDraftParent ? draftSubassemblies : undefined}
+              adding={saving}
+              onAddUnsaved={() => openDraftSubassembly()}
+              onEditDraft={(row) => openDraftSubassembly(row.DraftKey)}
+              onDeleteDraft={handleDeleteDraft}
+            />
+          </TabsContent>
+        </Tabs>
 
-            <SelectableSapDataGrid
-              toolbarTitle="Production Order Lines"
-              columns={lineColumns}
-              data={lines}
-              getRowKey={(row) => row.LineNumber ?? lines.indexOf(row)}
-              onRemoveSelected={(selected) => setLines(lines.filter((line) => !selected.includes(line)))}
+        <Card>
+          <CardContent className="space-y-6 pt-6">
+            <Textarea
+              label="Remarks"
+              value={form.Remarks ?? ''}
+              onChange={(e) => setForm({ ...form, Remarks: e.target.value })}
+              placeholder="Remarks for this production order"
             />
 
             <div className="flex gap-3">
               <Button type="submit" isLoading={saving}>{form.AbsoluteEntry ? 'Update' : 'Add'}</Button>
-              <Button type="button" variant="outline" onClick={() => navigate(ROUTES.PRODUCTION_ORDERS)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => {
+                if (isDraftParent) clearCreateDraft()
+                navigate(ROUTES.PRODUCTION_ORDERS)
+              }}>Cancel</Button>
             </div>
-          </form>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </form>
     </div>
   )
 }

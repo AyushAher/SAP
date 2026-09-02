@@ -41,6 +41,7 @@ const sapOrder = {
       Warehouse: 'Store1',
       UoMCode: 6,
       U_FreeTxt: 'cut to size',
+      U_DwgNo: 'DWG-42',
     },
   ],
 }
@@ -59,6 +60,8 @@ describe('normalizeProductionOrder', () => {
     expect(view.CustomerName).toBe('Acme Industries')
     expect(view.SalesOrderDocNum).toBe(252610128)
     expect(view.SalesOrderDocEntry).toBe(156)
+    expect(view.ProductionOrderLines?.[0].FreeText).toBe('cut to size')
+    expect(view.ProductionOrderLines?.[0].DrawingNo).toBe('DWG-42')
 
     // The raw SAP names must not survive alongside the friendly ones: two spellings of the same
     // field let a dropdown update one while the outgoing body was built from the other.
@@ -104,6 +107,7 @@ describe('toProductionOrderPayload', () => {
       ProductionCategory: 'JOB',
       DrawingNo: 'DWG-7',
       ParentProductionOrderNo: '10',
+      ParentAbsoluteEntry: 646,
       CustomerCode: 'C000017',
       Project: 'PRJ-1',
       Warehouse: 'Subcon',
@@ -125,6 +129,7 @@ describe('toProductionOrderPayload', () => {
     expect(json.U_ProdType).toBe('JOB')
     expect(json.U_DwgNo).toBe('DWG-7')
     expect(json.U_DocNum).toBe('10')
+    expect(json.ParentAbsoluteEntry).toBe(646)
     expect(json.ProductionOrderLines[0].U_DocNum).toBe('10')
     expect(json.ProductionOrderOriginNumber).toBe(252610128)
     expect(json.ProductionOrderOriginEntry).toBe(156)
@@ -149,6 +154,49 @@ describe('toProductionOrderPayload', () => {
     expect(payload.CompletedQuantity).toBe(0)
     expect(payload.RejectedQuantity).toBe(0)
     expect(payload.PostingDate).toBeTruthy()
+  })
+
+  it('keeps the SAP production order type the order already has', () => {
+    const payload = toProductionOrderPayload({
+      ItemNumber: 'FG-001',
+      Type: 'bopotStandard',
+    })
+
+    expect(payload.ProductionOrderType).toBe('bopotStandard')
+  })
+
+  it('does not invent a posting date when updating an existing order', () => {
+    const payload = toProductionOrderPayload({
+      AbsoluteEntry: 641,
+      ItemNumber: 'FG-001',
+    })
+
+    expect(payload).not.toHaveProperty('PostingDate')
+  })
+
+  it('nests drafted sub-assemblies on a parent create so SAP is written once', () => {
+    const payload = toProductionOrderPayload({
+      ItemNumber: 'FG-001',
+      Status: 'boposPlanned',
+      Warehouse: 'Subcon',
+      PlannedQuantity: 1,
+      SalesOrderDocNum: 252610128,
+      Subassemblies: [{
+        ParentProductionOrderNo: '0/1',
+        DrawingNo: 'DWG-1',
+        ProductDescription: 'Spool',
+        ProductionOrderLines: [{ ItemNo: 'RM-100', PlannedQuantity: 2, Warehouse: 'Store1' }],
+      }],
+    })
+
+    expect(payload.Subassemblies).toHaveLength(1)
+    const child = (payload.Subassemblies as Record<string, unknown>[])[0]
+    expect(child.U_DwgNo).toBe('DWG-1')
+    expect(child.U_DocNum).toBe('0/1')
+    expect(child.ProductionOrderLines).toEqual([
+      expect.objectContaining({ ItemNo: 'RM-100', PlannedQuantity: 2 }),
+    ])
+    expect(payload).not.toHaveProperty('ProductionOrderLines')
   })
 
   it('echoes the quantities SAP already holds instead of zeroing them', () => {
@@ -184,7 +232,28 @@ describe('toProductionOrderPayload', () => {
     expect(payload.ProductionOrderStatus).toBe('boposReleased')
     expect(payload.U_ProdType).toBe('JOB')
     expect(payload.U_DwgNo).toBe('DWG-99')
+    expect(payload.ProductionOrderType).toBe('bopotSpecial')
     expect(payload.U_DocNum).toBe('9')
+  })
+
+  it('omits an empty line collection so a header update cannot drop SAP lines', () => {
+    const payload = toProductionOrderPayload({
+      ItemNumber: 'FG-001',
+      ProductionOrderLines: [],
+    })
+
+    expect(payload).not.toHaveProperty('ProductionOrderLines')
+  })
+
+  it('sends project name and portal weight', () => {
+    const payload = toProductionOrderPayload({
+      ItemNumber: 'FG-001',
+      ProjectName: 'Refinery upgrade',
+      Weight: 12.5,
+    })
+
+    expect(payload.U_PrjName).toBe('Refinery upgrade')
+    expect(payload.Weight).toBe(12.5)
   })
 
   it('takes explicit lines over the ones on the order and keeps line user fields', () => {
@@ -199,6 +268,7 @@ describe('toProductionOrderPayload', () => {
     expect(lines[0].ItemNo).toBe('RM-100')
     expect(lines[0].UoMCode).toBe(6)
     expect(lines[0].U_FreeTxt).toBe('cut to size')
+    expect(lines[0].U_DwgNo).toBe('DWG-42')
   })
 })
 

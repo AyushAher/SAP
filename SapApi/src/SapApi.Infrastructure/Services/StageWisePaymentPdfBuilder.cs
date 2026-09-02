@@ -4,6 +4,7 @@ using SapApi.Shared;
 using SapApi.Shared.Helpers;
 using SapApi.Shared.Responses;
 using SapApi.Shared.Responses.Sap;
+using SapApi.Shared.Sap;
 
 namespace SapApi.Infrastructure.Services;
 
@@ -41,6 +42,9 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             userRemark);
 
         var branch = await masterDataService.GetBusinessPlaceByIdAsync(po.BPLId, cancellationToken: cancellationToken);
+        var lines = po.DocumentLines ?? [];
+        var totalQty = lines.Sum(l => l.Quantity ?? 0);
+        var totalLineGrandTotal = lines.Sum(l => l.LineTotal ?? l.LineGrandTotal);
 
         var placeholders = new Dictionary<string, string>
         {
@@ -58,8 +62,8 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             ["projectNo"] = po.Project ?? string.Empty,
             ["reqId"] = record.ApprovalRequestId ?? string.Empty,
             ["reqDate"] = postingDate?.ToString("dd/MM/yyyy") ?? string.Empty,
-            ["totalQty"] = "0.00",
-            ["totalLineGrandTotal"] = "0.00",
+            ["totalQty"] = SapDecimalPlaces.Format(totalQty, SapDecimalPlaces.Quantities),
+            ["totalLineGrandTotal"] = totalLineGrandTotal.ToString($"N{SapDecimalPlaces.Amounts}"),
             ["journalRemarks"] = journalRemarks,
             ["utrNo"] = record.UtrNo ?? string.Empty,
             ["utrDate"] = record.UtrDate?.ToString("dd/MM/yyyy") ?? string.Empty,

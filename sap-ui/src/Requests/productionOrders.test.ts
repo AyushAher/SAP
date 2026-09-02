@@ -62,7 +62,7 @@ describe('createProductionOrder', () => {
     const body = bodyOf(apiPost)
     expect(body.ItemNo).toBe('FG-001')
     expect(body.ProductionOrderStatus).toBe('boposPlanned')
-    expect(body.ProductionOrderType).toBe('bopotStandard')
+    expect(body.ProductionOrderType).toBe('bopotSpecial')
     expect(body.U_ProdType).toBe('JOB')
     expect(body.U_DwgNo).toBe('DWG-7')
     expect(body.U_DocNum).toBe('10')

@@ -302,6 +302,67 @@ public class PurchaseOrderPdfBuilderTests
     }
 
     [Test]
+    public async Task Line_quantities_use_four_decimal_places_and_prices_use_three()
+    {
+        SetupBranchAndProject();
+        var order = MinimalOrder();
+        order.DocCurrency = "INR";
+        order.DocumentLines =
+        [
+            new()
+            {
+                ItemCode = "RM1",
+                ItemDescription = "Beam",
+                Quantity = 1.23456,
+                InventoryQuantity = 0.075,
+                UnitPrice = 62.5,
+                LineTotal = 77.16,
+            },
+        ];
+
+        var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
+
+        result["@items"].Should().Contain("1.2346");
+        result["@items"].Should().Contain("0.075");
+        result["@items"].Should().Contain("62.500");
+        result["@items"].Should().Contain("77.16");
+    }
+
+    [Test]
+    public async Task Line_description_falls_back_to_the_item_master_name()
+    {
+        SetupBranchAndProject();
+        _http
+            .Setup(h => h.GetAsync<SapItemsResponse>(
+                It.Is<string>(url => url.Contains("/Items", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapItemsResponse
+            {
+                Value =
+                [
+                    new ItemsResponse
+                    {
+                        ItemCode = "RM1",
+                        ItemName = "BEAM 250 MM",
+                        InventoryUom = "MTR",
+                    },
+                ],
+            });
+
+        var order = MinimalOrder();
+        order.DocumentLines =
+        [
+            new() { LineNum = 0, ItemCode = "RM1", ItemDescription = null, Quantity = 1, LineTotal = 10 },
+        ];
+
+        var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
+
+        result["@items"].Should().Contain("BEAM 250 MM");
+    }
+
+    [Test]
     public async Task Line_free_text_is_used_when_sap_special_lines_are_missing()
     {
         SetupBranchAndProject();

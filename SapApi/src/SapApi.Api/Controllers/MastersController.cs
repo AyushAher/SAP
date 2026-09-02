@@ -119,6 +119,15 @@ public class MastersController(SapMasterDataService masterDataService) : Control
         CancellationToken cancellationToken) =>
         Ok(await masterDataService.SearchSalesOrdersAsync(PaginationRequest.Normalize(request), customerId, cancellationToken));
 
+    [HttpGet("sales-orders/{docEntry:int}")]
+    public async Task<IActionResult> GetSalesOrder(int docEntry, CancellationToken cancellationToken)
+    {
+        var order = await masterDataService.GetSalesOrderByDocEntryAsync(docEntry, cancellationToken);
+        return order is null
+            ? NotFound(ApiResponse<object>.Fail("SYS-02", "Sales order not found"))
+            : Ok(ApiResponse<object>.Ok(order));
+    }
+
     /// <summary>Comma-separated list of field names the caller actually needs, e.g. "ItemCode,ItemName".</summary>
     private static List<string>? ParseFields(string? fields) =>
         string.IsNullOrWhiteSpace(fields)

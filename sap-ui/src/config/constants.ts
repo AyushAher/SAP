@@ -29,6 +29,7 @@ export const ROUTES = {
   PRODUCTION_ORDERS: '/production-orders',
   PRODUCTION_ORDER_FORM: '/production-orders/form',
   PRODUCTION_ORDER_EDIT: '/production-orders/form/:id',
+  PRODUCTION_ORDER_DRAFT_ID: 'new',
   PRODUCTION_ORDER_SUBASSEMBLY: '/production-orders/form/:id/subassemblies/:childId?',
   PRODUCTION_ORDER_SUBASSEMBLY_ITEMS: '/production-orders/form/:id/subassemblies/:childId/items',
   ISSUE_FOR_PRODUCTION: '/issue-for-production',

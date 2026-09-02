@@ -15,6 +15,7 @@ import {
   Textarea,
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { SAP_DECIMAL_PLACES } from '@/helpers/sapDecimals'
 import { formatPoDisplayDate, todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { isAdminUser } from '@/helpers/roles'
@@ -1009,9 +1010,9 @@ export function StageWisePaymentBatchPage() {
                           ) : (
                             <Input
                               type="number"
-                              step="0.01"
                               min="0"
                               nonNegative
+                              decimalPlaces={SAP_DECIMAL_PLACES.amounts}
                               value={row.amount}
                               onChange={(e) => updateRow(row.key, { amount: e.target.value })}
                               required

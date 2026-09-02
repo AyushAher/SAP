@@ -3,8 +3,6 @@ import type { PurchaseOrderLineItem } from '@/types/purchaseOrder'
 /** Mirrors SP_SBO_Purchase_Order transaction notification rules for client-side gating. */
 export const PO_TN = {
   noBuyerCode: -1,
-  transporterBpSeries: 124,
-  transporterMandatoryItem: 'SR3346300000000000',
   forbiddenGlAccount: '_SYS00000001265',
   drpWarehouses: ['DRP', 'DRP2'] as const,
   jobPoType: 'JOB',
@@ -46,7 +44,6 @@ export interface PoTnValidationInput {
   /** U_DisID value — the Dispatch To business partner CardCode. */
   disId?: string | null
   dispachAdd?: string | null
-  vendorSeries?: number | null
   lines: PurchaseOrderLineItem[]
 }
 
@@ -69,15 +66,6 @@ export function validatePurchaseOrderAgainstTn(input: PoTnValidationInput): stri
     })
     if (usesDrp && (!input.disId?.trim() || !input.dispachAdd?.trim())) {
       return 'You can not select DRP warehouse in Purchase Order.'
-    }
-  }
-
-  if (!isService && input.vendorSeries === PO_TN.transporterBpSeries) {
-    const hasMandatoryItem = input.lines.some(
-      (line) => (line.ItemCode ?? '').trim() === PO_TN.transporterMandatoryItem,
-    )
-    if (!hasMandatoryItem) {
-      return 'Item SR3346300000000000 Is Mandatory For Transporter. Please Add This Item In The Purchase Order.'
     }
   }
 

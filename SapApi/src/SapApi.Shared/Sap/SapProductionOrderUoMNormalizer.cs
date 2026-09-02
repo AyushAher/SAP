@@ -9,8 +9,10 @@ namespace SapApi.Shared.Sap;
 public static class SapProductionOrderUoMNormalizer
 {
     /// <summary>
-    /// Returns a whole-number UoM code when <paramref name="value"/> is numeric; otherwise null
-    /// (so the property is omitted and SAP can default from the item).
+    /// Returns a positive UoM entry when <paramref name="value"/> is a whole number greater than
+    /// zero. Inventory names ("KG") and SAP's Manual-group placeholder (-1) are omitted so SAP
+    /// can default from the item. Sending -1 as ProductionOrderLine.UoMCode fails the document
+    /// with "Could not commit transaction: Error -1".
     /// </summary>
     public static object? NormalizeUoMCode(object? value)
     {
@@ -19,19 +21,19 @@ public static class SapProductionOrderUoMNormalizer
         switch (value)
         {
             case int i:
-                return i;
+                return PositiveOrNull(i);
             case long l when l is >= int.MinValue and <= int.MaxValue:
-                return (int)l;
+                return PositiveOrNull((int)l);
             case short s:
-                return (int)s;
+                return PositiveOrNull(s);
             case byte b:
-                return (int)b;
+                return PositiveOrNull(b);
             case double d when double.IsFinite(d) && Math.Abs(d - Math.Truncate(d)) < double.Epsilon:
-                return (int)d;
+                return PositiveOrNull((int)d);
             case float f when float.IsFinite(f) && Math.Abs(f - Math.Truncate(f)) < float.Epsilon:
-                return (int)f;
+                return PositiveOrNull((int)f);
             case decimal m when m == decimal.Truncate(m) && m >= int.MinValue && m <= int.MaxValue:
-                return (int)m;
+                return PositiveOrNull((int)m);
             case string s:
                 return TryParseWholeNumber(s);
             case JsonElement je:
@@ -41,15 +43,18 @@ public static class SapProductionOrderUoMNormalizer
         }
     }
 
+    /// <summary>Header/line UoMEntry: keep only a real group entry, never Manual's -1.</summary>
+    public static int? NormalizeUoMEntry(int? value) => value is > 0 ? value : null;
+
     static object? NormalizeJsonElement(JsonElement je) =>
         je.ValueKind switch
         {
             JsonValueKind.Null or JsonValueKind.Undefined => null,
-            JsonValueKind.Number when je.TryGetInt32(out var n) => n,
+            JsonValueKind.Number when je.TryGetInt32(out var n) => PositiveOrNull(n),
             JsonValueKind.Number when je.TryGetDouble(out var d)
                 && double.IsFinite(d)
                 && Math.Abs(d - Math.Truncate(d)) < double.Epsilon
-                && d is >= int.MinValue and <= int.MaxValue => (int)d,
+                && d is >= int.MinValue and <= int.MaxValue => PositiveOrNull((int)d),
             JsonValueKind.String => TryParseWholeNumber(je.GetString()),
             _ => null,
         };
@@ -58,7 +63,9 @@ public static class SapProductionOrderUoMNormalizer
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
         return int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
+            ? PositiveOrNull(parsed)
             : null;
     }
+
+    static object? PositiveOrNull(int value) => value > 0 ? value : null;
 }

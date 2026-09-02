@@ -27,6 +27,7 @@ import {
   validatePaymentTermsForSave,
   warehouseForDispatchLocation,
   withItemsPerUnit,
+  withPurchaseQty,
 } from './purchaseOrderForm'
 import { formatPoDisplayDate, parsePoDisplayDate } from './lib/utils'
 
@@ -379,6 +380,19 @@ describe('resolvePurchaseUnit', () => {
   })
 })
 
+describe('withPurchaseQty', () => {
+  it('keeps items-per-unit and scales stock qty when purchase qty changes', () => {
+    const line = withPurchaseQty(
+      { Quantity: 1600, StockQty: 120, UnitsOfMeasurment: 0.075 },
+      3200,
+    )
+    expect(line.Quantity).toBe(3200)
+    expect(line.StockQty).toBe(240)
+    expect(line.UnitsOfMeasurment).toBeCloseTo(0.075, 10)
+    expect(line.UseBaseUnits).toBe('tNO')
+  })
+})
+
 describe('withItemsPerUnit', () => {
   it('drives stock qty from the factor the user typed', () => {
     const line = withItemsPerUnit({ Quantity: 1600, StockQty: 43.2 }, 0.075)
@@ -454,6 +468,15 @@ describe('toSapDocumentLine', () => {
     expect(payload.UoMCode).toBe('BOX')
     expect(payload.UoMEntry).toBe(4)
     expect(payload.MeasureUnit).toBeUndefined()
+  })
+
+  it('does not send Manual-group UoMEntry -1 as a real UoM group', () => {
+    const payload = toSapDocumentLine(
+      { ...itemLine, UoMEntry: -1, UoMCode: 'Manual', MeasureUnit: 'KGS' },
+      { isService: false },
+    )
+    expect(payload.UoMCode).toBeUndefined()
+    expect(payload.UoMEntry).toBeUndefined()
   })
 
   it('does not send a G/L account on inventory item lines, so SAP keeps determining it', () => {

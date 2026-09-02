@@ -42,6 +42,9 @@ public static class ProductionOrderMapper
         nameof(ProductionOrder.SyncedAtUtc),
         nameof(ProductionOrder.CreatedOn),
         nameof(ProductionOrder.LastModifiedOn),
+        nameof(ProductionOrder.IsVirtualSubassembly),
+        nameof(ProductionOrder.ParentAbsoluteEntry),
+        nameof(ProductionOrder.Weight),
     ];
 
     /// <summary>
@@ -84,10 +87,14 @@ public static class ProductionOrderMapper
         entity.Type = sap.Type;
         entity.ProductionCategory = NullIfBlank(sap.ProductionCategory);
         entity.DrawingNo = NullIfBlank(sap.DrawingNo);
-        var parentNo = NullIfBlank(sap.ParentProductionOrderNo)
-            ?? sap.ProductionOrderLines?
+        entity.Weight = sap.Weight ?? entity.Weight;
+        var parentNo = NullIfBlank(sap.ParentProductionOrderNo);
+        if (parentNo is null && (entity.IsVirtualSubassembly || entity.AbsoluteEntry < 0))
+        {
+            parentNo = sap.ProductionOrderLines?
                 .Select(line => NullIfBlank(line.DocNum))
                 .FirstOrDefault(value => value is not null);
+        }
         if (parentNo is not null)
             entity.ParentProductionOrderNo = parentNo;
         entity.PlannedQuantity = sap.PlannedQuantity;
@@ -165,6 +172,7 @@ public static class ProductionOrderMapper
             DistributionRule4 = line.DistributionRule4,
             DistributionRule5 = line.DistributionRule5,
             FreeText = line.FreeText,
+            DrawingNo = line.DrawingNo,
             DocNum = line.DocNum,
         }).ToList();
     }
@@ -182,9 +190,11 @@ public static class ProductionOrderMapper
             Type = entity.Type,
             ProductionCategory = entity.ProductionCategory ?? string.Empty,
             DrawingNo = entity.DrawingNo ?? string.Empty,
+            Weight = entity.Weight,
             ParentProductionOrderNo = string.IsNullOrWhiteSpace(entity.ParentProductionOrderNo)
                 ? null
                 : entity.ParentProductionOrderNo,
+            ParentAbsoluteEntry = entity.ParentAbsoluteEntry,
             PlannedQuantity = entity.PlannedQuantity ?? 0,
             CompletedQuantity = entity.CompletedQuantity ?? 0,
             RejectedQuantity = entity.RejectedQuantity ?? 0,
@@ -198,7 +208,7 @@ public static class ProductionOrderMapper
             SalesOrderDocEntry = entity.SalesOrderDocEntry,
             SalesOrderDocNum = entity.SalesOrderDocNum,
             ProductionOrderOrigin = entity.ProductionOrderOrigin,
-            PostingDate = entity.PostingDate ?? default,
+            PostingDate = entity.PostingDate,
             DueDate = entity.DueDate,
             StartDate = entity.StartDate,
             ReleaseDate = entity.ReleaseDate,
@@ -262,6 +272,7 @@ public static class ProductionOrderMapper
                 DistributionRule4 = l.DistributionRule4,
                 DistributionRule5 = l.DistributionRule5,
                 FreeText = l.FreeText,
+                DrawingNo = l.DrawingNo,
                 DocNum = l.DocNum,
             })
             .ToList();

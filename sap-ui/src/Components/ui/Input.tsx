@@ -1,6 +1,7 @@
 import { forwardRef, type InputHTMLAttributes, type ChangeEvent, type KeyboardEvent } from 'react'
 import { cn } from '@/helpers/lib/utils'
 import { isNegativeAmountInputKey, sanitizeNonNegativeAmountInput } from '@/helpers/lib/numericInput'
+import { sapDecimalStep } from '@/helpers/sapDecimals'
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string
@@ -9,6 +10,8 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   leftIcon?: React.ReactNode
   rightIcon?: React.ReactNode
   nonNegative?: boolean
+  /** Caps typed fraction digits and sets `step` to match SAP decimal places when `step` is omitted. */
+  decimalPlaces?: number
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
@@ -22,17 +25,20 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     id,
     required,
     nonNegative = false,
+    decimalPlaces,
     type,
     min,
+    step,
     onChange,
     onKeyDown,
     ...props
   }, ref) => {
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-')
+    const resolvedStep = step ?? (decimalPlaces != null ? sapDecimalStep(decimalPlaces) : undefined)
 
     const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
       if (nonNegative) {
-        const sanitized = sanitizeNonNegativeAmountInput(event.target.value)
+        const sanitized = sanitizeNonNegativeAmountInput(event.target.value, decimalPlaces)
         if (sanitized !== event.target.value) {
           onChange?.({
             ...event,
@@ -71,6 +77,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             id={inputId}
             type={type}
             min={nonNegative ? (min ?? '0') : min}
+            step={resolvedStep}
             className={cn(
               'block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900',
               'placeholder:text-slate-400',

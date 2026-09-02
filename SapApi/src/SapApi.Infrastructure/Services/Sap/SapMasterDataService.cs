@@ -755,6 +755,25 @@ public class SapMasterDataService(
             cancellationToken,
             cacheable: false);
 
+    /// <summary>
+    /// One sales order with its item lines. Transactional — never cached. Used by the production
+    /// order form so Product No. and Planned Qty can be limited to what the sales order holds.
+    /// </summary>
+    public async Task<SapSalesOrderResponse?> GetSalesOrderByDocEntryAsync(
+        int docEntry,
+        CancellationToken cancellationToken = default)
+    {
+        if (docEntry <= 0)
+            return null;
+
+        await sapLogin.SapLoginAsync(cancellationToken);
+        // This company SL rejects $expand=DocumentLines on Orders ("invalid navigation
+        // property"). A keyed GET already returns DocumentLines inline.
+        return await http.GetAsync<SapSalesOrderResponse>(
+            $"{Constants.SapApiUrls.OrdersCollection}({docEntry})",
+            cancellationToken: cancellationToken);
+    }
+
     public async Task<SapBusinessPartner?> GetBusinessPartnerByCardCodeAsync(
         string cardCode,
         IReadOnlyList<string>? fields = null,

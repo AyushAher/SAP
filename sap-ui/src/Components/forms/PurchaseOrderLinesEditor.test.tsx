@@ -4,7 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PurchaseOrderLinesEditor } from './PurchaseOrderLinesEditor'
 import { PO_DOC_TYPE } from '@/helpers/purchaseOrderTnValidation'
-import { searchWarehouses } from '@/Requests/masters'
+import { searchGlAccounts, searchItems, lookupItem, searchWarehouses } from '@/Requests/masters'
 import type { PurchaseOrderLineItem } from '@/types/purchaseOrder'
 
 vi.mock('@/Requests/masters', () => ({
@@ -23,6 +23,10 @@ vi.mock('@/Requests/masters', () => ({
 }))
 
 vi.mock('@/hooks/useItemMasterMap', () => ({ useItemMasterMap: () => ({}) }))
+
+beforeEach(() => {
+  HTMLElement.prototype.scrollIntoView = vi.fn()
+})
 
 const itemLine: PurchaseOrderLineItem = {
   ItemCode: 'RM5703813500380',
@@ -79,6 +83,23 @@ describe('PurchaseOrderLinesEditor — item lines', () => {
     expect(account).toBeDisabled()
   })
 
+  it('accepts four-decimal purchase quantities matching SAP quantity places', async () => {
+    const user = userEvent.setup()
+    render(<PurchaseOrderLinesEditor lines={[itemLine]} onChange={vi.fn()} />)
+    await user.click(screen.getByTitle('Edit item'))
+
+    const purchaseQty = await screen.findByLabelText(/Purchase Qty/)
+    const stockQty = screen.getByLabelText(/Stock Qty/)
+    const unitPrice = screen.getByLabelText(/^Unit Price/)
+    expect(purchaseQty).toHaveAttribute('step', '0.0001')
+    expect(stockQty).toHaveAttribute('step', '0.0001')
+    expect(unitPrice).toHaveAttribute('step', '0.001')
+
+    await user.clear(purchaseQty)
+    await user.type(purchaseQty, '1.2345')
+    expect(purchaseQty).toHaveValue(1.2345)
+  })
+
   it('keeps a fractional factor intact while it is being typed', async () => {
     const user = userEvent.setup()
     render(<PurchaseOrderLinesEditor lines={[itemLine]} onChange={vi.fn()} />)
@@ -108,6 +129,26 @@ describe('PurchaseOrderLinesEditor — item lines', () => {
     expect(saved.StockQty).toBeCloseTo(80, 10)
     expect(saved.MeasureUnit).toBe('KGS')
     expect(saved.AccountCode).toBe('_SYS00000000893')
+  })
+
+  it('fills Description from the selected item name', async () => {
+    const user = userEvent.setup()
+    vi.mocked(searchItems).mockResolvedValue({
+      data: [{ ItemCode: 'RM5703813500380', ItemName: 'BEAM 250 MM' }],
+    } as never)
+    vi.mocked(lookupItem).mockResolvedValue({
+      ItemCode: 'RM5703813500380',
+      ItemName: 'BEAM 250 MM',
+    })
+
+    render(<PurchaseOrderLinesEditor lines={[]} onChange={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Add Item' }))
+    await user.click(screen.getByRole('combobox', { name: /^Item$/i }))
+    await user.click(await screen.findByRole('option', { name: /BEAM 250 MM/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Description')).toHaveValue('BEAM 250 MM')
+    })
   })
 })
 
@@ -160,5 +201,42 @@ describe('PurchaseOrderLinesEditor — service lines', () => {
     await user.click(screen.getByRole('button', { name: 'Add Service' }))
     await waitFor(() => expect(screen.getByLabelText('Loc.')).toHaveValue('2'))
     expect(searchWarehouses).toHaveBeenCalled()
+  })
+
+  it('shows the G/L account name as description when the line has none', () => {
+    render(
+      <PurchaseOrderLinesEditor
+        docType={PO_DOC_TYPE.service}
+        lines={[{
+          AccountCode: '600000',
+          AccountLabel: '600000 - Freight outward',
+        }]}
+        onChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Freight outward')).toBeInTheDocument()
+  })
+
+  it('fills Description from the selected G/L account name', async () => {
+    const user = userEvent.setup()
+    vi.mocked(searchGlAccounts).mockResolvedValue({
+      data: [{ Code: '600000', Name: 'Freight outward' }],
+    } as never)
+
+    render(
+      <PurchaseOrderLinesEditor
+        docType={PO_DOC_TYPE.service}
+        defaultWarehouse="Store5"
+        lines={[]}
+        onChange={vi.fn()}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Add Service' }))
+    await user.click(screen.getByRole('combobox', { name: /G\/L Account/i }))
+    await user.click(await screen.findByRole('option', { name: /Freight outward/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Description *')).toHaveValue('Freight outward')
+    })
   })
 })

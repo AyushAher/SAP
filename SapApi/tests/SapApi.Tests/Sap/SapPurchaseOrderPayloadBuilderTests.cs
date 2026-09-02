@@ -582,6 +582,28 @@ public class SapPurchaseOrderPayloadBuilderTests
     }
 
     [Test]
+    public void Prepare_ItemLine_DoesNotSendManualUomEntryOnUpdate()
+    {
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(
+            ItemLineDocument(new SapInventoryTransferItemsRequests
+            {
+                LineNum = 0,
+                ItemCode = "I1",
+                Quantity = 1,
+                UnitPrice = 1,
+                UoMCode = "KGS",
+                UoMEntry = -1,
+            }),
+            isUpdate: true);
+
+        var line = payload.DocumentLines![0];
+        line.UoMCode.Should().BeNull();
+        line.UoMEntry.Should().BeNull();
+        System.Text.Json.JsonSerializer.Serialize(payload).Should().NotContain("UoMEntry");
+        System.Text.Json.JsonSerializer.Serialize(payload).Should().NotContain("UoMCode");
+    }
+
+    [Test]
     public void Prepare_ServiceLine_SendsNeitherMeasureUnitNorItemFields()
     {
         var source = new SapPurchaseOrdersResponse

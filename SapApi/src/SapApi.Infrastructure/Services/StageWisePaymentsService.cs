@@ -7,6 +7,7 @@ using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
+using SapApi.Shared.Sap;
 
 namespace SapApi.Infrastructure.Services;
 
@@ -1129,9 +1130,9 @@ public class StageWisePaymentService(
             double? unitPrice = line.UnitPrice;
             if (line.Quantity is > 0 && weight > 0)
             {
-                quantity = Math.Round(line.Quantity.Value * lineTotal / weight, 6);
+                quantity = SapDecimalPlaces.Round(line.Quantity.Value * lineTotal / weight, SapDecimalPlaces.Quantities);
                 if (unitPrice is null or <= 0 && quantity > 0)
-                    unitPrice = Math.Round(lineTotal / quantity.Value, 6);
+                    unitPrice = SapDecimalPlaces.Round(lineTotal / quantity.Value, SapDecimalPlaces.Prices);
             }
 
             result.Add(new SapInventoryTransferItemsRequests

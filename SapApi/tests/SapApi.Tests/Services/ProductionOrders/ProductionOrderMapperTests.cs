@@ -74,15 +74,36 @@ public class ProductionOrderMapperTests
     }
 
     [Test]
-    public void ApplyHeader_recovers_parent_from_line_udf_when_header_is_blank()
+    public void ApplyHeader_does_not_copy_component_udf_onto_a_real_parent()
     {
-        var entity = new ProductionOrder();
+        var entity = new ProductionOrder { AbsoluteEntry = 660 };
 
         ProductionOrderMapper.ApplyHeader(
             entity,
             new SapProductionOrdersResponse
             {
-                AbsoluteEntry = 1,
+                AbsoluteEntry = 660,
+                ProductionOrderLines =
+                [
+                    new SapProductionOrderLines { ItemNo = "RM-BOM", DocNum = null },
+                    new SapProductionOrderLines { ItemNo = "RM-SA", DocNum = "24/1" },
+                ],
+            },
+            SyncedAt);
+
+        entity.ParentProductionOrderNo.Should().BeNull();
+    }
+
+    [Test]
+    public void ApplyHeader_recovers_parent_from_line_udf_on_a_virtual_subassembly()
+    {
+        var entity = new ProductionOrder { AbsoluteEntry = -1, IsVirtualSubassembly = true };
+
+        ProductionOrderMapper.ApplyHeader(
+            entity,
+            new SapProductionOrdersResponse
+            {
+                AbsoluteEntry = -1,
                 ProductionOrderLines =
                 [
                     new SapProductionOrderLines { ItemNo = "RM-100", DocNum = "13/2" },
@@ -144,7 +165,7 @@ public class ProductionOrderMapperTests
         lines[0].ProductionOrderId.Should().Be(7);
         lines[0].LineNumber.Should().Be(4);
         lines[0].ItemType.Should().Be("pit_Item");
-        lines[0].UoMCode.Should().Be(-1);
+        lines[0].UoMCode.Should().BeNull();
         lines[0].PlannedQuantity.Should().Be(135);
         lines[0].IssuedQuantity.Should().Be(10);
         lines[0].ProductionOrderIssueType.Should().Be("im_Manual");
@@ -161,11 +182,11 @@ public class ProductionOrderMapperTests
         ProductionOrderMapper.ToUoMCode(input).Should().Be(expected);
 
     [Test]
-    public void ToUoMCode_reads_a_json_number_as_sent_by_the_service_layer()
+    public void ToUoMCode_drops_the_manual_placeholder_sent_by_the_service_layer()
     {
         var json = JsonDocument.Parse("{\"UoMCode\":-1}").RootElement.GetProperty("UoMCode");
 
-        ProductionOrderMapper.ToUoMCode(json).Should().Be(-1);
+        ProductionOrderMapper.ToUoMCode(json).Should().BeNull();
     }
 
     [Test]
@@ -209,6 +230,7 @@ public class ProductionOrderMapperTests
         response.ProjectName.Should().Be("FORBESVYNCKE (PO NO:XX3824)");
         response.SalesOrderDocNum.Should().Be(252610128);
         response.ParentProductionOrderNo.Should().Be("9");
+        response.ParentAbsoluteEntry.Should().BeNull();
         response.ProductionOrderLines.Should().NotBeNull();
         response.ProductionOrderLines!.Select(l => l.ItemNo).Should().Equal("RM-1", "RM-2");
         response.ProductionOrderLines[0].DocumentAbsoluteEntry.Should().Be(646);

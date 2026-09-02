@@ -11,6 +11,7 @@ using SapApi.Shared;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
+using SapApi.Shared.Sap;
 using SapApi.Shared.Responses.Sap;
 using Serilog;
 
@@ -163,18 +164,21 @@ public class ProductionOrderLocalStore(
         var cancelled = Constants.SapProductionOrderStatus.Cancelled;
         var children = await db.ProductionOrders
             .AsNoTracking()
+            .Include(x => x.Lines)
             .Where(x =>
                 x.CompanyDb == CompanyDb
                 && x.ParentProductionOrderNo != null
-                && (x.ParentProductionOrderNo == parentNo
+                && (x.ParentAbsoluteEntry == parentAbsoluteEntry
+                    || x.ParentProductionOrderNo == parentNo
                     || x.ParentProductionOrderNo.StartsWith(numberedPrefix)))
-            .OrderBy(x => x.AbsoluteEntry)
+            .OrderBy(x => x.ParentProductionOrderNo)
+            .ThenBy(x => x.AbsoluteEntry)
             .ToListAsync(cancellationToken);
 
         if (!includeCancelled)
             children = children.Where(x => x.Status != cancelled).ToList();
 
-        return children.Select(e => ProductionOrderMapper.ToSapResponse(e, includeLines: false)).ToList();
+        return children.Select(e => ProductionOrderMapper.ToSapResponse(e, includeLines: true)).ToList();
     }
 
     /// <summary>
@@ -251,11 +255,13 @@ public class ProductionOrderLocalStore(
             entity.Lines = lines;
             db.ProductionOrderLines.AddRange(lines);
             await db.SaveChangesAsync(cancellationToken);
+            await ProjectVirtualSubassemblyLinesAsync(entity, sap.ProductionOrderLines, cancellationToken);
             return;
         }
 
         await ReplaceLinesFromSapAsync(entity, sap, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await ProjectVirtualSubassemblyLinesAsync(entity, sap.ProductionOrderLines, cancellationToken);
     }
 
     /// <summary>
@@ -267,7 +273,7 @@ public class ProductionOrderLocalStore(
         string? parentProductionOrderNo,
         CancellationToken cancellationToken = default)
     {
-        if (absoluteEntry is null or <= 0 || string.IsNullOrWhiteSpace(parentProductionOrderNo))
+        if (absoluteEntry is null or 0 || string.IsNullOrWhiteSpace(parentProductionOrderNo))
             return;
 
         var entity = await db.ProductionOrders
@@ -280,6 +286,178 @@ public class ProductionOrderLocalStore(
             return;
 
         entity.ParentProductionOrderNo = parentProductionOrderNo.Trim();
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> IsVirtualSubassemblyAsync(
+        int absoluteEntry,
+        CancellationToken cancellationToken = default)
+    {
+        if (absoluteEntry < 0)
+            return true;
+
+        return await db.ProductionOrders
+            .AsNoTracking()
+            .AnyAsync(
+                x => x.CompanyDb == CompanyDb
+                    && x.AbsoluteEntry == absoluteEntry
+                    && x.IsVirtualSubassembly,
+                cancellationToken);
+    }
+
+    public async Task<SapProductionOrdersResponse?> FindParentOfSubassemblyAsync(
+        int? parentAbsoluteEntry,
+        string? parentProductionOrderNo,
+        CancellationToken cancellationToken = default)
+    {
+        if (parentAbsoluteEntry is > 0)
+        {
+            var byEntry = await GetFromDbAsync(parentAbsoluteEntry.Value, includeLines: true, cancellationToken);
+            if (byEntry is not null)
+                return byEntry;
+        }
+
+        var parentDoc = ProductionOrderSubassemblyTag.ParentDocumentNumber(parentProductionOrderNo);
+        if (parentDoc is null || !int.TryParse(parentDoc, out var documentNumber))
+            return null;
+
+        var parent = await db.ProductionOrders
+            .AsNoTracking()
+            .Include(x => x.Lines)
+            .Where(x =>
+                x.CompanyDb == CompanyDb
+                && x.DocumentNumber == documentNumber
+                && x.AbsoluteEntry > 0
+                && !x.IsVirtualSubassembly
+                && (x.ParentProductionOrderNo == null || x.ParentProductionOrderNo == ""))
+            .OrderBy(x => x.AbsoluteEntry)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return parent is null ? null : ProductionOrderMapper.ToSapResponse(parent, includeLines: true);
+    }
+
+    public async Task<SapProductionOrdersResponse> InsertVirtualSubassemblyAsync(
+        SapProductionOrdersResponse request,
+        SapProductionOrdersResponse parent,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var parentNo = (request.ParentProductionOrderNo ?? string.Empty).Trim();
+        var allocated = await AllocateVirtualAbsoluteEntryAsync(cancellationToken);
+        var entity = new ProductionOrder
+        {
+            CompanyDb = CompanyDb,
+            AbsoluteEntry = allocated,
+            CreatedOn = now,
+            IsVirtualSubassembly = true,
+            ParentAbsoluteEntry = parent.AbsoluteEntry,
+        };
+        db.ProductionOrders.Add(entity);
+
+        ProductionOrderMapper.ApplyHeader(entity, request, now);
+        entity.AbsoluteEntry = allocated;
+        entity.DocumentNumber = parent.DocumentNumber;
+        entity.IsVirtualSubassembly = true;
+        entity.ParentAbsoluteEntry = parent.AbsoluteEntry;
+        entity.ParentProductionOrderNo = parentNo;
+        if (string.IsNullOrWhiteSpace(entity.Status))
+            entity.Status = Constants.SapProductionOrderStatus.Planned;
+
+        await db.SaveChangesAsync(cancellationToken);
+        if (request.ProductionOrderLines is { Count: > 0 })
+        {
+            await ReplaceLinesFromSapAsync(entity, request, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return ProductionOrderMapper.ToSapResponse(entity, includeLines: true);
+    }
+
+    public async Task<SapProductionOrdersResponse?> UpdateVirtualHeaderAsync(
+        SapProductionOrdersResponse request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.AbsoluteEntry is null)
+            return null;
+
+        var entity = await db.ProductionOrders
+            .IgnoreQueryFilters()
+            .AsTracking()
+            .Include(x => x.Lines)
+            .FirstOrDefaultAsync(
+                x => x.CompanyDb == CompanyDb && x.AbsoluteEntry == request.AbsoluteEntry.Value,
+                cancellationToken);
+        if (entity is null)
+            return null;
+
+        var absoluteEntry = entity.AbsoluteEntry;
+        var parentAbsoluteEntry = entity.ParentAbsoluteEntry;
+        var parentNo = entity.ParentProductionOrderNo;
+        var now = DateTime.UtcNow;
+        ProductionOrderMapper.ApplyHeader(entity, request, now);
+        entity.AbsoluteEntry = absoluteEntry;
+        entity.IsVirtualSubassembly = true;
+        entity.ParentAbsoluteEntry = parentAbsoluteEntry ?? request.ParentAbsoluteEntry;
+        entity.ParentProductionOrderNo = string.IsNullOrWhiteSpace(request.ParentProductionOrderNo)
+            ? parentNo
+            : request.ParentProductionOrderNo.Trim();
+        entity.DocumentNumber = entity.DocumentNumber ?? request.DocumentNumber;
+        if (request.ProductionOrderLines is not null)
+            await ReplaceLinesFromSapAsync(entity, request, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return ProductionOrderMapper.ToSapResponse(entity, includeLines: true);
+    }
+
+    private async Task<int> AllocateVirtualAbsoluteEntryAsync(CancellationToken cancellationToken)
+    {
+        var min = await db.ProductionOrders
+            .IgnoreQueryFilters()
+            .Where(x => x.CompanyDb == CompanyDb && x.AbsoluteEntry < 0)
+            .Select(x => (int?)x.AbsoluteEntry)
+            .MinAsync(cancellationToken);
+        return (min ?? 0) - 1;
+    }
+
+    private async Task ProjectVirtualSubassemblyLinesAsync(
+        ProductionOrder parent,
+        IEnumerable<SapProductionOrderLines>? parentLines,
+        CancellationToken cancellationToken)
+    {
+        if (parent.IsVirtualSubassembly || parent.AbsoluteEntry <= 0)
+            return;
+
+        var parentNo = parent.DocumentNumber?.ToString();
+        var numberedPrefix = parentNo + "/";
+        var children = await db.ProductionOrders
+            .IgnoreQueryFilters()
+            .AsTracking()
+            .Include(x => x.Lines)
+            .Where(x =>
+                x.CompanyDb == CompanyDb
+                && x.IsVirtualSubassembly
+                && (x.ParentAbsoluteEntry == parent.AbsoluteEntry
+                    || (parentNo != null
+                        && x.ParentProductionOrderNo != null
+                        && (x.ParentProductionOrderNo == parentNo
+                            || x.ParentProductionOrderNo.StartsWith(numberedPrefix)))))
+            .ToListAsync(cancellationToken);
+
+        if (children.Count == 0)
+            return;
+
+        var sapLines = parentLines?.ToList() ?? [];
+        foreach (var child in children)
+        {
+            var tag = child.ParentProductionOrderNo;
+            var tagged = sapLines
+                .Where(line => ProductionOrderSubassemblyTag.EqualsTag(line.DocNum, tag))
+                .ToList();
+            await ReplaceLinesFromSapAsync(
+                child,
+                new SapProductionOrdersResponse { ProductionOrderLines = tagged },
+                cancellationToken);
+        }
+
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -450,6 +628,7 @@ public class ProductionOrderLocalStore(
             .AsNoTracking()
             .Where(x => x.CompanyDb == CompanyDb
                         && x.AbsoluteEntry > afterExclusive
+                        && x.AbsoluteEntry > 0
                         && x.Status != null
                         && OpenStatuses.Contains(x.Status))
             .OrderBy(x => x.AbsoluteEntry)
@@ -629,7 +808,7 @@ public class ProductionOrderLocalStore(
 
         var sorted = await db.ProductionOrders
             .AsNoTracking()
-            .Where(x => x.CompanyDb == CompanyDb)
+            .Where(x => x.CompanyDb == CompanyDb && x.AbsoluteEntry > 0)
             .Select(x => x.AbsoluteEntry)
             .OrderBy(x => x)
             .ToListAsync(cancellationToken);
@@ -928,7 +1107,7 @@ public class ProductionOrderLocalStore(
     private async Task<int> GetMaxLocalAbsoluteEntryAsync(CancellationToken cancellationToken) =>
         await db.ProductionOrders
             .AsNoTracking()
-            .Where(x => x.CompanyDb == CompanyDb)
+            .Where(x => x.CompanyDb == CompanyDb && x.AbsoluteEntry > 0)
             .Select(x => (int?)x.AbsoluteEntry)
             .MaxAsync(cancellationToken) ?? 0;
 

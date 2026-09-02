@@ -157,6 +157,34 @@ public class DownPaymentLineAllocationTests
     }
 
     [Test]
+    public void BuildDownPaymentDocumentLines_RoundsAllocatedQuantityToFourDecimalPlaces()
+    {
+        var po = new SapPurchaseOrdersResponse
+        {
+            DocEntry = 1,
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    ItemCode = "A",
+                    LineNum = 0,
+                    LineTotal = 3,
+                    Quantity = 1,
+                    UnitPrice = 10,
+                    WarehouseCode = "01",
+                },
+            ],
+        };
+
+        var lines = StageWisePaymentService.BuildDownPaymentDocumentLines(
+            po, po.DocumentLines!, amount: 1, isGst: false);
+
+        lines.Should().ContainSingle();
+        lines[0].Quantity.Should().Be(0.3333);
+        lines[0].UnitPrice.Should().Be(10);
+    }
+
+    [Test]
     public void BuildDownPaymentDocumentLines_SkipsWtWhenTdsAlreadyTaken()
     {
         var po = new SapPurchaseOrdersResponse

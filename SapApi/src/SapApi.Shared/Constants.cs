@@ -186,11 +186,14 @@ namespace SapApi.Shared
             /// <summary>
             /// OWOR U_DocNum ("Parent Production Order No") exists in UserFieldsMD but Service Layer
             /// does not expose it on ProductionOrder. ConnectEdge stores the sub-assembly number
-            /// locally and writes WOR1 U_DocNum ("Subassembly") on component lines.
+            /// on a portal-only row and writes WOR1 U_DocNum ("Subassembly") on the parent
+            /// production order's component lines.
             /// </summary>
             public const string ParentProductionOrder = "U_DocNum";
-            /// <summary>OWOR header UDF for drawing number.</summary>
+            /// <summary>OWOR header and WOR1 line UDF for drawing number.</summary>
             public const string DrawingNo = "U_DwgNo";
+            /// <summary>WOR1 memo UDF for free text (and drawing name when the row has none).</summary>
+            public const string FreeText = "U_FreeTxt";
         }
         public static class SapProductionOrderStatus
         {

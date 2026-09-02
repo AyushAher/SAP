@@ -7,7 +7,7 @@ import {
   rowActionIconClassName,
 } from '@/Components/shared/RowActions'
 import { Button, Input, Modal, SearchableSelect, Textarea } from '@/Components/ui'
-import { formatCodeWithName } from '@/helpers/masterLookup'
+import { formatCodeWithName, nameFromCodeWithNameLabel, nextAutoFilledName } from '@/helpers/masterLookup'
 import {
   applyStockPurchaseQty,
   calculateLineTotals,
@@ -21,6 +21,7 @@ import {
   withStockQty,
 } from '@/helpers/purchaseOrderForm'
 import { pickHsnFromChapterId } from '@/helpers/hsnResolve'
+import { formatSapDecimal, SAP_DECIMAL_PLACES } from '@/helpers/sapDecimals'
 import { isServicePoDocType, isNonInventoryItem, PO_TN } from '@/helpers/purchaseOrderTnValidation'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
@@ -35,6 +36,7 @@ import {
   searchTaxCodes,
   searchWarehouses,
   formatWarehouseOptionLabel,
+  type MasterGlAccount,
   type MasterItem,
   type MasterPurchaseUom,
   type MasterWarehouse,
@@ -103,9 +105,8 @@ async function resolveHsnFromChapterId(chapterId: string | undefined): Promise<{
   return pickHsnFromChapterId(code, response.data ?? [])
 }
 
-function formatPoCell(value: number | undefined | null): string {
-  if (value == null || Number.isNaN(value)) return '—'
-  return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function formatPoCell(value: number | undefined | null, decimals: number = SAP_DECIMAL_PLACES.amounts): string {
+  return formatSapDecimal(value, decimals)
 }
 
 function readLineItemDescription(line: PurchaseOrderLineItem): string | undefined {
@@ -168,7 +169,9 @@ export function PurchaseOrderLinesEditor({
         UoMCode: purchaseUom,
         UomName: purchaseUom,
         StockUom: stockUom,
-        ItemDescription: readLineItemDescription(line) || item?.name,
+        ItemDescription: readLineItemDescription(line)
+          || item?.name
+          || nameFromCodeWithNameLabel(line.AccountLabel, line.AccountCode),
       },
       rate,
     )
@@ -184,7 +187,7 @@ export function PurchaseOrderLinesEditor({
     const response = await searchItems(search, 20)
     return (response.data ?? []).map((item) => ({
       value: item.ItemCode ?? '',
-      label: `${item.ItemCode ?? ''} - ${item.ItemName ?? ''}`.trim(),
+      label: formatCodeWithName(item.ItemCode, item.ItemName),
       meta: item,
     })).filter((o) => o.value)
   }, [])
@@ -195,7 +198,8 @@ export function PurchaseOrderLinesEditor({
       .filter((acc) => (acc.Code ?? '').trim() !== PO_TN.forbiddenGlAccount)
       .map((acc) => ({
         value: acc.Code ?? '',
-        label: `${acc.Code ?? ''}${acc.Name ? ` - ${acc.Name}` : ''}`.trim(),
+        label: formatCodeWithName(acc.Code, acc.Name),
+        meta: acc,
       }))
       .filter((o) => o.value)
   }, [])
@@ -425,24 +429,25 @@ export function PurchaseOrderLinesEditor({
   }
 
   const itemColumns: SapColumn<LineRow>[] = [
+    { key: 'ItemCode', header: 'Item', accessor: (r) => formatCodeWithName(r.ItemCode, r.ItemDescription ?? itemMap[r.ItemCode ?? '']?.name) },
     {
-      key: 'ItemCode',
-      header: 'Item',
-      accessor: (r) => formatCodeWithName(r.ItemCode, r.ItemDescription ?? itemMap[r.ItemCode ?? '']?.name),
+      key: 'ItemDescription',
+      header: 'Description',
+      accessor: (r) => readLineItemDescription(r) ?? itemMap[r.ItemCode ?? '']?.name ?? '—',
     },
     { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
     { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
     { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationLabel || (r.LocationCode != null ? String(r.LocationCode) : '—') },
-    { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => r.Quantity },
+    { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => formatPoCell(r.Quantity, SAP_DECIMAL_PLACES.quantities) },
     { key: 'UoMCode', header: 'Purchase UoM', accessor: (r) => resolvePurchaseUnit(r) || '—' },
-    { key: 'StockQty', header: 'Stock Qty', accessor: (r) => r.StockQty ?? '—' },
+    { key: 'StockQty', header: 'Stock Qty', accessor: (r) => formatPoCell(r.StockQty, SAP_DECIMAL_PLACES.quantities) },
     { key: 'StockUom', header: 'Stock UoM', accessor: (r) => r.StockUom ?? '—' },
     {
       key: 'UnitsOfMeasurment',
       header: 'Items/Unit',
       accessor: (r) => {
         const factor = r.UnitsOfMeasurment ?? calcItemsPerUnit(r.StockQty, r.Quantity)
-        return factor != null ? formatPoCell(factor) : '—'
+        return factor != null ? formatPoCell(factor, 6) : '—'
       },
     },
     {
@@ -456,8 +461,8 @@ export function PurchaseOrderLinesEditor({
         return '—'
       },
     },
-    { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice) },
-    { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => r.DiscountPercent ?? '—' },
+    { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice, SAP_DECIMAL_PLACES.prices) },
+    { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => formatPoCell(r.DiscountPercent, SAP_DECIMAL_PLACES.percent) },
     { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
     {
       key: 'AccountCode',
@@ -476,12 +481,19 @@ export function PurchaseOrderLinesEditor({
       header: 'G/L Account',
       accessor: (r) => r.AccountLabel ?? r.AccountCode ?? '—',
     },
-    { key: 'ItemDescription', header: 'Description', accessor: (r) => readLineItemDescription(r) ?? '—' },
+    {
+      key: 'ItemDescription',
+      header: 'Description',
+      accessor: (r) => readLineItemDescription(r)
+        ?? itemMap[r.ItemCode ?? '']?.name
+        ?? nameFromCodeWithNameLabel(r.AccountLabel, r.AccountCode)
+        ?? '—',
+    },
     { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
     { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationLabel || (r.LocationCode != null ? String(r.LocationCode) : '—') },
-    { key: 'Quantity', header: 'Qty', accessor: (r) => r.Quantity },
-    { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice) },
-    { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => r.DiscountPercent ?? '—' },
+    { key: 'Quantity', header: 'Qty', accessor: (r) => formatPoCell(r.Quantity, SAP_DECIMAL_PLACES.quantities) },
+    { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice, SAP_DECIMAL_PLACES.prices) },
+    { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => formatPoCell(r.DiscountPercent, SAP_DECIMAL_PLACES.percent) },
     { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
     { key: 'SACEntry', header: 'SAC', accessor: (r) => r.SacLabel ?? (r.SACEntry != null ? String(r.SACEntry) : '—') },
     { key: 'ProjectCode', header: 'Project', accessor: (r) => r.ProjectCode ?? '—' },
@@ -556,11 +568,17 @@ export function PurchaseOrderLinesEditor({
                 placeholder="Search G/L account..."
                 onSearch={searchAccountOptions}
                 onChange={(code, option) => {
-                  setAccountLabel(option?.label ?? code)
+                  const label = option?.label ?? code
+                  const acc = option?.meta as MasterGlAccount | undefined
+                  const accountName = (acc?.Name ?? '').trim()
+                    || nameFromCodeWithNameLabel(label, code)
+                  const previousName = nameFromCodeWithNameLabel(draft.AccountLabel, draft.AccountCode)
+                  setAccountLabel(label)
                   setDraft({
                     ...draft,
                     AccountCode: code,
-                    AccountLabel: option?.label ?? code,
+                    AccountLabel: label,
+                    ItemDescription: nextAutoFilledName(draft.ItemDescription, previousName, accountName),
                   })
                 }}
               />
@@ -582,15 +600,14 @@ export function PurchaseOrderLinesEditor({
                 onChange={(code, option) => {
                   const label = option?.label ?? code
                   const metaItem = option?.meta as MasterItem | undefined
-                  const fromMeta = (metaItem?.ItemName ?? '').trim()
-                  const fromLabel = label.includes(' - ') ? label.split(' - ').slice(1).join(' - ').trim() : ''
-                  const description = fromMeta || fromLabel
+                  const description = (metaItem?.ItemName ?? '').trim()
+                    || nameFromCodeWithNameLabel(label, code)
                   setItemLabel(label)
                   setAccountLabel('')
                   setDraft({
                     ...draft,
                     ItemCode: code,
-                    ItemDescription: description || undefined,
+                    ItemDescription: description,
                     // UoMs are master-driven; drop the previous item's values before refetching.
                     UoMCode: undefined,
                     UomName: undefined,
@@ -635,7 +652,9 @@ export function PurchaseOrderLinesEditor({
                       prev.ItemCode === code
                         ? applyStockPurchaseQty({
                             ...prev,
-                            ItemDescription: prev.ItemDescription || meta.ItemName || description,
+                            ItemDescription: (prev.ItemDescription ?? '').trim()
+                              || (meta.ItemName ?? '').trim()
+                              || description,
                             InventoryItem: meta.InventoryItem ?? prev.InventoryItem,
                             UoMCode: unit || prev.UoMCode,
                             UomName: unit || prev.UomName,
@@ -711,6 +730,7 @@ export function PurchaseOrderLinesEditor({
                 type="number"
                 min="0"
                 nonNegative
+                decimalPlaces={SAP_DECIMAL_PLACES.quantities}
                 value={String(draft.Quantity ?? 0)}
                 onChange={(e) => {
                   setItemsPerUnitText(null)
@@ -749,6 +769,7 @@ export function PurchaseOrderLinesEditor({
                 type="number"
                 min="0"
                 nonNegative
+                decimalPlaces={SAP_DECIMAL_PLACES.quantities}
                 value={String(draft.StockQty ?? 0)}
                 onChange={(e) => {
                   setItemsPerUnitText(null)
@@ -845,6 +866,7 @@ export function PurchaseOrderLinesEditor({
                 type="number"
                 min="0"
                 nonNegative
+                decimalPlaces={SAP_DECIMAL_PLACES.quantities}
                 value={String(draft.Quantity ?? 0)}
                 onChange={(e) => setDraft({ ...draft, Quantity: Number(e.target.value) })}
                 required
@@ -854,9 +876,9 @@ export function PurchaseOrderLinesEditor({
           <Input
             label="Unit Price"
             type="number"
-            step="0.01"
             min="0"
             nonNegative
+            decimalPlaces={SAP_DECIMAL_PLACES.prices}
             value={String(draft.UnitPrice ?? 0)}
             onChange={(e) => setDraft({ ...draft, UnitPrice: Number(e.target.value) })}
             required
@@ -866,6 +888,7 @@ export function PurchaseOrderLinesEditor({
             type="number"
             min="0"
             nonNegative
+            decimalPlaces={SAP_DECIMAL_PLACES.percent}
             value={draft.DiscountPercent != null ? String(draft.DiscountPercent) : ''}
             onChange={(e) => setDraft({
               ...draft,

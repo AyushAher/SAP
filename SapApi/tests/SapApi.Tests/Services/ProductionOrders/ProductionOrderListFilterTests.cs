@@ -282,6 +282,31 @@ public class ProductionOrderListFilterTests
     }
 
     [Test]
+    public async Task ListSubassemblies_includes_virtual_children()
+    {
+        SeedChildOrders();
+        _context.ProductionOrders.Add(new ProductionOrder
+        {
+            CompanyDb = CompanyDb,
+            AbsoluteEntry = -1,
+            DocumentNumber = 900101,
+            Status = Constants.SapProductionOrderStatus.Planned,
+            ItemNo = "SA-VIRT",
+            ParentProductionOrderNo = "900101/2",
+            ParentAbsoluteEntry = 101,
+            IsVirtualSubassembly = true,
+            SyncedAtUtc = DateTime.UtcNow,
+        });
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+
+        var children = await _sut.ListSubassembliesAsync(101);
+
+        children!.Select(x => x.AbsoluteEntry).Should().Equal(201, -1);
+        children.Select(x => x.ParentProductionOrderNo).Should().Equal("900101", "900101/2");
+    }
+
+    [Test]
     public async Task ListSubassemblies_returns_null_when_the_parent_is_missing()
     {
         var children = await _sut.ListSubassembliesAsync(999);

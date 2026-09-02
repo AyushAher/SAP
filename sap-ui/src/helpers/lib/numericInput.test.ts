@@ -8,6 +8,9 @@ describe('numericInput', () => {
     expect(sanitizeNonNegativeAmountInput('12.3.4')).toBe('12.34')
     expect(sanitizeNonNegativeAmountInput('abc')).toBe('')
     expect(sanitizeNonNegativeAmountInput('')).toBe('')
+    expect(sanitizeNonNegativeAmountInput('1.')).toBe('1.')
+    expect(sanitizeNonNegativeAmountInput('1.23456', 4)).toBe('1.2345')
+    expect(sanitizeNonNegativeAmountInput('12.349', 2)).toBe('12.34')
   })
 
   it('isNegativeAmountInputKey blocks scientific notation and sign keys', () => {

@@ -100,13 +100,14 @@ public class SapPaginationBuilderTests
     public void ProductionOrders_NeverQueriesNameUdfsSapRejects()
     {
         // SAP rejects unknown properties outright ("Property 'U_CustomerName' of 'ProductionOrder' is
-        // invalid"), so project/customer names must be resolved from master data, never selected here.
+        // invalid"). OWOR U_DocNum is also not exposed on Service Layer. U_PrjName is a real header
+        // UDF and must be selected so the mirror round-trips the project name.
         var query = SapPaginationBuilder.ToSapQueries(
             new PaginationRequest { PageNumber = 1, PageSize = 20 },
             SapPaginationProfiles.ProductionOrders);
 
         query.Select.Should().NotContain("U_CustomerName");
-        query.Select.Should().NotContain("U_PrjName");
+        query.Select.Should().Contain("U_PrjName");
         query.Select.Should().NotContain("U_DocNum");
     }
 

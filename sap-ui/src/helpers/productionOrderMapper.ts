@@ -1,6 +1,11 @@
 import { PARENT_PRODUCTION_ORDER_UDF } from '@/config/constants'
 import { todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
-import type { ProductionOrder, ProductionOrderLine, ProductionOrderSelection } from '@/types/production'
+import {
+  PRODUCTION_ORDER_TYPE_SPECIAL,
+  type ProductionOrder,
+  type ProductionOrderLine,
+  type ProductionOrderSelection,
+} from '@/types/production'
 
 const RELEASED_STATUS = 'boposReleased'
 
@@ -48,6 +53,7 @@ export function normalizeProductionOrder(raw: ProductionOrder | Record<string, u
     ProjectName: readString(source, 'ProjectName', 'projectName', 'U_PrjName', 'u_PrjName'),
     Warehouse: readString(source, 'Warehouse', 'warehouse'),
     DrawingNo: readString(source, 'DrawingNo', 'drawingNo', 'U_DwgNo', 'u_DwgNo'),
+    Weight: readNumber(source, 'Weight', 'weight'),
     ParentProductionOrderNo: readString(
       source,
       'ParentProductionOrderNo',
@@ -57,6 +63,7 @@ export function normalizeProductionOrder(raw: ProductionOrder | Record<string, u
       'u_DocNum',
       'U_ParentProdOrd',
     ),
+    ParentAbsoluteEntry: readNumber(source, 'ParentAbsoluteEntry', 'parentAbsoluteEntry'),
     Remarks: readString(source, 'Remarks', 'remarks'),
     SalesOrderDocNum: readNumber(source, 'SalesOrderDocNum', 'ProductionOrderOriginNumber', 'productionOrderOriginNumber'),
     SalesOrderDocEntry: readNumber(source, 'SalesOrderDocEntry', 'ProductionOrderOriginEntry', 'productionOrderOriginEntry'),
@@ -90,6 +97,9 @@ export function normalizeProductionOrderLine(raw: ProductionOrderLine | Record<s
     IssuedQuantity: readNumber(source, 'IssuedQuantity', 'issuedQuantity'),
     Warehouse: readString(source, 'Warehouse', 'warehouse'),
     DocumentAbsoluteEntry: readNumber(source, 'DocumentAbsoluteEntry', 'documentAbsoluteEntry'),
+    DocNum: readString(source, 'DocNum', 'docNum', 'U_DocNum', 'u_DocNum'),
+    DrawingNo: readString(source, 'DrawingNo', 'drawingNo', 'U_DwgNo', 'u_DwgNo'),
+    FreeText: readString(source, 'FreeText', 'freeText', 'U_FreeTxt', 'u_FreeTxt'),
   }
 }
 
@@ -120,10 +130,12 @@ export function toProductionOrderPayload(
   set('DocumentNumber', order.DocumentNumber)
   set('ItemNo', order.ItemNumber)
   set('ProductionOrderStatus', order.Status)
-  set('ProductionOrderType', order.Type)
+  set('ProductionOrderType', order.Type || PRODUCTION_ORDER_TYPE_SPECIAL)
   set('U_ProdType', order.ProductionCategory)
   set('U_DwgNo', order.DrawingNo)
+  set('Weight', order.Weight)
   set(PARENT_PRODUCTION_ORDER_UDF, order.ParentProductionOrderNo)
+  set('ParentAbsoluteEntry', order.ParentAbsoluteEntry)
   set('ProductDescription', order.ProductDescription)
   set('CustomerCode', order.CustomerCode)
   // U_CustomerName does not exist on OWOR; the API drops it before calling SAP, but the issue and
@@ -146,15 +158,34 @@ export function toProductionOrderPayload(
   payload.PlannedQuantity = order.PlannedQuantity ?? 0
   payload.CompletedQuantity = order.CompletedQuantity ?? 0
   payload.RejectedQuantity = order.RejectedQuantity ?? 0
-  payload.PostingDate = toIsoDateOnly(order.PostingDate) ?? todayIsoDate()
+  if (order.AbsoluteEntry != null) {
+    setDate('PostingDate', order.PostingDate)
+  } else {
+    payload.PostingDate = toIsoDateOnly(order.PostingDate) ?? todayIsoDate()
+  }
 
-  payload.ProductionOrderLines = (lines ?? order.ProductionOrderLines ?? []).map((line) => {
-    const next: Record<string, unknown> = { ...line }
-    if (order.ParentProductionOrderNo && next.U_DocNum == null && next.DocNum == null) {
-      next.U_DocNum = order.ParentProductionOrderNo
-    }
-    return next
-  })
+  const outgoingLines = lines ?? order.ProductionOrderLines
+  if (outgoingLines && outgoingLines.length > 0) {
+    payload.ProductionOrderLines = outgoingLines.map((line) => {
+      const next: Record<string, unknown> = { ...line }
+      if (order.ParentProductionOrderNo && next.U_DocNum == null && next.DocNum == null) {
+        next.U_DocNum = order.ParentProductionOrderNo
+      }
+      const freeText = line.FreeText ?? (typeof next.U_FreeTxt === 'string' ? next.U_FreeTxt : undefined)
+      if (freeText) next.U_FreeTxt = freeText
+      const drawingNo = line.DrawingNo ?? (typeof next.U_DwgNo === 'string' ? next.U_DwgNo : undefined)
+      if (drawingNo) next.U_DwgNo = drawingNo
+      return next
+    })
+  }
+
+  if (order.Subassemblies && order.Subassemblies.length > 0) {
+    payload.Subassemblies = order.Subassemblies.map((child) => {
+      const nested = toProductionOrderPayload(child)
+      delete nested.Subassemblies
+      return nested
+    })
+  }
 
   return payload
 }

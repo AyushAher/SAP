@@ -14,7 +14,6 @@ describe('validatePurchaseOrderAgainstTn', () => {
     trn: '',
     disId: '',
     dispachAdd: '',
-    vendorSeries: 1,
     lines: [{ ItemCode: 'A1', WarehouseCode: '01', Quantity: 1, UnitPrice: 1 }],
   }
 
@@ -34,12 +33,11 @@ describe('validatePurchaseOrderAgainstTn', () => {
     })).toBe('You can not select DRP warehouse in Purchase Order.')
   })
 
-  it('requires transporter item for series 124', () => {
+  it('does not require a mandatory item for transporter vendors', () => {
     expect(validatePurchaseOrderAgainstTn({
       ...base,
-      vendorSeries: PO_TN.transporterBpSeries,
       lines: [{ ItemCode: 'A1', WarehouseCode: '01', Quantity: 1, UnitPrice: 1 }],
-    })).toContain('SR3346300000000000')
+    })).toBeNull()
   })
 
   it('requires HSN when tax code is selected on item docs', () => {
@@ -122,13 +120,12 @@ describe('validatePurchaseOrderAgainstTn', () => {
   it('passes when TN rules satisfied', () => {
     expect(validatePurchaseOrderAgainstTn({
       ...base,
-      vendorSeries: PO_TN.transporterBpSeries,
       trn: 'OPEN-1',
       disId: 'C000030',
       dispachAdd: 'Addr',
       poType: 'JOB',
       lines: [{
-        ItemCode: PO_TN.transporterMandatoryItem,
+        ItemCode: 'A1',
         WarehouseCode: 'DRP',
         Quantity: 1,
         UnitPrice: 1,

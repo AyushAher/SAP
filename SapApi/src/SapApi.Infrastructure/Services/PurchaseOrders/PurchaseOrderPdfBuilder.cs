@@ -61,11 +61,14 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var inventoryUomByItem = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var itemNameByItem = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var itemCode in itemCodes)
         {
             var item = await masterDataService.GetItemByCodeAsync(itemCode!, cancellationToken: cancellationToken);
             if (!string.IsNullOrWhiteSpace(item?.InventoryUom))
                 inventoryUomByItem[itemCode!] = item.InventoryUom!;
+            if (!string.IsNullOrWhiteSpace(item?.ItemName))
+                itemNameByItem[itemCode!] = item.ItemName!;
         }
 
         var specialLines = (order.DocumentSpecialLines ?? [])
@@ -81,14 +84,18 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             var purchaseQty = FormatQtyWithUom(line.Quantity, line.UoMCode);
             inventoryUomByItem.TryGetValue(line.ItemCode ?? string.Empty, out var inventoryUom);
             var stockQty = FormatQtyWithUom(line.InventoryQuantity ?? DeriveInventoryQty(line), inventoryUom);
-            var unitPrice = FormatMoney(currency, line.UnitPrice);
+            var unitPrice = FormatPrice(currency, line.UnitPrice);
             var lineTotal = FormatMoney(currency, line.LineTotal ?? line.LineGrandTotal);
+            itemNameByItem.TryGetValue(line.ItemCode ?? string.Empty, out var itemName);
+            var description = string.IsNullOrWhiteSpace(line.ItemDescription)
+                ? itemName
+                : line.ItemDescription;
 
             itemsHtml.Append($"""
                 <tr>
                     <td class="center">{sr}</td>
                     <td class="part-no">{Escape(line.ItemCode)}</td>
-                    <td>{Escape(line.ItemDescription)}</td>
+                    <td>{Escape(description)}</td>
                     <td class="center">{Escape(FormatDate(deliveryFallback))}</td>
                     <td class="center">{Escape(purchaseQty)}</td>
                     <td class="center">{Escape(stockQty)}</td>
@@ -372,7 +379,7 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
     private static string FormatQtyWithUom(double? qty, string? uom = null)
     {
         if (qty is null) return string.Empty;
-        var qtyText = qty.Value.ToString("0.##", CultureInfo.InvariantCulture);
+        var qtyText = SapDecimalPlaces.Format(qty.Value, SapDecimalPlaces.Quantities);
         return string.IsNullOrWhiteSpace(uom) ? qtyText : $"{qtyText} {uom}";
     }
 
@@ -389,7 +396,13 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
     private static string FormatMoney(string currency, double? amount)
     {
         if (amount is null) return string.Empty;
-        return $"{currency} {amount.Value.ToString("N2", CultureInfo.InvariantCulture)}";
+        return $"{currency} {amount.Value.ToString($"N{SapDecimalPlaces.Amounts}", CultureInfo.InvariantCulture)}";
+    }
+
+    private static string FormatPrice(string currency, double? price)
+    {
+        if (price is null) return string.Empty;
+        return $"{currency} {price.Value.ToString($"N{SapDecimalPlaces.Prices}", CultureInfo.InvariantCulture)}";
     }
 
     private static string FormatDate(DateTime? value) =>

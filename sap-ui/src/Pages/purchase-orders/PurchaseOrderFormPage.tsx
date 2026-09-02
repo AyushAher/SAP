@@ -19,6 +19,7 @@ import {
   Textarea,
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
+import { SAP_DECIMAL_PLACES } from '@/helpers/sapDecimals'
 import { formatBusinessPartnerDisplay, formatCodeWithName, resolveItem, resolveMasterSelectLabels } from '@/helpers/masterLookup'
 import { formatPoDisplayDate, parsePoDisplayDate, todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import {
@@ -302,7 +303,6 @@ export function PurchaseOrderFormPage() {
   const [otherTerms, setOtherTerms] = useState<PurchaseOrderOtherTerms>({})
 
   const [vendorLabel, setVendorLabel] = useState('')
-  const [vendorSeries, setVendorSeries] = useState<number | null>(null)
   const [projectLabel, setProjectLabel] = useState('')
   const [warehouseLabel, setWarehouseLabel] = useState('')
   const [dispatchLocation, setDispatchLocation] = useState('')
@@ -322,7 +322,6 @@ export function PurchaseOrderFormPage() {
   const defaultWarehouse = String(form.U_Warehouse ?? '')
   const docType = String(form.DocType ?? PO_DOC_TYPE.items)
   const isServiceDoc = isServicePoDocType(docType)
-  const isTransporterVendor = !isServiceDoc && vendorSeries === PO_TN.transporterBpSeries
   const usesDrpWarehouse = !isServiceDoc && lines.some((line) => {
     const wh = (line.WarehouseCode ?? '').trim().toUpperCase()
     return wh === 'DRP' || wh === 'DRP2'
@@ -550,12 +549,9 @@ export function PurchaseOrderFormPage() {
         const legalName = vendorMatch?.CardForeignName ?? ''
         if (cardCode) {
           setVendorLabel(formatBusinessPartnerDisplay(cardCode, bpName, legalName) || labels.vendorLabel || cardCode)
-          setVendorSeries(vendorMatch?.Series ?? null)
           if (bpName) {
             setForm((prev) => ({ ...prev, CardName: bpName }))
           }
-        } else {
-          setVendorSeries(null)
         }
         const projectCode = String(record.Project ?? purchaseOrder.Project ?? '')
         if (projectCode) {
@@ -733,7 +729,6 @@ export function PurchaseOrderFormPage() {
       trn: String(form.U_TRN ?? ''),
       disId: String(logistics.dispatchTo ?? ''),
       dispachAdd: String(logistics.dispatchAddress ?? ''),
-      vendorSeries,
       lines,
     })
     if (tnError) {
@@ -845,7 +840,6 @@ export function PurchaseOrderFormPage() {
                     const bpName = meta?.CardName ?? ''
                     const legalName = meta?.CardForeignName ?? ''
                     setVendorLabel(formatBusinessPartnerDisplay(cardCode, bpName, legalName))
-                    setVendorSeries(meta?.Series ?? null)
                     updateForm({ CardCode: cardCode, CardName: bpName })
                   }}
                 />
@@ -954,11 +948,6 @@ export function PurchaseOrderFormPage() {
                   onChange={(value) => updateForm({ BPLId: Number(value) })}
                   placeholder="Select branch"
                 />
-                {isTransporterVendor ? (
-                  <p className="md:col-span-2 xl:col-span-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                    Transporter vendor (series 124): add item <strong>{PO_TN.transporterMandatoryItem}</strong>.
-                  </p>
-                ) : null}
               </div>
             </section>
 
@@ -1119,6 +1108,7 @@ export function PurchaseOrderFormPage() {
                       type="number"
                       min="0"
                       nonNegative
+                      decimalPlaces={SAP_DECIMAL_PLACES.percent}
                       value={(() => {
                         const basis =
                           paymentBasis === 'gst' || isGstPaymentTermType(paymentDraft.type) ? 'gst' : 'basic'
@@ -1279,7 +1269,7 @@ export function PurchaseOrderFormPage() {
                 <Input
                   label="Rounding Off"
                   type="number"
-                  step="0.01"
+                  decimalPlaces={SAP_DECIMAL_PLACES.amounts}
                   value={String(form.RoundingDiffAmount ?? 0)}
                   onChange={(e) => updateForm({ RoundingDiffAmount: Number(e.target.value) })}
                 />

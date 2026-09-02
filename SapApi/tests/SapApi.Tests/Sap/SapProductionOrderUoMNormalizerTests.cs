@@ -23,6 +23,16 @@ public class SapProductionOrderUoMNormalizerTests
     }
 
     [Test]
+    public void NormalizeUoMCode_DropsManualGroupPlaceholder()
+    {
+        SapProductionOrderUoMNormalizer.NormalizeUoMCode(-1).Should().BeNull();
+        SapProductionOrderUoMNormalizer.NormalizeUoMCode("-1").Should().BeNull();
+        SapProductionOrderUoMNormalizer.NormalizeUoMCode(0).Should().BeNull();
+        SapProductionOrderUoMNormalizer.NormalizeUoMEntry(-1).Should().BeNull();
+        SapProductionOrderUoMNormalizer.NormalizeUoMEntry(6).Should().Be(6);
+    }
+
+    [Test]
     public void NormalizeUoMCode_HandlesJsonElement()
     {
         using var numericDoc = JsonDocument.Parse("42");

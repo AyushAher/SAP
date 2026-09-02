@@ -1,8 +1,10 @@
 namespace SapApi.Domain.Entities;
 
 /// <summary>
-/// Local mirror of a SAP Business One Production Order (OWOR) header.
-/// SAP remains the write authority; this table serves portal reads after sync.
+/// Local mirror of a SAP Business One Production Order (OWOR) header, or a portal-only
+/// virtual sub-assembly whose components are stored on the parent SAP order.
+/// SAP remains the write authority for real production orders; virtual rows never have a
+/// Service Layer document of their own.
 /// </summary>
 public class ProductionOrder : ISoftDeletable
 {
@@ -25,11 +27,23 @@ public class ProductionOrder : ISoftDeletable
     /// <summary>U_DwgNo.</summary>
     public string? DrawingNo { get; set; }
 
+    /// <summary>Portal-only sub-assembly header weight. Not a Service Layer property.</summary>
+    public double? Weight { get; set; }
+
     /// <summary>
     /// Sub-assembly number on OWOR U_DocNum: {parent DocumentNumber}/{sequence}.
     /// Legacy rows may store only the parent DocumentNumber.
     /// </summary>
     public string? ParentProductionOrderNo { get; set; }
+
+    /// <summary>
+    /// Portal-only sub-assembly: no SAP ProductionOrders document. Component lines live on
+    /// <see cref="ParentAbsoluteEntry"/> in SAP, tagged with <see cref="ParentProductionOrderNo"/>.
+    /// </summary>
+    public bool IsVirtualSubassembly { get; set; }
+
+    /// <summary>SAP AbsoluteEntry of the parent production order for a virtual sub-assembly.</summary>
+    public int? ParentAbsoluteEntry { get; set; }
 
     public double? PlannedQuantity { get; set; }
     public double? CompletedQuantity { get; set; }
@@ -134,6 +148,8 @@ public class ProductionOrderLine : ISoftDeletable
 
     /// <summary>U_FreeTxt.</summary>
     public string? FreeText { get; set; }
+    /// <summary>WOR1 U_DwgNo.</summary>
+    public string? DrawingNo { get; set; }
     /// <summary>U_DocNum.</summary>
     public string? DocNum { get; set; }
 

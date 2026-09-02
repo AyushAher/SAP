@@ -38,7 +38,7 @@ public class ProductionOrderSelectionService(
             ?? throw new KeyNotFoundException("Production order not found.");
 
         var order = selection.ProductionOrder!;
-        if (line.IssuedQuantity > line.PlannedQuantity)
+        if ((line.IssuedQuantity ?? 0) > line.PlannedQuantity)
             throw new InvalidOperationException("Issue quantity cannot exceed planned quantity.");
 
         order.ProductionOrderLines ??= [];

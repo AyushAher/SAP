@@ -1,4 +1,4 @@
-﻿namespace SapApi.Shared.Responses.Sap
+namespace SapApi.Shared.Responses.Sap
 {
     public record SapSalesOrderResponse : SapBaseResponse
     {
@@ -32,7 +32,23 @@
 
     public record SapSalesOrderDocumentLinesResponse
     {
-        [JsonPropertyName("ItemCode")] public string ItemCode { get; set; }
-        [JsonPropertyName("ItemDescription")] public string ItemName { get; set; }
+        [JsonPropertyName("LineNum"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? LineNum { get; set; }
+
+        [JsonPropertyName("ItemCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ItemCode { get; set; }
+
+        [JsonPropertyName("ItemDescription"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ItemName { get; set; }
+
+        [JsonPropertyName("Quantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? Quantity { get; set; }
+
+        /// <summary>SAP NumPerMsr — inventory units per sales unit on the row.</summary>
+        [JsonPropertyName("UnitsOfMeasurment"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? UnitsOfMeasurment { get; set; }
+
+        [JsonPropertyName("InventoryQuantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? InventoryQuantity { get; set; }
     }
 }

@@ -1,6 +1,7 @@
 import { apiListPost } from '@/helpers/api/list'
 import { createMasterSearchRequest } from '@/helpers/api/masterSearch'
 import type { Filter, PaginationRequest, PaginationResponse } from '@/types/api'
+import type { SalesOrderProductLine } from '@/types/production'
 
 export interface MasterItem {
   ItemCode?: string
@@ -525,6 +526,51 @@ export function listSalesOrders(search: string, customerId?: string, pageSize = 
     `/masters/sales-orders/list${query}`,
     request,
   ) as Promise<PaginationResponse<MasterSalesOrder[]>>
+}
+
+export interface MasterSalesOrderDetail extends MasterSalesOrder {
+  DocumentLines?: SalesOrderProductLine[]
+}
+
+function normalizeSalesOrderLine(raw: Record<string, unknown> | SalesOrderProductLine): SalesOrderProductLine | undefined {
+  const source = raw as Record<string, unknown>
+  const itemCode = String(source.ItemCode ?? source.itemCode ?? '').trim()
+  if (!itemCode) return undefined
+  const qty = Number(source.Quantity ?? source.quantity)
+  const factor = Number(source.UnitsOfMeasurment ?? source.unitsOfMeasurment)
+  const inventory = Number(source.InventoryQuantity ?? source.inventoryQuantity)
+  const lineNum = Number(source.LineNum ?? source.lineNum)
+  return {
+    ItemCode: itemCode,
+    ItemName: String(source.ItemName ?? source.itemName ?? source.ItemDescription ?? source.itemDescription ?? '')
+      || undefined,
+    Quantity: Number.isFinite(qty) ? qty : undefined,
+    UnitsOfMeasurment: Number.isFinite(factor) && factor > 0 ? factor : undefined,
+    InventoryQuantity: Number.isFinite(inventory) ? inventory : undefined,
+    LineNum: Number.isFinite(lineNum) ? lineNum : undefined,
+  }
+}
+
+export async function getSalesOrder(docEntry: number): Promise<MasterSalesOrderDetail | undefined> {
+  if (!Number.isFinite(docEntry) || docEntry <= 0) return undefined
+  const { apiGet } = await import('@/helpers/api/client')
+  try {
+    const raw = await apiGet<Record<string, unknown>>(`/masters/sales-orders/${docEntry}`)
+    const linesRaw = raw.DocumentLines ?? raw.documentLines
+    return {
+      DocNum: Number(raw.DocNum ?? raw.docNum ?? raw.DocumentNumber) || undefined,
+      DocEntry: Number(raw.DocEntry ?? raw.docEntry) || docEntry,
+      CardCode: String(raw.CardCode ?? raw.cardCode ?? '') || undefined,
+      CardName: String(raw.CardName ?? raw.cardName ?? '') || undefined,
+      NumAtCard: String(raw.NumAtCard ?? raw.numAtCard ?? '') || undefined,
+      Project: String(raw.Project ?? raw.project ?? '') || undefined,
+      DocumentLines: Array.isArray(linesRaw)
+        ? (linesRaw as Record<string, unknown>[]).map(normalizeSalesOrderLine).filter(Boolean) as SalesOrderProductLine[]
+        : [],
+    }
+  } catch {
+    return undefined
+  }
 }
 
 export async function lookupItem(itemCode: string): Promise<MasterItem | undefined> {
