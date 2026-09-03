@@ -39,6 +39,31 @@ public class SapDocumentSeriesService(IHttpRequestHandler requestHandler)
         payload.Series = match.Series;
     }
 
+    public async Task EnsurePurchaseRequestSeriesAsync(
+        SapPurchaseRequestsResponse payload,
+        CancellationToken cancellationToken = default)
+    {
+        if (payload.Series is > 0)
+            return;
+
+        var docDate = payload.DocDate ?? DateTime.UtcNow.Date;
+        payload.DocDate ??= docDate;
+        var bplId = payload.BPLId ?? 1;
+        var period = SapDocumentSeriesResolver.GetIndiaFinancialYearPeriodIndicator(docDate);
+
+        var seriesList = await GetDocumentSeriesAsync(Constants.SapDocumentObject.PurchaseRequest, cancellationToken);
+        var match = SapDocumentSeriesResolver.FindSeries(seriesList, bplId, period);
+        if (match is null)
+        {
+            throw new ApiErrorException(
+                BaseErrorCodes.ValidationFailed,
+                SapDocumentSeriesResolver.FormatMissingSeriesMessage(
+                    "Purchase Request (OPRQ)", bplId, period, docDate));
+        }
+
+        payload.Series = match.Series;
+    }
+
     /// <summary>
     /// Sets Series on A/P Down Payment Request (PurchaseDownPayments / object 204) for BPL + DocDate FY.
     /// Also ensures DocDate/TaxDate are present so series selection matches what SAP will post.

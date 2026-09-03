@@ -1,0 +1,351 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Pencil, RefreshCw, Ban } from 'lucide-react'
+import { toast } from '@/helpers/toast'
+import { PageHeader } from '@/Components/shared/PageHeader'
+import { RowActionsMenu } from '@/Components/shared/RowActionsMenu'
+import { rowActionIconClassName } from '@/Components/shared/RowActions'
+import { Badge, Button, DataTable, type DataTableColumn } from '@/Components/ui'
+import { ROUTES } from '@/config/constants'
+import { formatPoDisplayDate } from '@/helpers/lib/utils'
+import { formatCodeWithName } from '@/helpers/masterLookup'
+import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
+import { usePurchaseRequestListFetcher } from '@/hooks/usePurchaseRequests'
+import { getBranchesApi } from '@/Requests/auth'
+import {
+  enqueueFullPurchaseRequestSyncJob,
+  getPurchaseRequestSyncStatus,
+  getPurchaseRequestBranchId,
+  syncPurchaseRequestFromSap,
+  cancelPurchaseRequest,
+  type PurchaseRequest,
+} from '@/Requests/purchaseRequests'
+
+const extractors = {
+  projectCodes: (row: PurchaseRequest) => row.Project,
+  cardCodes: (row: PurchaseRequest) => row.CardCode,
+}
+
+const SYNC_POLL_MS = 3000
+
+function formatPoValue(value?: number): string {
+  if (value == null) return '—'
+  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function isRunningStatus(status?: string | null): boolean {
+  return (status ?? '').localeCompare('Running', undefined, { sensitivity: 'accent' }) === 0
+}
+
+export function PurchaseRequestListPage() {
+  const fetchOrders = usePurchaseRequestListFetcher()
+  const { fetchData, lookupMaps } = useEnrichedListFetch(fetchOrders, extractors)
+  const [tableKey, setTableKey] = useState(0)
+  const [syncingAll, setSyncingAll] = useState(false)
+  const [syncingDocEntry, setSyncingDocEntry] = useState<number | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [syncProgress, setSyncProgress] = useState<string | null>(null)
+  const [branchMap, setBranchMap] = useState<Record<number, string>>({})
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current != null) {
+      clearInterval(pollTimerRef.current)
+      pollTimerRef.current = null
+    }
+  }, [])
+
+  const finishSyncUi = useCallback((message: string | null, error: string | null) => {
+    stopPolling()
+    setSyncingAll(false)
+    setSyncProgress(null)
+    if (error) {
+      setSyncError(error)
+      toast.error(error)
+      return
+    }
+    setSyncError(null)
+    if (message) toast.success(message)
+    setTableKey((k) => k + 1)
+  }, [stopPolling])
+
+  const pollSyncStatus = useCallback(async () => {
+    try {
+      const status = await getPurchaseRequestSyncStatus()
+      if (!status) return
+
+      if (isRunningStatus(status.status)) {
+        setSyncingAll(true)
+        setSyncProgress(status.message || 'Full sync running…')
+        return
+      }
+
+      if (status.status === 'Succeeded') {
+        finishSyncUi(status.message || 'Full sync completed.', null)
+        return
+      }
+
+      if (status.status === 'Failed') {
+        finishSyncUi(null, status.message || 'Full sync failed.')
+        return
+      }
+
+      // Idle after we started a job — stop UI spinner.
+      stopPolling()
+      setSyncingAll(false)
+      setSyncProgress(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to read sync status'
+      finishSyncUi(null, message)
+    }
+  }, [finishSyncUi, stopPolling])
+
+  const startPolling = useCallback(() => {
+    stopPolling()
+    pollTimerRef.current = setInterval(() => {
+      void pollSyncStatus()
+    }, SYNC_POLL_MS)
+  }, [pollSyncStatus, stopPolling])
+
+  useEffect(() => {
+    void getBranchesApi()
+      .then((branches) => {
+        const map: Record<number, string> = {}
+        for (const branch of branches ?? []) {
+          map[branch.id] = branch.name
+        }
+        setBranchMap(map)
+      })
+      .catch(() => setBranchMap({}))
+  }, [])
+
+  // Resume progress UI if a Hangfire job is already running when the page loads.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const status = await getPurchaseRequestSyncStatus()
+        if (cancelled || !status || !isRunningStatus(status.status)) return
+        setSyncingAll(true)
+        setSyncProgress(status.message || 'Full sync running…')
+        if (pollTimerRef.current == null) {
+          pollTimerRef.current = setInterval(() => {
+            void pollSyncStatus()
+          }, SYNC_POLL_MS)
+        }
+      } catch {
+        // Ignore — user can still trigger sync manually.
+      }
+    })()
+    return () => {
+      cancelled = true
+      stopPolling()
+    }
+    // Only on mount: pollSyncStatus/stopPolling are stable enough for the interval callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleSyncAll = useCallback(async () => {
+    setSyncError(null)
+    setSyncProgress('Starting full sync…')
+    setSyncingAll(true)
+    try {
+      const started = await enqueueFullPurchaseRequestSyncJob()
+      setSyncProgress(started.message || 'Full sync job queued…')
+      startPolling()
+      await pollSyncStatus()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to start sync'
+      finishSyncUi(null, message)
+    }
+  }, [finishSyncUi, pollSyncStatus, startPolling])
+
+  const handleSyncRow = useCallback(async (docEntry: number) => {
+    setSyncingDocEntry(docEntry)
+    setSyncError(null)
+    try {
+      const result = await syncPurchaseRequestFromSap(docEntry)
+      toast.success(result.message)
+      setTableKey((k) => k + 1)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Row sync failed'
+      setSyncError(message)
+      toast.error(message)
+    } finally {
+      setSyncingDocEntry(null)
+    }
+  }, [])
+
+  const handleCancelRow = useCallback(async (docEntry: number) => {
+    const ok = window.confirm(`Cancel purchase request ${docEntry} in SAP?`)
+    if (!ok) return
+    setSyncingDocEntry(docEntry)
+    setSyncError(null)
+    try {
+      await cancelPurchaseRequest(docEntry)
+      toast.success('Purchase request cancelled.')
+      setTableKey((k) => k + 1)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Cancel failed'
+      setSyncError(message)
+      toast.error(message)
+    } finally {
+      setSyncingDocEntry(null)
+    }
+  }, [])
+
+  const resolveBranchLabel = useCallback(
+    (order: Pick<PurchaseRequest, 'BPLId' | 'BPL_IDAssignedToInvoice'>) => {
+      const bplId = getPurchaseRequestBranchId(order)
+      if (bplId == null) return '—'
+      return branchMap[bplId] ?? String(bplId)
+    },
+    [branchMap],
+  )
+
+  const columns = useMemo<DataTableColumn<PurchaseRequest>[]>(() => [
+    { key: 'DocEntry', header: 'Doc Entry', sortable: true, filterable: true, accessor: (r) => r.DocEntry },
+    { key: 'DocNum', header: 'Doc Num', sortable: true, filterable: true, accessor: (r) => r.DocNum },
+    {
+      key: 'DocDate',
+      header: 'PR Date',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => (r.DocDate ? formatPoDisplayDate(r.DocDate) : '—'),
+    },
+    {
+      key: 'BPLId',
+      header: 'Branch',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => resolveBranchLabel(r),
+    },
+    {
+      key: 'CardCode',
+      header: 'Business Partner',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => {
+        const lookup = lookupMaps.businessPartners[r.CardCode ?? '']
+        const name = lookup ?? r.CardName
+        return formatCodeWithName(r.CardCode, name)
+      },
+    },
+    {
+      key: 'Project',
+      header: 'Project',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => formatCodeWithName(r.Project, lookupMaps.projects[r.Project ?? '']),
+    },
+    {
+      key: 'Requester',
+      header: 'Requester',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => String(r.RequesterName || r.Requester || '—'),
+    },
+    {
+      key: 'DocTotal',
+      header: 'Value',
+      sortable: true,
+      headerClassName: 'text-right',
+      cellClassName: 'text-right tabular-nums',
+      accessor: (r) => formatPoValue(r.DocTotal),
+    },
+    {
+      key: 'DocumentStatus',
+      header: 'Status',
+      sortable: true,
+      filterable: true,
+      render: (r) => (
+        <Badge variant={r.DocumentStatus === 'bost_Open' ? 'success' : 'default'}>
+          {r.DocumentStatus === 'bost_Close' ? 'Close' : r.DocumentStatus === 'bost_Open' ? 'Open' : r.DocumentStatus ?? '-'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row) => {
+        const docEntry = row.DocEntry
+        const rowBusy = docEntry != null && syncingDocEntry === docEntry
+        // Do not gate on syncingAll — a stuck Hangfire Running status was disabling every row Sync.
+        // Only disable the row currently syncing so other rows stay actionable.
+        const syncDisabled = docEntry == null || syncingDocEntry === docEntry
+
+        return (
+          <RowActionsMenu
+            items={[
+              {
+                key: 'sync',
+                label: 'Sync from SAP',
+                disabled: syncDisabled,
+                icon: (
+                  <RefreshCw
+                    className={`${rowActionIconClassName}${rowBusy ? ' animate-spin' : ''}`}
+                  />
+                ),
+                onClick: () => docEntry != null && void handleSyncRow(docEntry),
+              },
+              {
+                key: 'edit',
+                label: 'Edit',
+                to: `${ROUTES.PURCHASE_REQUEST_FORM}/${row.DocEntry}`,
+                icon: <Pencil className={rowActionIconClassName} />,
+              },
+              {
+                key: 'cancel',
+                label: 'Cancel in SAP',
+                disabled: docEntry == null || row.DocumentStatus === 'bost_Close',
+                icon: <Ban className={rowActionIconClassName} />,
+                onClick: () => docEntry != null && void handleCancelRow(docEntry),
+              },
+            ]}
+          />
+        )
+      },
+    },
+  ], [lookupMaps, syncingDocEntry, syncingAll, handleSyncRow, handleCancelRow, resolveBranchLabel])
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Purchase Requests"
+        description="Local database is the read source. Sync fills missing DocEntry gaps, then imports purchase requests newer than the local max."
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              data-testid="purchase-request-sync"
+              onClick={() => void handleSyncAll()}
+              isLoading={syncingAll}
+              disabled={syncingDocEntry != null}
+              leftIcon={<RefreshCw className="h-4 w-4" />}
+            >
+              Sync from SAP
+            </Button>
+            <Link to={ROUTES.PURCHASE_REQUEST_FORM} data-testid="purchase-request-add">
+              <Button>Add New</Button>
+            </Link>
+          </div>
+        }
+      />
+      {syncProgress && <p className="text-sm text-slate-500">{syncProgress}</p>}
+      {syncError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {syncError}
+        </div>
+      )}
+      <DataTable
+        key={tableKey}
+        columns={columns}
+        fetchData={fetchData}
+        getRowKey={(r) => r.DocEntry ?? r.DocNum ?? Math.random()}
+        initialSorts={[{ field: 'DocEntry', direction: 'desc' }]}
+        defaultPageSize={100}
+        pageSizeOptions={[10, 20, 50, 100]}
+      />
+    </div>
+  )
+}

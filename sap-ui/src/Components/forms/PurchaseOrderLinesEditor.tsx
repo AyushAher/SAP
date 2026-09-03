@@ -506,7 +506,7 @@ export function PurchaseOrderLinesEditor({
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-slate-700">{resolvedTitle}</h3>
         {!readOnly ? (
-          <Button type="button" size="sm" onClick={openAddDialog}>
+          <Button type="button" size="sm" onClick={openAddDialog} data-testid="document-line-add">
             <Plus className="mr-1.5 h-4 w-4" />
             {isService ? 'Add Service' : 'Add Item'}
           </Button>
@@ -552,7 +552,7 @@ export function PurchaseOrderLinesEditor({
             <Button type="button" variant="outline" onClick={closeDialog}>
               Cancel
             </Button>
-            <Button type="button" onClick={handleSaveLine}>
+            <Button type="button" onClick={handleSaveLine} data-testid="document-line-save">
               {isEditing ? 'Save Changes' : (isService ? 'Add Service' : 'Add Item')}
             </Button>
           </div>

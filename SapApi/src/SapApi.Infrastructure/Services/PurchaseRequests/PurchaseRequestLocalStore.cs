@@ -1,0 +1,947 @@
+using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using SapApi.Domain.Entities;
+using SapApi.Domain.Interfaces;
+using SapApi.Infrastructure.Persistence;
+using SapApi.Infrastructure.Sap;
+using SapApi.Infrastructure.Services.Sap;
+using SapApi.Shared;
+using SapApi.Shared.Exceptions;
+using SapApi.Shared.Models;
+using SapApi.Shared.Responses.Sap;
+using Serilog;
+
+namespace SapApi.Infrastructure.Services.PurchaseRequests;
+
+public record PurchaseRequestSyncResult(
+    string CompanyDb,
+    int UpsertedCount,
+    int PageCount,
+    DateTime SyncedAtUtc,
+    string Message,
+    string Mode = "full",
+    int AddedCount = 0,
+    int UpdatedCount = 0,
+    int? DocEntry = null,
+    /// <summary>True when the batch stopped early and the caller should sync again to continue.</summary>
+    bool HasMore = false,
+    /// <summary>Highest DocEntry processed — pass back as afterDocEntry to resume.</summary>
+    int? LastDocEntry = null,
+    string Status = PurchaseRequestSyncState.StatusIdle,
+    string? HangfireJobId = null,
+    DateTime? StartedAtUtc = null);
+
+public class PurchaseRequestLocalStore(
+    AppDbContext db,
+    IHttpRequestHandler requestHandler,
+    ICurrentCompanyDbAccessor companyDbAccessor,
+    SapMasterDataService masterDataService)
+{
+    private string CompanyDb => companyDbAccessor.GetCompanyDbName();
+
+    public async Task<PaginationResponse<List<SapPurchaseRequestsResponse>>> ListFromDbAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var query = db.PurchaseRequests
+            .AsNoTracking()
+            .Where(x => x.CompanyDb == CompanyDb);
+
+        var (queryWithFilters, remainingFilters) = await ApplyPurchaseRequestListFiltersAsync(
+            query,
+            request.Filters,
+            cancellationToken);
+        query = queryWithFilters;
+
+        if (request.Sorts.Count == 0)
+            query = query.OrderByDescending(x => x.DocEntry);
+
+        var listRequest = new PaginationRequest
+        {
+            PageNumber = request.PageNumber,
+            PageSize = request.PageSize,
+            Sorts = request.Sorts,
+            Filters = remainingFilters,
+        };
+
+        var (items, totalCount) = await query.ToPaginatedListAsync(listRequest, cancellationToken);
+        var data = items.Select(e => PurchaseRequestMapper.ToSapResponse(e, includeLines: false)).ToList();
+        return PaginationResponseFactory.Create(request, data, totalCount);
+    }
+
+    public async Task<SapPurchaseRequestsResponse?> GetFromDbAsync(
+        int docEntry,
+        bool includeLines,
+        CancellationToken cancellationToken = default)
+    {
+        var query = db.PurchaseRequests.AsNoTracking().Where(x => x.CompanyDb == CompanyDb && x.DocEntry == docEntry);
+        query = includeLines
+            ? query.Include(x => x.Lines).Include(x => x.PaymentTerms)
+            : query.Include(x => x.PaymentTerms);
+
+        var entity = await query.FirstOrDefaultAsync(cancellationToken);
+        return entity is null ? null : PurchaseRequestMapper.ToSapResponse(entity, includeLines);
+    }
+
+    public async Task UpsertFromSapAsync(SapPurchaseRequestsResponse sap, CancellationToken cancellationToken = default)
+    {
+        if (sap.DocEntry is null or <= 0)
+            return;
+
+        var now = DateTime.UtcNow;
+        // Ignore soft-delete filter: row sync must revive an existing DocEntry and replace lines.
+        // DbContext is globally NoTracking — track this row so header fields (DocTotal, VatSum, …) persist.
+        var entity = await db.PurchaseRequests
+            .IgnoreQueryFilters()
+            .AsTracking()
+            .Include(x => x.Lines)
+            .Include(x => x.PaymentTerms)
+            .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == sap.DocEntry.Value, cancellationToken);
+
+        if (entity is null)
+        {
+            entity = new PurchaseRequest
+            {
+                CompanyDb = CompanyDb,
+                DocEntry = sap.DocEntry.Value,
+                CreatedOn = now,
+            };
+            db.PurchaseRequests.Add(entity);
+            PurchaseRequestMapper.ApplyHeader(entity, sap, now);
+            await db.SaveChangesAsync(cancellationToken);
+
+            entity.Lines = PurchaseRequestMapper.MapLines(entity.Id, sap.DocumentLines);
+            entity.PaymentTerms = PurchaseRequestMapper.MapPaymentTerms(entity.Id, sap);
+            await db.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        PurchaseRequestMapper.ApplyHeader(entity, sap, now);
+        await ReplaceChildRowsFromSapAsync(entity, sap, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// SAP sync replaces the full local snapshot. Hard-delete existing children so soft-delete
+    /// and partial unique indexes cannot block re-sync with the same LineNum / Slot values.
+    /// </summary>
+    private async Task ReplaceChildRowsFromSapAsync(
+        PurchaseRequest entity,
+        SapPurchaseRequestsResponse sap,
+        CancellationToken cancellationToken)
+    {
+        var purchaseRequestId = entity.Id;
+
+        // ExecuteDeleteAsync bypasses the change tracker — detach stale children so SaveChanges
+        // cannot resurrect rows that were hard-deleted from Postgres.
+        foreach (var line in entity.Lines.ToList())
+            db.Entry(line).State = EntityState.Detached;
+        foreach (var term in entity.PaymentTerms.ToList())
+            db.Entry(term).State = EntityState.Detached;
+        entity.Lines.Clear();
+        entity.PaymentTerms.Clear();
+
+        if (db.Database.IsRelational())
+        {
+            await db.PurchaseRequestLines
+                .IgnoreQueryFilters()
+                .Where(x => x.PurchaseRequestId == purchaseRequestId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            await db.PurchaseRequestPaymentTerms
+                .IgnoreQueryFilters()
+                .Where(x => x.PurchaseRequestId == purchaseRequestId)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+        else
+        {
+            // InMemory provider does not support ExecuteDeleteAsync; soft-delete replace is enough for tests.
+            var existingLines = await db.PurchaseRequestLines
+                .IgnoreQueryFilters()
+                .Where(x => x.PurchaseRequestId == purchaseRequestId)
+                .ToListAsync(cancellationToken);
+            db.PurchaseRequestLines.RemoveRange(existingLines);
+
+            var existingTerms = await db.PurchaseRequestPaymentTerms
+                .IgnoreQueryFilters()
+                .Where(x => x.PurchaseRequestId == purchaseRequestId)
+                .ToListAsync(cancellationToken);
+            db.PurchaseRequestPaymentTerms.RemoveRange(existingTerms);
+        }
+
+        var newLines = PurchaseRequestMapper.MapLines(purchaseRequestId, sap.DocumentLines);
+        var newTerms = PurchaseRequestMapper.MapPaymentTerms(purchaseRequestId, sap);
+        entity.Lines = newLines;
+        entity.PaymentTerms = newTerms;
+        db.PurchaseRequestLines.AddRange(newLines);
+        db.PurchaseRequestPaymentTerms.AddRange(newTerms);
+    }
+
+    /// <summary>
+    /// Pulls complete PO detail from SAP for one DocEntry and upserts the local row.
+    /// </summary>
+    public async Task<PurchaseRequestSyncResult> SyncOneFromSapAsync(
+        int docEntry,
+        CancellationToken cancellationToken = default)
+    {
+        if (docEntry <= 0)
+            throw new ArgumentOutOfRangeException(nameof(docEntry));
+
+        var existed = await db.PurchaseRequests.AsNoTracking()
+            .IgnoreQueryFilters()
+            .AnyAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == docEntry, cancellationToken);
+
+        var detail = await requestHandler.GetOrThrowAsync<SapPurchaseRequestsResponse>(
+            Constants.SapApiUrls.UpdateSapPurchaseRequests(docEntry),
+            cancellationToken);
+
+        if (detail?.DocEntry is null)
+            throw new ApiErrorException(
+                BaseErrorCodes.ValidationFailed,
+                $"Purchase order DocEntry {docEntry} was not found in SAP.");
+
+        await UpsertFromSapAsync(detail, cancellationToken);
+
+        var syncedAt = DateTime.UtcNow;
+        var added = existed ? 0 : 1;
+        var updated = existed ? 1 : 0;
+        var message = existed
+            ? $"Updated purchase request {docEntry} from SAP."
+            : $"Added purchase request {docEntry} from SAP.";
+
+        Log.Information(
+            "Purchase order row sync for {CompanyDb} DocEntry {DocEntry}: {Action}",
+            CompanyDb,
+            docEntry,
+            existed ? "updated" : "added");
+
+        return new PurchaseRequestSyncResult(
+            CompanyDb,
+            UpsertedCount: 1,
+            PageCount: 1,
+            SyncedAtUtc: syncedAt,
+            Message: message,
+            Mode: "one",
+            AddedCount: added,
+            UpdatedCount: updated,
+            DocEntry: docEntry);
+    }
+
+    /// <summary>
+    /// Each purchase request needs its own SAP detail call, so an unbounded sync runs for minutes and
+    /// is killed by the reverse proxy (nginx defaults to a 60s read timeout) with a 504. Work is
+    /// therefore capped per request and the caller resumes with <c>afterDocEntry</c>.
+    /// </summary>
+    private const int MaxRecordsPerBatch = 400;
+
+    private static readonly TimeSpan BatchTimeBudget = TimeSpan.FromSeconds(25);
+
+    /// <summary>
+    /// Incremental sync: only DocEntries greater than the highest already stored locally.
+    /// When the local table is empty, this imports all POs from SAP.
+    /// </summary>
+    public Task<PurchaseRequestSyncResult> SyncNewFromSapAsync(
+        int? afterDocEntry = null,
+        CancellationToken cancellationToken = default) =>
+        SyncFromSapInternalAsync(newOnly: true, afterDocEntry, cancellationToken);
+
+    /// <summary>Full re-sync of every PO from SAP into the local table.</summary>
+    public Task<PurchaseRequestSyncResult> SyncAllFromSapAsync(
+        int? afterDocEntry = null,
+        CancellationToken cancellationToken = default) =>
+        SyncFromSapInternalAsync(newOnly: false, afterDocEntry, cancellationToken);
+
+    /// <summary>
+    /// Finds integer holes between consecutive local DocEntries and pulls those numbers from SAP
+    /// when they exist. Resume with <paramref name="afterDocEntry"/> (exclusive). When done,
+    /// <see cref="PurchaseRequestSyncResult.HasMore"/> is false — caller should then run
+    /// <see cref="SyncNewFromSapAsync"/>.
+    /// </summary>
+    public async Task<PurchaseRequestSyncResult> SyncMissingGapsFromSapAsync(
+        int? afterDocEntry = null,
+        CancellationToken cancellationToken = default)
+    {
+        var syncedAt = DateTime.UtcNow;
+        var added = 0;
+        var updated = 0;
+        var skippedAbsent = 0;
+        var hasMore = false;
+        var afterExclusive = afterDocEntry ?? 0;
+        var lastDocEntry = afterExclusive;
+        var stopwatch = Stopwatch.StartNew();
+
+        var sorted = await db.PurchaseRequests
+            .AsNoTracking()
+            .Where(x => x.CompanyDb == CompanyDb)
+            .Select(x => x.DocEntry)
+            .OrderBy(x => x)
+            .ToListAsync(cancellationToken);
+
+        if (sorted.Count < 2)
+        {
+            var message = sorted.Count == 0
+                ? "No local purchase requests yet; skipping gap fill."
+                : "Only one local purchase request; no sequence gaps to fill.";
+            await SaveSyncStateAsync(syncedAt, 0, message, cancellationToken, sorted.LastOrDefault());
+            return new PurchaseRequestSyncResult(
+                CompanyDb,
+                UpsertedCount: 0,
+                PageCount: 0,
+                SyncedAtUtc: syncedAt,
+                Message: message,
+                Mode: "gaps",
+                HasMore: false,
+                LastDocEntry: sorted.LastOrDefault());
+        }
+
+        try
+        {
+            foreach (var missing in EnumerateIntegerGaps(sorted, afterExclusive))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                lastDocEntry = missing;
+
+                var existed = false; // gap by definition is not local
+                var detail = await TryGetPurchaseRequestDetailAsync(missing, cancellationToken);
+                if (detail?.DocEntry is null)
+                {
+                    skippedAbsent++;
+                }
+                else
+                {
+                    await UpsertFromSapAsync(detail, cancellationToken);
+                    added++;
+                }
+
+                if (added + updated + skippedAbsent >= MaxRecordsPerBatch
+                    || stopwatch.Elapsed >= BatchTimeBudget)
+                {
+                    // More gap numbers may remain after this candidate.
+                    hasMore = EnumerateIntegerGaps(sorted, missing).Any();
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var failureMessage =
+                $"Gap sync failed after {added + updated} record(s) ({added} added, {skippedAbsent} absent in SAP): {ex.Message}";
+            await SaveSyncStateAsync(syncedAt, added + updated, failureMessage, cancellationToken, lastDocEntry);
+            Log.Error(
+                ex,
+                "Purchase order gap sync failed for {CompanyDb} after added={Added}, skippedAbsent={Skipped}",
+                CompanyDb,
+                added,
+                skippedAbsent);
+            throw;
+        }
+
+        var upserted = added + updated;
+        var doneMessage = hasMore
+            ? $"Filled {upserted} gap DocEntry(ies) ({skippedAbsent} absent in SAP) up to {lastDocEntry}. More gaps remaining."
+            : upserted == 0 && skippedAbsent == 0
+                ? "No missing DocEntry gaps in the local sequence."
+                : $"Gap fill complete: {upserted} restored from SAP ({skippedAbsent} hole(s) had no SAP document).";
+
+        await SaveSyncStateAsync(syncedAt, upserted, doneMessage, cancellationToken, lastDocEntry);
+
+        Log.Information(
+            "Purchase order gap sync for {CompanyDb}: added={Added}, skippedAbsent={Skipped}, hasMore={HasMore}, lastDocEntry={LastDocEntry}",
+            CompanyDb,
+            added,
+            skippedAbsent,
+            hasMore,
+            lastDocEntry);
+
+        return new PurchaseRequestSyncResult(
+            CompanyDb,
+            UpsertedCount: upserted,
+            PageCount: 0,
+            SyncedAtUtc: syncedAt,
+            Message: doneMessage,
+            Mode: "gaps",
+            AddedCount: added,
+            UpdatedCount: updated,
+            HasMore: hasMore,
+            LastDocEntry: lastDocEntry);
+    }
+
+    /// <summary>
+    /// Yields exclusive integer holes between consecutive sorted DocEntries, greater than
+    /// <paramref name="afterExclusive"/>.
+    /// </summary>
+    public static IEnumerable<int> EnumerateIntegerGaps(IReadOnlyList<int> sortedDocEntries, int afterExclusive)
+    {
+        for (var i = 0; i < sortedDocEntries.Count - 1; i++)
+        {
+            var from = sortedDocEntries[i];
+            var to = sortedDocEntries[i + 1];
+            if (to - from <= 1)
+                continue;
+
+            var start = Math.Max(from + 1, afterExclusive + 1);
+            for (var missing = start; missing < to; missing++)
+                yield return missing;
+        }
+    }
+
+    private async Task<SapPurchaseRequestsResponse?> TryGetPurchaseRequestDetailAsync(
+        int docEntry,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await requestHandler.GetOrThrowAsync<SapPurchaseRequestsResponse>(
+                Constants.SapApiUrls.UpdateSapPurchaseRequests(docEntry),
+                cancellationToken);
+        }
+        catch (ApiErrorException ex)
+        {
+            // Sequence holes are often numbers that never existed as POs in SAP.
+            Log.Debug(
+                ex,
+                "No SAP purchase request for DocEntry {DocEntry} while filling local sequence gaps",
+                docEntry);
+            return null;
+        }
+    }
+
+    private async Task<PurchaseRequestSyncResult> SyncFromSapInternalAsync(
+        bool newOnly,
+        int? afterDocEntry,
+        CancellationToken cancellationToken)
+    {
+        var syncedAt = DateTime.UtcNow;
+        var added = 0;
+        var updated = 0;
+        var pages = 0;
+        var hasMore = false;
+
+        // Resume point: explicit cursor wins, otherwise incremental starts after the local max.
+        var startDocEntry = afterDocEntry
+            ?? (newOnly ? await GetMaxLocalDocEntryAsync(cancellationToken) : 0);
+        var lastDocEntry = startDocEntry;
+
+        var url = BuildSyncStartUrl(startDocEntry);
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            while (!string.IsNullOrWhiteSpace(url))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                pages++;
+
+                // GetOrThrowAsync: a swallowed failure here would end the loop early and be
+                // reported to the user as a successful sync that imported nothing.
+                var page = await requestHandler.GetOrThrowAsync<GetAllSapPurchaseRequestsResponse>(url, cancellationToken);
+
+                if (page?.Value is null)
+                    throw new ApiErrorException(
+                        BaseErrorCodes.ValidationFailed,
+                        "SAP did not return a purchase request list. The sync was stopped so no records are silently skipped.");
+
+                if (page.Value.Count == 0)
+                    break;
+
+                foreach (var header in page.Value)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (header.DocEntry is null or <= 0)
+                        continue;
+
+                    var existed = await db.PurchaseRequests.AsNoTracking()
+                        .AnyAsync(x => x.CompanyDb == CompanyDb && x.DocEntry == header.DocEntry.Value, cancellationToken);
+
+                    // Collection responses often omit DocumentLines / full UDFs — fetch complete doc.
+                    var detail = await requestHandler.GetOrThrowAsync<SapPurchaseRequestsResponse>(
+                        Constants.SapApiUrls.UpdateSapPurchaseRequests(header.DocEntry),
+                        cancellationToken);
+
+                    if (detail?.DocEntry is null)
+                        throw new ApiErrorException(
+                            BaseErrorCodes.ValidationFailed,
+                            $"SAP returned no detail for purchase request DocEntry {header.DocEntry}. "
+                            + $"Sync stopped after {added + updated} record(s) so nothing is silently skipped.");
+
+                    await UpsertFromSapAsync(detail, cancellationToken);
+                    lastDocEntry = header.DocEntry.Value;
+                    if (existed)
+                        updated++;
+                    else
+                        added++;
+
+                    if (added + updated >= MaxRecordsPerBatch || stopwatch.Elapsed >= BatchTimeBudget)
+                    {
+                        hasMore = true;
+                        break;
+                    }
+                }
+
+                if (hasMore)
+                    break;
+
+                url = ResolveNextLink(page.ODataNextLink);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Records already upserted stay committed; record the failure so the status line
+            // cannot keep showing the previous successful sync.
+            var failureMessage =
+                $"Sync failed after {added + updated} record(s) ({added} added, {updated} updated): {ex.Message}";
+            await SaveSyncStateAsync(syncedAt, added + updated, failureMessage, cancellationToken, lastDocEntry);
+
+            Log.Error(
+                ex,
+                "Purchase order {Mode} sync failed for {CompanyDb} after added={Added}, updated={Updated}, pages={Pages}",
+                newOnly ? "new" : "full",
+                CompanyDb,
+                added,
+                updated,
+                pages);
+            throw;
+        }
+
+        var upserted = added + updated;
+        var mode = newOnly ? "new" : "full";
+        var message = BuildSyncMessage(newOnly, hasMore, added, updated, pages, startDocEntry, lastDocEntry);
+
+        await SaveSyncStateAsync(syncedAt, upserted, message, cancellationToken, lastDocEntry);
+
+        Log.Information(
+            "Purchase order {Mode} sync batch for {CompanyDb}: added={Added}, updated={Updated}, pages={Pages}, hasMore={HasMore}, lastDocEntry={LastDocEntry}",
+            mode,
+            CompanyDb,
+            added,
+            updated,
+            pages,
+            hasMore,
+            lastDocEntry);
+
+        return new PurchaseRequestSyncResult(
+            CompanyDb,
+            UpsertedCount: upserted,
+            PageCount: pages,
+            SyncedAtUtc: syncedAt,
+            Message: message,
+            Mode: mode,
+            AddedCount: added,
+            UpdatedCount: updated,
+            HasMore: hasMore,
+            LastDocEntry: lastDocEntry);
+    }
+
+    private async Task<int> GetMaxLocalDocEntryAsync(CancellationToken cancellationToken) =>
+        await db.PurchaseRequests
+            .AsNoTracking()
+            .Where(x => x.CompanyDb == CompanyDb)
+            .Select(x => (int?)x.DocEntry)
+            .MaxAsync(cancellationToken) ?? 0;
+
+    private static string BuildSyncMessage(
+        bool newOnly,
+        bool hasMore,
+        int added,
+        int updated,
+        int pages,
+        int startDocEntry,
+        int lastDocEntry)
+    {
+        var upserted = added + updated;
+
+        if (hasMore)
+            return $"Synced {upserted} purchase request(s) ({added} added, {updated} updated) up to DocEntry {lastDocEntry}. More remaining.";
+
+        if (newOnly)
+            return upserted == 0
+                ? $"No new purchase requests in SAP (local max DocEntry {startDocEntry})."
+                : $"Added {added} new purchase request(s) from SAP (after DocEntry {startDocEntry}).";
+
+        return $"Synced {upserted} purchase request(s) ({added} added, {updated} updated) across {pages} page(s).";
+    }
+
+    /// <summary>
+    /// If a Hangfire worker dies mid-job, Status can stay Running forever and the PO list UI
+    /// treats full sync as in progress. Expire stale Running jobs so row sync / Sync All recover.
+    /// </summary>
+    private static readonly TimeSpan StaleFullSyncTimeout = TimeSpan.FromHours(2);
+
+    public async Task<PurchaseRequestSyncResult?> GetSyncStateAsync(CancellationToken cancellationToken = default)
+    {
+        await RecoverStaleFullSyncIfNeededAsync(cancellationToken);
+
+        var state = await db.PurchaseRequestSyncStates.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb, cancellationToken);
+        if (state is null)
+            return null;
+
+        return new PurchaseRequestSyncResult(
+            state.CompanyDb,
+            state.LastSyncedCount ?? 0,
+            0,
+            state.LastSyncedAtUtc ?? DateTime.MinValue,
+            state.LastSyncMessage ?? string.Empty,
+            Mode: "status",
+            LastDocEntry: state.LastDocEntry,
+            Status: string.IsNullOrWhiteSpace(state.Status) ? PurchaseRequestSyncState.StatusIdle : state.Status,
+            HangfireJobId: state.HangfireJobId,
+            StartedAtUtc: state.StartedAtUtc);
+    }
+
+    private async Task RecoverStaleFullSyncIfNeededAsync(CancellationToken cancellationToken)
+    {
+        var state = await db.PurchaseRequestSyncStates
+            .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb, cancellationToken);
+        if (state is null)
+            return;
+        if (!string.Equals(state.Status, PurchaseRequestSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var started = state.StartedAtUtc ?? state.LastSyncedAtUtc;
+        if (started is null || DateTime.UtcNow - started.Value < StaleFullSyncTimeout)
+            return;
+
+        state.Status = PurchaseRequestSyncState.StatusFailed;
+        state.LastSyncedAtUtc = DateTime.UtcNow;
+        state.LastSyncMessage =
+            $"Full sync marked failed: still Running after {StaleFullSyncTimeout.TotalHours:0}h "
+            + $"(started {started:u}). The worker likely stopped without finishing.";
+
+        if (db.Entry(state).State == EntityState.Detached)
+            db.PurchaseRequestSyncStates.Attach(state);
+        db.Entry(state).Property(x => x.Status).IsModified = true;
+        db.Entry(state).Property(x => x.LastSyncedAtUtc).IsModified = true;
+        db.Entry(state).Property(x => x.LastSyncMessage).IsModified = true;
+
+        await db.SaveChangesAsync(cancellationToken);
+        Log.Warning(
+            "Cleared stale PO full sync Running status for {CompanyDb} (started {StartedAtUtc})",
+            CompanyDb,
+            started);
+    }
+
+    /// <summary>
+    /// Marks the company sync as Running for a Hangfire full sync. Returns false if already Running.
+    /// </summary>
+    public async Task<bool> TryBeginFullSyncJobAsync(
+        string? hangfireJobId,
+        CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        if (string.Equals(state.Status, PurchaseRequestSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        state.Status = PurchaseRequestSyncState.StatusRunning;
+        state.HangfireJobId = hangfireJobId;
+        state.StartedAtUtc = DateTime.UtcNow;
+        state.LastDocEntry = null;
+                state.LastSyncMessage = "Sync job queued (fill DocEntry gaps, then sync newer than local max).";
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task SetFullSyncJobIdAsync(string hangfireJobId, CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        state.HangfireJobId = hangfireJobId;
+        if (!string.Equals(state.Status, PurchaseRequestSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+            state.Status = PurchaseRequestSyncState.StatusRunning;
+        if (state.StartedAtUtc is null)
+            state.StartedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task UpdateFullSyncProgressAsync(
+        PurchaseRequestSyncResult batch,
+        int totalAdded,
+        int totalUpdated,
+        int batchNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        state.Status = PurchaseRequestSyncState.StatusRunning;
+        state.LastSyncedAtUtc = batch.SyncedAtUtc;
+        state.LastSyncedCount = totalAdded + totalUpdated;
+        state.LastDocEntry = batch.LastDocEntry;
+        state.LastSyncMessage = batch.HasMore
+            ? $"Running batch {batchNumber}: synced {totalAdded + totalUpdated} so far "
+              + $"({totalAdded} added, {totalUpdated} updated) up to DocEntry {batch.LastDocEntry}."
+            : $"Running batch {batchNumber}: synced {totalAdded + totalUpdated} "
+              + $"({totalAdded} added, {totalUpdated} updated).";
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkFullSyncSucceededAsync(
+        int totalAdded,
+        int totalUpdated,
+        int? lastDocEntry,
+        CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        var total = totalAdded + totalUpdated;
+        state.Status = PurchaseRequestSyncState.StatusSucceeded;
+        state.LastSyncedAtUtc = DateTime.UtcNow;
+        state.LastSyncedCount = total;
+        state.LastDocEntry = lastDocEntry;
+        state.LastSyncMessage = total == 0
+            ? "Sync completed: no new purchase requests after the latest local DocEntry."
+            : $"Sync completed: {total} purchase request(s) ({totalAdded} added, {totalUpdated} updated).";
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkFullSyncFailedAsync(string message, CancellationToken cancellationToken = default)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+        state.Status = PurchaseRequestSyncState.StatusFailed;
+        state.LastSyncedAtUtc = DateTime.UtcNow;
+        state.LastSyncMessage = message.Length > 2000 ? message[..2000] : message;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<PurchaseRequestSyncState> GetOrCreateSyncStateAsync(CancellationToken cancellationToken)
+    {
+        var state = await db.PurchaseRequestSyncStates
+            .FirstOrDefaultAsync(x => x.CompanyDb == CompanyDb, cancellationToken);
+        if (state is not null)
+            return state;
+
+        state = new PurchaseRequestSyncState
+        {
+            CompanyDb = CompanyDb,
+            Status = PurchaseRequestSyncState.StatusIdle,
+        };
+        db.PurchaseRequestSyncStates.Add(state);
+        await db.SaveChangesAsync(cancellationToken);
+        return state;
+    }
+
+    private async Task SaveSyncStateAsync(
+        DateTime syncedAt,
+        int count,
+        string message,
+        CancellationToken cancellationToken,
+        int? lastDocEntry = null)
+    {
+        var state = await GetOrCreateSyncStateAsync(cancellationToken);
+
+        state.LastSyncedAtUtc = syncedAt;
+        state.LastSyncedCount = count;
+        state.LastSyncMessage = message;
+        if (lastDocEntry is not null)
+            state.LastDocEntry = lastDocEntry;
+
+        // Do not clobber an in-flight Hangfire job status from synchronous batch endpoints.
+        if (!string.Equals(state.Status, PurchaseRequestSyncState.StatusRunning, StringComparison.OrdinalIgnoreCase))
+            state.Status = PurchaseRequestSyncState.StatusIdle;
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Column filters that need cross-field or master-data matching (contains, not prefix-only).
+    /// </summary>
+    private async Task<(IQueryable<PurchaseRequest> Query, List<FilterModel> RemainingFilters)> ApplyPurchaseRequestListFiltersAsync(
+        IQueryable<PurchaseRequest> query,
+        List<FilterModel> filters,
+        CancellationToken cancellationToken)
+    {
+        var remaining = new List<FilterModel>();
+
+        foreach (var filter in filters)
+        {
+            if (filter.Value is null || string.IsNullOrWhiteSpace(filter.Value.ToString()))
+                continue;
+
+            var term = filter.Value.ToString()!.Trim();
+            var termLower = term.ToLowerInvariant();
+
+            if (filter.Field.Equals("CardCode", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x =>
+                    (x.CardCode != null && x.CardCode.ToLower().Contains(termLower)) ||
+                    (x.CardName != null && x.CardName.ToLower().Contains(termLower)));
+                continue;
+            }
+
+            if (filter.Field.Equals("Project", StringComparison.OrdinalIgnoreCase))
+            {
+                // Match mid-string on project code (local) and project name (via master lookup of
+                // codes used on this company's POs). Do not rely on Projects $search alone —
+                // code-like name keywords previously used startswith(Name) and missed mid words.
+                var matchingCodes = await ResolveProjectCodesMatchingSearchAsync(term, cancellationToken);
+                if (matchingCodes.Count == 0)
+                {
+                    query = query.Where(x => false);
+                }
+                else
+                {
+                    query = query.Where(x => x.Project != null && matchingCodes.Contains(x.Project));
+                }
+
+                continue;
+            }
+
+            if (filter.Field.Equals("BPLId", StringComparison.OrdinalIgnoreCase))
+            {
+                var matchingBranchIds = await ResolveBranchIdsMatchingSearchAsync(term, cancellationToken);
+                if (matchingBranchIds.Count == 0)
+                {
+                    if (int.TryParse(term, out var branchId))
+                        query = query.Where(x => x.BPLId == branchId);
+                    else
+                        query = query.Where(x => false);
+                }
+                else
+                {
+                    query = query.Where(x => x.BPLId != null && matchingBranchIds.Contains(x.BPLId.Value));
+                }
+
+                continue;
+            }
+
+            remaining.Add(filter);
+        }
+
+        return (query, remaining);
+    }
+
+    private async Task<List<string>> ResolveProjectCodesMatchingSearchAsync(
+        string term,
+        CancellationToken cancellationToken)
+    {
+        var distinctCodes = await db.PurchaseRequests
+            .AsNoTracking()
+            .Where(x => x.CompanyDb == CompanyDb && x.Project != null && x.Project != "")
+            .Select(x => x.Project!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (distinctCodes.Count == 0)
+            return [];
+
+        var matches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var code in distinctCodes)
+        {
+            if (code.Contains(term, StringComparison.OrdinalIgnoreCase))
+                matches.Add(code);
+        }
+
+        // Resolve display names for codes that did not already match on the code itself.
+        var needsNameLookup = distinctCodes
+            .Where(code => !matches.Contains(code))
+            .ToList();
+        if (needsNameLookup.Count == 0)
+            return matches.ToList();
+
+        try
+        {
+            var lookup = await masterDataService.LookupMasterDataAsync(
+                new MasterLookupRequest { ProjectCodes = needsNameLookup },
+                cancellationToken);
+
+            foreach (var code in needsNameLookup)
+            {
+                if (lookup.Projects.TryGetValue(code, out var name)
+                    && !string.IsNullOrWhiteSpace(name)
+                    && name.Contains(term, StringComparison.OrdinalIgnoreCase))
+                {
+                    matches.Add(code);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "PO list project name lookup failed for term {Term}; using code matches only", term);
+        }
+
+        // Also union SAP Projects contains(Name) search (covers edge cases / naming quirks).
+        try
+        {
+            var page = await masterDataService.SearchProjectsAsync(
+                new PaginationRequest
+                {
+                    PageNumber = 1,
+                    PageSize = 100,
+                    Filters =
+                    [
+                        new FilterModel
+                        {
+                            Field = "__search",
+                            Operator = "contains",
+                            Value = term,
+                        },
+                    ],
+                },
+                cancellationToken);
+
+            foreach (var code in page.Data?
+                         .Select(p => p.ProjectCode)
+                         .Where(c => !string.IsNullOrWhiteSpace(c))
+                         .Select(c => c!)
+                     ?? [])
+            {
+                if (distinctCodes.Contains(code, StringComparer.OrdinalIgnoreCase))
+                    matches.Add(code);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "PO list Projects search failed for term {Term}", term);
+        }
+
+        return matches.ToList();
+    }
+
+    private async Task<List<int>> ResolveBranchIdsMatchingSearchAsync(
+        string term,
+        CancellationToken cancellationToken)
+    {
+        var termLower = term.ToLowerInvariant();
+        var branches = await masterDataService.ListBranchOptionsAsync(cancellationToken);
+        var matches = branches
+            .Where(branch =>
+                branch.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || branch.Id.ToString().Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Select(branch => branch.Id)
+            .Distinct()
+            .ToList();
+
+        if (matches.Count == 0 && int.TryParse(term, out var branchId))
+            matches.Add(branchId);
+
+        return matches;
+    }
+
+    private static string BuildSyncStartUrl(int minDocEntryExclusive)
+    {
+        var filter = minDocEntryExclusive > 0
+            ? $"&$filter=DocEntry gt {minDocEntryExclusive}"
+            : string.Empty;
+        return Constants.SapApiUrls.GetAllSapPurchaseRequests
+            + $"?$select=DocEntry&$orderby=DocEntry&$top=1000{filter}";
+    }
+
+    private static string? ResolveNextLink(string? nextLink)
+    {
+        if (string.IsNullOrWhiteSpace(nextLink))
+            return null;
+
+        if (nextLink.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            return nextLink;
+
+        var baseUrl = Constants.SapServiceLayerUrl.TrimEnd('/');
+
+        if (nextLink.StartsWith(Constants.SapBaseUrl, StringComparison.OrdinalIgnoreCase))
+            return baseUrl + nextLink;
+
+        if (nextLink.StartsWith('/'))
+            return baseUrl + nextLink;
+
+        // Relative to collection, e.g. "PurchaseRequests?$skiptoken=..."
+        if (nextLink.StartsWith("PurchaseRequests", StringComparison.OrdinalIgnoreCase))
+            return baseUrl + Constants.SapBaseUrl + "/" + nextLink.TrimStart('/');
+
+        return baseUrl + "/" + nextLink.TrimStart('/');
+    }
+}

@@ -123,6 +123,7 @@ namespace SapApi.Shared
         {
             [ApprovalDocumentType.None] = [],
             [ApprovalDocumentType.PurchaseOrder] = ["DocTotal"],
+            [ApprovalDocumentType.PurchaseRequest] = ["DocTotal"],
             [ApprovalDocumentType.ProductionOrder] = ["ItemNo", "PlannedQuantity", "CompletedQuantity", "Warehouse"],
             [ApprovalDocumentType.StagewisePayments_DP] = ["DocTotal"],
             [ApprovalDocumentType.Payments] = ["DocTotal"],
@@ -159,6 +160,12 @@ namespace SapApi.Shared
                 string[] booleanValues = [SapTrue, SapFalse];
                 return booleanValues.Where(x => x.Contains(arg)).ToList();
             }
+        }
+
+        public static class SapPurchaseRequestReqType
+        {
+            public const int User = 12;
+            public const int Employee = 171;
         }
 
         public class PurchaseOrderDocType
@@ -287,6 +294,10 @@ namespace SapApi.Shared
                 $"{SapServiceLayerUrl}{SapBaseUrl}/PurchaseDownPayments({docEntry})/Cancel";
             public static string GetAllSapPurchaseOrders = SapServiceLayerUrl + SapBaseUrl + "/PurchaseOrders";
             public static string UpdateSapPurchaseOrders(int? docEntry) => SapServiceLayerUrl + SapBaseUrl + "/PurchaseOrders" + $"({docEntry})";
+            public static string GetAllSapPurchaseRequests = SapServiceLayerUrl + SapBaseUrl + "/PurchaseRequests";
+            public static string UpdateSapPurchaseRequests(int? docEntry) => SapServiceLayerUrl + SapBaseUrl + "/PurchaseRequests" + $"({docEntry})";
+            public static string CancelSapPurchaseRequests(int docEntry) =>
+                SapServiceLayerUrl + SapBaseUrl + $"/PurchaseRequests({docEntry})/Cancel";
             /// <summary>SeriesService_GetDocumentSeries — body DocumentTypeParams.Document (e.g. "22" = Purchase Orders).</summary>
             public static string SeriesServiceGetDocumentSeries =
                 SapServiceLayerUrl + SapBaseUrl + "/SeriesService_GetDocumentSeries";
@@ -320,6 +331,8 @@ namespace SapApi.Shared
         public static class SapDocumentObject
         {
             public const string PurchaseOrder = "22";
+            /// <summary>Purchase Requests / OPRQ (oPurchaseRequest).</summary>
+            public const string PurchaseRequest = "1470000113";
             /// <summary>A/P Down Payment Request / PurchaseDownPayments (ODPO).</summary>
             public const string PurchaseDownPayment = "204";
         }

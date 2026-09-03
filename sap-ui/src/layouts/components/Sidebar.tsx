@@ -28,6 +28,7 @@ const navItems = [
   { to: ROUTES.HOME, label: 'Home', icon: Home },
   { to: ROUTES.INVENTORY_TRANSFERS, label: 'Stock Transfer', icon: ArrowLeftRight },
   { to: ROUTES.PURCHASE_ORDERS, label: 'Purchase Order', icon: ShoppingCart },
+  { to: ROUTES.PURCHASE_REQUESTS, label: 'Purchase Request', icon: ClipboardList },
   { to: ROUTES.ISSUE_FOR_PRODUCTION, label: 'Issue For Production', icon: PackageMinus },
   { to: ROUTES.RECEIPT_FROM_PRODUCTION, label: 'Receipt From Production', icon: PackagePlus },
   { to: ROUTES.PRODUCTION_ORDERS, label: 'Production Order', icon: Factory },

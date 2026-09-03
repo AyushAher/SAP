@@ -26,6 +26,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
     public DbSet<PurchaseOrderPaymentTerm> PurchaseOrderPaymentTerms => Set<PurchaseOrderPaymentTerm>();
     public DbSet<PurchaseOrderSyncState> PurchaseOrderSyncStates => Set<PurchaseOrderSyncState>();
+    public DbSet<PurchaseRequest> PurchaseRequests => Set<PurchaseRequest>();
+    public DbSet<PurchaseRequestLine> PurchaseRequestLines => Set<PurchaseRequestLine>();
+    public DbSet<PurchaseRequestPaymentTerm> PurchaseRequestPaymentTerms => Set<PurchaseRequestPaymentTerm>();
+    public DbSet<PurchaseRequestSyncState> PurchaseRequestSyncStates => Set<PurchaseRequestSyncState>();
     public DbSet<ProductionOrder> ProductionOrders => Set<ProductionOrder>();
     public DbSet<ProductionOrderLine> ProductionOrderLines => Set<ProductionOrderLine>();
     public DbSet<ProductionOrderSyncState> ProductionOrderSyncStates => Set<ProductionOrderSyncState>();
@@ -357,6 +361,59 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         });
 
         modelBuilder.Entity<PurchaseOrderSyncState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.HangfireJobId).HasMaxLength(64);
+            entity.Property(e => e.LastSyncMessage).HasMaxLength(2000);
+            entity.HasIndex(e => e.CompanyDb).IsUnique();
+        });
+
+        modelBuilder.Entity<PurchaseRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.CardCode).HasMaxLength(50);
+            entity.Property(e => e.CardName).HasMaxLength(200);
+            entity.Property(e => e.Project).HasMaxLength(50);
+            entity.Property(e => e.DocumentStatus).HasMaxLength(32);
+            entity.Property(e => e.DocType).HasMaxLength(32);
+            entity.Property(e => e.Requester).HasMaxLength(50);
+            entity.Property(e => e.RequesterName).HasMaxLength(200);
+            entity.HasIndex(e => new { e.CompanyDb, e.DocEntry }).IsUniqueAmongActiveRows();
+            entity.HasIndex(e => new { e.CompanyDb, e.DocNum });
+            entity.HasIndex(e => new { e.CompanyDb, e.DocDate });
+            entity.HasIndex(e => new { e.CompanyDb, e.CardCode });
+            entity.HasMany(e => e.Lines).WithOne(l => l.PurchaseRequest).HasForeignKey(l => l.PurchaseRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.PaymentTerms).WithOne(t => t.PurchaseRequest).HasForeignKey(t => t.PurchaseRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PurchaseRequestLine>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.ItemCode).HasMaxLength(50);
+            entity.Property(e => e.WarehouseCode).HasMaxLength(20);
+            entity.HasIndex(e => new { e.PurchaseRequestId, e.LineNum }).IsUniqueAmongActiveRows();
+        });
+
+        modelBuilder.Entity<PurchaseRequestPaymentTerm>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.HasIndex(e => new { e.PurchaseRequestId, e.Slot }).IsUniqueAmongActiveRows();
+        });
+
+        modelBuilder.Entity<PurchaseRequestSyncState>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.ConfigureSoftDeleteProperty();

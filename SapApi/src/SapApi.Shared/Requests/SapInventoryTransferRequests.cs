@@ -15,6 +15,10 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("Quantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public double? Quantity { get; set; }
 
+        /// <summary>Purchase Request line required date (PRQ1.RequiredDate).</summary>
+        [JsonPropertyName("RequiredDate"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DateTime? RequiredDate { get; set; }
+
         [JsonPropertyName("UnitPrice"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public double? UnitPrice { get; set; }
 

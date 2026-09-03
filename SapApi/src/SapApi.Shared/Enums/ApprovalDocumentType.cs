@@ -18,5 +18,7 @@ namespace SapApi.Shared.Enums
         InventoryItemsTransfer,
         [Description("Issue For Production")]
         IssueForProduction,
+        [Description("Purchase Request")]
+        PurchaseRequest,
     }
 }

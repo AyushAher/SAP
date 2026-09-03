@@ -5,6 +5,7 @@ import { ROUTES } from '@/config/constants'
 
 const modules = [
   { title: 'Purchase Orders', to: ROUTES.PURCHASE_ORDERS, desc: 'Create and manage POs with stage-wise payments' },
+  { title: 'Purchase Requests', to: ROUTES.PURCHASE_REQUESTS, desc: 'Create and manage SAP purchase requests' },
   { title: 'Stock Transfers', to: ROUTES.INVENTORY_TRANSFERS, desc: 'Inventory transfer requests' },
   { title: 'Production Orders', to: ROUTES.PRODUCTION_ORDERS, desc: 'SAP production order management' },
   { title: 'Issue For Production', to: ROUTES.ISSUE_FOR_PRODUCTION, desc: 'Issue material for production' },

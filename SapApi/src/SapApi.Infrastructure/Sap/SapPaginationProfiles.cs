@@ -22,6 +22,25 @@ public static class SapPaginationProfiles
     public const string PurchaseOrderPaymentOperationsSelect =
         PurchaseOrderPaymentPageSelect + ",DocumentLines";
 
+    public static SapPaginationOptions PurchaseRequests => new()
+    {
+        BaseFilter = "DocDate ge '2026-01-01'",
+        Select = "DocEntry,DocNum,CardCode,CardName,Project,DocTotal,DocumentStatus,DocDate,VatSum,Requester,RequesterName,RequriedDate",
+        DefaultSortField = "DocEntry",
+        DefaultSortDirection = "desc",
+        FieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DocEntry"] = "DocEntry",
+            ["DocNum"] = "DocNum",
+            ["CardCode"] = "CardCode",
+            ["CardName"] = "CardName",
+            ["Project"] = "Project",
+            ["DocTotal"] = "DocTotal",
+            ["DocumentStatus"] = "DocumentStatus",
+            ["Requester"] = "Requester",
+        },
+    };
+
     public static SapPaginationOptions PurchaseOrders => new()
     {
         BaseFilter = "DocDate ge '2026-01-01'",

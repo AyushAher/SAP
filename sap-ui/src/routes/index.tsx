@@ -12,6 +12,8 @@ import { NotFoundPage } from '@/Pages/errors/NotFoundPage'
 import { DashboardPage } from '@/Pages/dashboard/DashboardPage'
 import { PurchaseOrderListPage } from '@/Pages/purchase-orders/PurchaseOrderListPage'
 import { PurchaseOrderFormPage } from '@/Pages/purchase-orders/PurchaseOrderFormPage'
+import { PurchaseRequestListPage } from '@/Pages/purchase-requests/PurchaseRequestListPage'
+import { PurchaseRequestFormPage } from '@/Pages/purchase-requests/PurchaseRequestFormPage'
 import { StageWisePaymentPage } from '@/Pages/purchase-orders/StageWisePaymentPage'
 import { StageWisePaymentBatchPage } from '@/Pages/purchase-orders/StageWisePaymentBatchPage'
 import { InventoryTransferListPage } from '@/Pages/inventory-transfers/InventoryTransferListPage'
@@ -50,6 +52,8 @@ export const router = createBrowserRouter([
           { index: true, element: <DashboardPage /> },
           { path: ROUTES.PURCHASE_ORDERS.slice(1), element: <PurchaseOrderListPage /> },
           { path: 'purchase-orders/form/:id?', element: <PurchaseOrderFormPage /> },
+          { path: ROUTES.PURCHASE_REQUESTS.slice(1), element: <PurchaseRequestListPage /> },
+          { path: 'purchase-requests/form/:id?', element: <PurchaseRequestFormPage /> },
           { path: 'purchase-orders/:id/payments', element: <StageWisePaymentPage /> },
           { path: 'purchase-orders/:id/payments/batch', element: <StageWisePaymentBatchPage /> },
           { path: 'purchase-orders/:id/payments/batch/approve/:approvalRequestId', element: <StageWisePaymentBatchPage /> },

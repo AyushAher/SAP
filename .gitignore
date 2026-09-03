@@ -124,6 +124,9 @@ ipch/
 
 # Visual Studio Trace Files
 *.e2e
+# Playwright UI automation project (directory name matches *.e2e)
+!sap-e2e/
+!sap-e2e/**
 
 # TFS 2012 Local Workspace
 $tf/
