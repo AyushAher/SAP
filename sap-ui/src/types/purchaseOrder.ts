@@ -53,6 +53,8 @@ export interface PurchaseOrderLineItem extends DocumentLineItem {
   LocationCode?: number
   /** Display label for Loc. (not sent to SAP). */
   LocationLabel?: string
+  /** Remaining open quantity after conversion (display). Falls back to Quantity. */
+  RemainingOpenQuantity?: number
 }
 
 export interface PaymentTermRow {

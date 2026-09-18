@@ -150,6 +150,8 @@ public class ProductionOrderLine : ISoftDeletable
     public string? FreeText { get; set; }
     /// <summary>WOR1 U_DwgNo.</summary>
     public string? DrawingNo { get; set; }
+    /// <summary>WOR1 U_DwgName.</summary>
+    public string? DrawingName { get; set; }
     /// <summary>U_DocNum.</summary>
     public string? DocNum { get; set; }
 

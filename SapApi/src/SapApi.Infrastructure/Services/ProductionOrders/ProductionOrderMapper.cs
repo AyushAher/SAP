@@ -173,6 +173,7 @@ public static class ProductionOrderMapper
             DistributionRule5 = line.DistributionRule5,
             FreeText = line.FreeText,
             DrawingNo = line.DrawingNo,
+            DrawingName = line.DrawingName,
             DocNum = line.DocNum,
         }).ToList();
     }
@@ -273,6 +274,7 @@ public static class ProductionOrderMapper
                 DistributionRule5 = l.DistributionRule5,
                 FreeText = l.FreeText,
                 DrawingNo = l.DrawingNo,
+                DrawingName = l.DrawingName,
                 DocNum = l.DocNum,
             })
             .ToList();

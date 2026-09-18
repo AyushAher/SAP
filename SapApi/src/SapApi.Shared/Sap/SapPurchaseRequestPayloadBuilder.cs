@@ -18,7 +18,8 @@ public static class SapPurchaseRequestPayloadBuilder
         var taxDate = source.TaxDate ?? docDate;
         var dispatchToBp = NullIfWhiteSpace(source.DispatchToCardCode);
         var isService = IsServiceDocument(source.DocType);
-        var preparedLines = PrepareLines(source.DocumentLines, isUpdate, isService);
+        var requiredDate = source.RequiredDate ?? docDue;
+        var preparedLines = PrepareLines(source.DocumentLines, isUpdate, isService, requiredDate);
 
         var payload = new SapPurchaseRequestsResponse
         {
@@ -149,7 +150,7 @@ public static class SapPurchaseRequestPayloadBuilder
             ReqType = source.ReqType ?? Constants.SapPurchaseRequestReqType.User,
             RequesterDepartment = source.RequesterDepartment,
             RequesterBranch = source.RequesterBranch,
-            RequiredDate = source.RequiredDate ?? docDue,
+            RequiredDate = requiredDate,
         };
 
         if (isUpdate)
@@ -164,6 +165,8 @@ public static class SapPurchaseRequestPayloadBuilder
         payload.DueDate = null;
 
         NormalizePaymentTermGstToSlot11(payload);
+        StripPurchaseOrderOnlyFields(payload);
+        NormalizeRequester(payload);
 
         return payload;
     }
@@ -424,7 +427,8 @@ public static class SapPurchaseRequestPayloadBuilder
     static List<SapInventoryTransferItemsRequests>? PrepareLines(
         List<SapInventoryTransferItemsRequests>? lines,
         bool isUpdate,
-        bool isService)
+        bool isService,
+        DateTime? fallbackRequiredDate)
     {
         if (lines is null || lines.Count == 0)
             return null;
@@ -440,7 +444,7 @@ public static class SapPurchaseRequestPayloadBuilder
                     UFreeTxt = null,
                     AccountCode = NullIfWhiteSpace(line.AccountCode),
                     Quantity = line.Quantity,
-                    RequiredDate = line.RequiredDate,
+                    RequiredDate = line.RequiredDate ?? fallbackRequiredDate,
                     UnitPrice = line.UnitPrice,
                     DiscountPercent = line.DiscountPercent is > 0 ? line.DiscountPercent : null,
                     TaxCode = NullIfWhiteSpace(line.TaxCode),
@@ -479,7 +483,7 @@ public static class SapPurchaseRequestPayloadBuilder
                     FreeText = null,
                     UFreeTxt = null,
                     Quantity = line.Quantity,
-                    RequiredDate = line.RequiredDate,
+                    RequiredDate = line.RequiredDate ?? fallbackRequiredDate,
                     UnitPrice = line.UnitPrice,
                     DiscountPercent = line.DiscountPercent,
                     WarehouseCode = NullIfWhiteSpace(line.WarehouseCode),
@@ -593,6 +597,145 @@ public static class SapPurchaseRequestPayloadBuilder
             return null;
         return code;
     }
+
+    /// <summary>
+    /// OPRQ does not use PO logistics / payment / other-terms UDFs. Sending them (including U_G*=0)
+    /// can make Service Layer look up valid values and fail with ODBC -2028.
+    /// </summary>
+    internal static void StripPurchaseOrderOnlyFields(SapPurchaseRequestsResponse payload)
+    {
+        payload.SalesPersonCode = null;
+        payload.DocumentsOwner = null;
+        payload.ContactPersonCode = null;
+        payload.TransportationCode = null;
+        payload.ShipToCode = null;
+        payload.UStage = null;
+        payload.UOwner = null;
+        payload.UPoType = null;
+        payload.UTrn = null;
+        payload.UDisId = null;
+        payload.UDispachAdd = null;
+        payload.URemark = null;
+        payload.UCardCode = null;
+        payload.UShipTo = null;
+        payload.UContactPerson = null;
+        payload.UPriceBasis = null;
+        payload.UModeOfTransport = null;
+        payload.UMatOutDoc = null;
+        payload.UGoodsIssue = null;
+        payload.UMatInDoc = null;
+        payload.UGoodsReceipt = null;
+        payload.UDelTerms = null;
+        payload.UInspectionBy = null;
+        payload.UTransportation = null;
+        payload.USupervision = null;
+        payload.UTransitIns = null;
+        payload.UDrawDocs = null;
+        payload.ULoading = null;
+        payload.UWarranty = null;
+        payload.UUnloading = null;
+        payload.UOtherRemark = null;
+        payload.UPainting = null;
+        payload.UTestCerts = null;
+        payload.UPackingForwarding = null;
+        payload.UTcDispatchAddress = null;
+        payload.UGstText = null;
+        payload.UTdsText = null;
+        payload.UBasic1 = null;
+        payload.UBasic2 = null;
+        payload.UBasic3 = null;
+        payload.UBasic4 = null;
+        payload.UBasic5 = null;
+        payload.UBasic6 = null;
+        payload.UBasic7 = null;
+        payload.UBasic8 = null;
+        payload.UBasic9 = null;
+        payload.UBasic10 = null;
+        payload.UBasic11 = null;
+        payload.UGst1 = null;
+        payload.UGst2 = null;
+        payload.UGst3 = null;
+        payload.UGst4 = null;
+        payload.UGst5 = null;
+        payload.UGst6 = null;
+        payload.UGst7 = null;
+        payload.UGst8 = null;
+        payload.UGst9 = null;
+        payload.UGst10 = null;
+        payload.UGst11 = null;
+        payload.UDes1 = null;
+        payload.UDes2 = null;
+        payload.UDes3 = null;
+        payload.UDes4 = null;
+        payload.UDes5 = null;
+        payload.UDes6 = null;
+        payload.UDes7 = null;
+        payload.UDes8 = null;
+        payload.UDes9 = null;
+        payload.UDes10 = null;
+        payload.UDes11 = null;
+        payload.UStage1 = null;
+        payload.UStage2 = null;
+        payload.UStage3 = null;
+        payload.UStage4 = null;
+        payload.UStage5 = null;
+        payload.UStage6 = null;
+        payload.UStage7 = null;
+        payload.UStage8 = null;
+        payload.UStage9 = null;
+        payload.UStage10 = null;
+        payload.UStage11 = null;
+        payload.UType1 = null;
+        payload.UType2 = null;
+        payload.UType3 = null;
+        payload.UType4 = null;
+        payload.UType5 = null;
+        payload.UType6 = null;
+        payload.UType7 = null;
+        payload.UType8 = null;
+        payload.UType9 = null;
+        payload.UType10 = null;
+        payload.UType11 = null;
+        payload.AdditionalUdf = null;
+        payload.RequesterDepartment = null;
+        payload.RequesterBranch = null;
+    }
+
+    /// <summary>
+    /// ReqType 12 looks up OUSR.USER_CODE / USERID. A display name in Requester or ReqCode
+    /// (e.g. "Aditya Aher") fails with ODBC -2028.
+    /// </summary>
+    internal static void NormalizeRequester(SapPurchaseRequestsResponse payload)
+    {
+        var requester = NullIfWhiteSpace(payload.Requester);
+        var reqCode = NullIfWhiteSpace(payload.ReqCode);
+        var name = NullIfWhiteSpace(payload.RequesterName);
+        var isEmployee = payload.ReqType == Constants.SapPurchaseRequestReqType.Employee;
+
+        if (!isEmployee && requester is not null && !LooksLikeSapUserCode(requester))
+        {
+            name ??= requester;
+            requester = null;
+        }
+
+        if (reqCode is not null && !reqCode.All(char.IsDigit))
+            reqCode = null;
+
+        payload.Requester = requester;
+        payload.RequesterName = name;
+        payload.ReqCode = reqCode;
+        if (requester is null && reqCode is null)
+            payload.ReqType = null;
+        else
+            payload.ReqType ??= isEmployee
+                ? Constants.SapPurchaseRequestReqType.Employee
+                : Constants.SapPurchaseRequestReqType.User;
+    }
+
+    internal static bool LooksLikeSapUserCode(string value) =>
+        value.Length is > 0 and <= 25
+        && !value.Contains(' ', StringComparison.Ordinal)
+        && !value.Contains('@', StringComparison.Ordinal);
 
     static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

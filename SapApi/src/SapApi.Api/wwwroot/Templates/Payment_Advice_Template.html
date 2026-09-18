@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment Advice</title>
+<style>
+    body {
+        margin: 0;
+        padding: 0;
+        background: #f3f4f6;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #333333;
+    }
+    .wrapper {
+        width: 100%;
+        padding: 30px 0;
+    }
+    .container {
+        max-width: 700px;
+        margin: 0 auto;
+        background: #ffffff;
+        border: 1px solid #dddddd;
+    }
+    .header {
+        padding: 24px 30px;
+        border-bottom: 3px solid #1f4e78;
+    }
+    .company-name {
+        font-size: 22px;
+        font-weight: bold;
+        color: #1f4e78;
+        margin: 0;
+    }
+    .document-title {
+        font-size: 20px;
+        font-weight: bold;
+        margin: 6px 0 0;
+        color: #333333;
+    }
+    .content {
+        padding: 25px 30px;
+    }
+    .intro {
+        font-size: 14px;
+        line-height: 1.6;
+        margin-bottom: 22px;
+    }
+    .section-title {
+        background: #1f4e78;
+        color: #ffffff;
+        padding: 10px 12px;
+        font-size: 14px;
+        font-weight: bold;
+        margin-top: 22px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+    td {
+        border: 1px solid #dddddd;
+        padding: 9px 10px;
+        vertical-align: top;
+    }
+    td.label {
+        width: 38%;
+        background: #f5f7fa;
+        font-weight: bold;
+    }
+    .amount-table td {
+        padding: 11px 10px;
+    }
+    .net-amount {
+        font-size: 15px;
+        font-weight: bold;
+        color: #1f4e78;
+        background: #eef5fb;
+    }
+    .note {
+        margin-top: 22px;
+        font-size: 13px;
+        line-height: 1.6;
+    }
+    .footer {
+        border-top: 1px solid #dddddd;
+        padding: 18px 30px;
+        font-size: 12px;
+        color: #666666;
+        line-height: 1.5;
+    }
+</style>
+</head>
+
+<body>
+<div class="wrapper">
+    <div class="container">
+
+        <div class="header">
+            <p class="company-name">{{CompanyName}}</p>
+            <p class="document-title">Payment Advice</p>
+        </div>
+
+        <div class="content">
+
+            <p class="intro">
+                Dear Sir/Madam,<br><br>
+                Greetings from <strong>{{CompanyName}}</strong><br><br>
+                This is to inform you that the payment has been processed against your account.
+                Please find the payment details below:
+            </p>
+
+            <div class="section-title">Vendor Details</div>
+            <table>
+                <tr>
+                    <td class="label">Vendor Code</td>
+                    <td>{{VendorCode}}</td>
+                </tr>
+                <tr>
+                    <td class="label">Vendor Name</td>
+                    <td>{{VendorName}}</td>
+                </tr>
+                <tr>
+                    <td class="label">Purchase Order</td>
+                    <td>{{PurchaseOrder}}</td>
+                </tr>
+            </table>
+
+            <div class="section-title">Vendor Bank Details</div>
+            <table>
+                <tr>
+                    <td class="label">Bank Name</td>
+                    <td>{{BankName}}</td>
+                </tr>
+                <tr>
+                    <td class="label">Account Number</td>
+                    <td>{{AccountNumber}}</td>
+                </tr>
+                <tr>
+                    <td class="label">IFSC Code</td>
+                    <td>{{IFSCCode}}</td>
+                </tr>
+                <tr>
+                    <td class="label">Branch</td>
+                    <td>{{BranchName}}</td>
+                </tr>
+            </table>
+
+            <div class="section-title">Payment Details</div>
+            <table class="amount-table">
+                <tr>
+                    <td class="label">Gross Amount</td>
+                    <td>₹ {{GrossAmount}}</td>
+                </tr>
+                <tr>
+                    <td class="label">TDS Deducted</td>
+                    <td>₹ {{TDSAmount}}</td>
+                </tr>
+                <tr>
+                    <td class="label net-amount">Net Amount Paid</td>
+                    <td class="net-amount">₹ {{NetAmount}}</td>
+                </tr>
+                <tr>
+                    <td class="label">Payment Date</td>
+                    <td>{{PaymentDate}}</td>
+                </tr>
+                <tr>
+                    <td class="label">Bank Reference No.</td>
+                    <td>{{BankReferenceNo}}</td>
+                </tr>
+                <tr>
+                    <td class="label">Remarks</td>
+                    <td>{{Remarks}}</td>
+                </tr>
+            </table>
+
+            <p class="note">
+                The <strong>Net Amount Paid</strong> has been processed through our bank to the
+                above-mentioned vendor bank account. You may refer to the
+                <strong>Bank Reference No.</strong> for tracking the transaction with your bank.
+                <br><br>
+                Kindly acknowledge receipt of the payment and let us know in case of any
+                discrepancy in the above details.
+            </p>
+
+            <p class="note">
+                Regards,<br>
+                <strong>Accounts Department</strong><br>
+                {{CompanyName}}
+            </p>
+
+        </div>
+
+        <div class="footer">
+            This is an automatically generated payment advice. Please do not reply to this email.
+            For any clarification regarding the payment, please contact the Accounts Department.
+            <br><br>
+            &copy; {{copyrightYear}} ConnectEdge. All rights reserved.
+        </div>
+
+    </div>
+</div>
+</body>
+</html>

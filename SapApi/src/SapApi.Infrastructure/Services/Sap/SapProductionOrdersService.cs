@@ -100,6 +100,11 @@ namespace SapApi.Infrastructure.Services.Sap
         /// </summary>
         const string DraftParentDocumentNumber = "0";
 
+        static readonly Dictionary<string, string> ReplaceCollectionsOnPatchHeaders = new()
+        {
+            [Constants.SapServiceLayerHeaders.ReplaceCollectionsOnPatch] = "true",
+        };
+
         public async Task<SapProductionOrdersResponse?> UpdateProductionOrderAsync(
             SapProductionOrdersResponse addedLines,
             int? policyRequestId = null,
@@ -122,9 +127,11 @@ namespace SapApi.Infrastructure.Services.Sap
             if (await IsVirtualSubassemblyAsync(addedLines, cancellationToken))
                 return await UpdateVirtualSubassemblyAsync(addedLines, cancellationToken);
 
-            // PUT replaces the whole document. A header-only body that omits ItemNo / Status /
-            // PostingDate is treated as clearing those fields (ODBC -1029 / invalid status /
-            // missing product). Overlay the user's edits onto the live SAP order instead.
+            // PATCH + B1S-ReplaceCollectionsOnPatch replaces the component collection the same
+            // way PUT would, without sending calculated fields that make PUT fail. A header-only
+            // body that omits ItemNo / Status / PostingDate is treated as clearing those fields
+            // (ODBC -1029 / invalid status / missing product). Overlay the user's edits onto the
+            // live SAP order instead.
             var headerOnly = addedLines.ProductionOrderLines is not { Count: > 0 };
             addedLines = await OverlayEditableHeaderOntoLiveSapAsync(addedLines, headerOnly, cancellationToken);
             if (!headerOnly || addedLines.ProductionOrderLines is not { Count: > 0 })
@@ -133,7 +140,7 @@ namespace SapApi.Infrastructure.Services.Sap
             // new component rows are appended by omitting LineNumber in Prepare when the number
             // is not in the live collection. A full replace still happens in the virtual
             // sub-assembly merge when no issued/closed row exists.
-            return await PutProductionOrderToSapAsync(
+            return await PatchProductionOrderToSapAsync(
                 addedLines,
                 cancellationToken,
                 preserveExistingLineStorage: headerOnly,
@@ -212,7 +219,7 @@ namespace SapApi.Infrastructure.Services.Sap
             return created;
         }
 
-        async Task<SapProductionOrdersResponse?> PutProductionOrderToSapAsync(
+        async Task<SapProductionOrdersResponse?> PatchProductionOrderToSapAsync(
             SapProductionOrdersResponse addedLines,
             CancellationToken cancellationToken,
             bool preserveExistingLineStorage = false,
@@ -244,8 +251,11 @@ namespace SapApi.Infrastructure.Services.Sap
                 existingLineNumbers,
                 preserveExistingLineStorage,
                 replaceEntireLineCollection);
-            var updated = await httpRequestHandler.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
-                Constants.SapApiUrls.GetProductionOrders(payload.AbsoluteEntry?.ToString() ?? "0"), payload);
+            var updated = await httpRequestHandler.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+                Constants.SapApiUrls.GetProductionOrders(payload.AbsoluteEntry?.ToString() ?? "0"),
+                payload,
+                ReplaceCollectionsOnPatchHeaders,
+                cancellationToken);
 
             await RefreshMirrorAfterWriteAsync(payload.AbsoluteEntry, updated, cancellationToken);
             await localStore.PreserveParentProductionOrderNoAsync(
@@ -302,7 +312,7 @@ namespace SapApi.Infrastructure.Services.Sap
             payload.AbsoluteEntry = created.AbsoluteEntry;
             payload.DocumentNumber = created.DocumentNumber ?? payload.DocumentNumber;
             // POST often returns AbsoluteEntry only. Read the live document for DocumentNumber
-            // and LineNumber so the retag PUT is an in-place update, not a collection replace.
+            // and LineNumber so the retag PATCH is an in-place update, not a collection replace.
             var live = await TryGetSapProductionOrderAsync(created.AbsoluteEntry, cancellationToken);
             if (created.DocumentNumber is not > 0 && live?.DocumentNumber is > 0)
                 created.DocumentNumber = live.DocumentNumber;
@@ -314,12 +324,14 @@ namespace SapApi.Infrastructure.Services.Sap
                 if (live?.ProductionOrderLines is { Count: > 0 })
                 {
                     RetagDraftSubassemblyLines(live.ProductionOrderLines, assignedDocNum.Value);
-                    PrepareLiveDocumentForInPlacePut(live);
+                    PrepareLiveDocumentForInPlacePatch(live);
                     try
                     {
-                        await httpRequestHandler.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+                        await httpRequestHandler.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                             Constants.SapApiUrls.GetProductionOrders(created.AbsoluteEntry.Value.ToString()),
-                            live);
+                            live,
+                            ReplaceCollectionsOnPatchHeaders,
+                            cancellationToken);
                         payload = live;
                     }
                     catch (ApiErrorException ex)
@@ -439,7 +451,7 @@ namespace SapApi.Infrastructure.Services.Sap
                 // Issued or closed rows must keep LineNumber. A full collection replace that
                 // drops identity fails with Error -1 once any component has been issued.
                 var replaceEntire = !HasProtectedLines(live.ProductionOrderLines);
-                var updated = await PutProductionOrderToSapAsync(
+                var updated = await PatchProductionOrderToSapAsync(
                     merged,
                     cancellationToken,
                     preserveExistingLineStorage: true,
@@ -523,7 +535,7 @@ namespace SapApi.Infrastructure.Services.Sap
                         {
                             line.ItemNo = match.ItemNo;
                             // Prepare omits BaseQuantity on issued/closed rows. Keep those flags
-                            // until then or SAP Error -1 on a PUT of a released order.
+                            // until then or SAP Error -1 on a PATCH of a released order.
                             line.IssuedQuantity = match.IssuedQuantity;
                             line.LineStatus = match.LineStatus;
                             if (line.PlannedQuantity < (match.IssuedQuantity ?? 0))
@@ -539,11 +551,12 @@ namespace SapApi.Infrastructure.Services.Sap
                         line.ItemType = "pit_Item";
                     if (string.IsNullOrWhiteSpace(line.ProductionOrderIssueType))
                         line.ProductionOrderIssueType = "im_Manual";
-                    // WOR1 item lines reject LineText. Drawing No is WOR1 U_DwgNo; drawing name
-                    // defaults U_FreeTxt when the row has no user free text (no Drawing Name UDF).
+                    // WOR1 item lines reject LineText. Drawing No is U_DwgNo; drawing name is
+                    // U_DwgName. Free Text (U_FreeTxt) stays blank when the user left it blank.
                     line.LineText = null;
                     line.DrawingNo = Truncate(NullIfBlank(line.DrawingNo) ?? sapDrawingNo, 30);
-                    var freeText = NullIfBlank(line.FreeText) ?? sapDrawingName;
+                    line.DrawingName = Truncate(NullIfBlank(line.DrawingName) ?? sapDrawingName, 100);
+                    var freeText = NullIfBlank(line.FreeText);
                     line.FreeText = freeText is null ? null : Truncate(freeText, 254);
                     if (string.IsNullOrWhiteSpace(line.Project) && sapProject is not null)
                         line.Project = sapProject;
@@ -598,8 +611,9 @@ namespace SapApi.Infrastructure.Services.Sap
         }
 
         /// <summary>
-        /// Service Layer PUT is a full replace. Keep SAP-locked identity (item, type, warehouse,
-        /// posting date, origin) from the live document and apply only the fields the form may edit.
+        /// Service Layer PATCH with replace-collections is a full collection replace. Keep
+        /// SAP-locked identity (item, type, warehouse, posting date, origin) from the live
+        /// document and apply only the fields the form may edit.
         /// </summary>
         async Task<SapProductionOrdersResponse> OverlayEditableHeaderOntoLiveSapAsync(
             SapProductionOrdersResponse incoming,
@@ -632,11 +646,12 @@ namespace SapApi.Infrastructure.Services.Sap
         }
 
         /// <summary>
-        /// PUT of a just-created production order rejects the slim Prepare body (Error -1) but
-        /// accepts the live GET minus calculated fields. LineNumber 0 must stay (omitting it is
-        /// treated as a collection replace). VisualOrder 0 is omitted.
+        /// PATCH of a just-created production order with <c>B1S-ReplaceCollectionsOnPatch</c>
+        /// rejects the slim Prepare body (Error -1) but accepts the live GET minus calculated
+        /// fields. LineNumber 0 must stay (omitting it is treated as a collection replace).
+        /// VisualOrder 0 is omitted.
         /// </summary>
-        static void PrepareLiveDocumentForInPlacePut(SapProductionOrdersResponse order)
+        static void PrepareLiveDocumentForInPlacePatch(SapProductionOrdersResponse order)
         {
             order.AbsoluteEntry = null;
             order.DocumentNumber = null;
@@ -696,8 +711,9 @@ namespace SapApi.Infrastructure.Services.Sap
             if (payload.AbsoluteEntry is null or <= 0)
                 return payload;
 
-            // Header-only updates omit lines. Service Layer PUT treats a missing collection as
-            // "no components" (Error: Must have components). Keep the live SAP rows instead.
+            // Header-only updates omit lines. Service Layer PATCH with replace-collections
+            // treats a missing collection as "no components" (Error: Must have components).
+            // Keep the live SAP rows instead.
             if (payload.ProductionOrderLines is not { Count: > 0 })
             {
                 var sap = await TryGetSapProductionOrderAsync(payload.AbsoluteEntry, cancellationToken);
@@ -797,8 +813,9 @@ namespace SapApi.Infrastructure.Services.Sap
             order.SapPassport = null;
             if (order.AbsoluteEntry is > 0)
                 order.Series = null;
-            // PostingDate must stay: PUT treats an omitted PostDate as a change, which Live
-            // rejects with ODBC -1029. Overlay copies the live value; the form cannot edit it.
+            // PostingDate must stay: replace-collections PATCH treats an omitted PostDate as a
+            // change, which Live rejects with ODBC -1029. Overlay copies the live value; the form
+            // cannot edit it.
 
             var receiptWarehouse = NullIfBlank(order.Warehouse);
             var issuingWarehouse = preserveExistingLineStorage
@@ -871,7 +888,7 @@ namespace SapApi.Infrastructure.Services.Sap
                         }
                     }
                     // Bin locations are warehouse-specific. A Store1 bin on a line whose warehouse
-                    // was rewritten (or on a newly added WIP row) fails the whole PUT with Error -1.
+                    // was rewritten (or on a newly added WIP row) fails the whole PATCH with Error -1.
                     // Virtual sub-assembly writes keep parent BOM bins and copy them onto new lines.
                     if (!preserveExistingLineStorage)
                         line.LocationCode = null;
@@ -950,6 +967,7 @@ namespace SapApi.Infrastructure.Services.Sap
             Warehouse = line.Warehouse,
             ProductionOrderIssueType = line.ProductionOrderIssueType,
             DrawingNo = line.DrawingNo,
+            DrawingName = line.DrawingName,
             FreeText = line.FreeText,
             Project = line.Project,
             LocationCode = line.LocationCode,

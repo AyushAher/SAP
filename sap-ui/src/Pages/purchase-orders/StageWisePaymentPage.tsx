@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Ban, Download, Layers, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Ban, Download, Layers, Mail, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { RequestViewDialog } from '@/Components/approvals/RequestViewDialog'
-import { Button, Card, CardContent, Badge } from '@/Components/ui'
+import { Button, Card, CardContent, Badge, Input, Modal, Textarea } from '@/Components/ui'
 import { getApprovalRequest, retrySapExecution, type ApprovalRequest } from '@/Requests/approvals'
 import { ROUTES } from '@/config/constants'
 import { isAdminUser } from '@/helpers/roles'
@@ -14,6 +14,7 @@ import {
   cancelStageWisePayment,
   deleteStageWisePayment,
   downloadStageWisePaymentPdf,
+  sendPaymentAdvice,
   type StageWisePayment,
 } from '@/Requests/stageWisePayments'
 import { getBatchByStageWisePaymentId, cancelStageWisePaymentBatch, deleteStageWisePaymentBatch } from '@/Requests/stageWisePaymentBatches'
@@ -62,6 +63,11 @@ export function StageWisePaymentPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [viewApprovalRequest, setViewApprovalRequest] = useState<ApprovalRequest | null>(null)
   const [actingId, setActingId] = useState<number | null>(null)
+  const [adviceRecord, setAdviceRecord] = useState<StageWisePayment | null>(null)
+  const [adviceTo, setAdviceTo] = useState('')
+  const [adviceCc, setAdviceCc] = useState('')
+  const [adviceRemarks, setAdviceRemarks] = useState('')
+  const [sendingAdvice, setSendingAdvice] = useState(false)
 
   const loadError = error
     ?? (queryError instanceof Error ? queryError.message : queryError ? 'Failed to load payment data' : null)
@@ -168,6 +174,38 @@ export function StageWisePaymentPage() {
       setError(err instanceof Error ? err.message : 'Failed to download PDF')
     } finally {
       setActingId(null)
+    }
+  }
+
+  const openSendAdvice = (record: StageWisePayment) => {
+    setAdviceRecord(record)
+    setAdviceTo(pageData?.vendorEmail ?? '')
+    setAdviceCc('')
+    setAdviceRemarks('')
+    setError(null)
+  }
+
+  const handleSendAdvice = async () => {
+    if (!adviceRecord) return
+    const to = adviceTo.split(/[;,]/).map((v) => v.trim()).filter(Boolean)
+    if (to.length === 0) {
+      setError('Enter at least one recipient email.')
+      return
+    }
+    setSendingAdvice(true)
+    setError(null)
+    try {
+      await sendPaymentAdvice(adviceRecord.id, poDocEntry, {
+        to,
+        cc: adviceCc.split(/[;,]/).map((v) => v.trim()).filter(Boolean),
+        remarks: adviceRemarks.trim() || undefined,
+      })
+      setAdviceRecord(null)
+      setSuccessMessage('Payment advice queued for sending. Verify the mailbox if delivery must be confirmed.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send payment advice')
+    } finally {
+      setSendingAdvice(false)
     }
   }
 
@@ -403,6 +441,14 @@ export function StageWisePaymentPage() {
                               icon={<Download className={rowActionIconClassName} />}
                               onClick={() => void handleDownload(record)}
                             />
+                            {record.outgoingPaymentNumber && (
+                              <RowActionButton
+                                title="Send Payment Advice"
+                                disabled={busy}
+                                icon={<Mail className={rowActionIconClassName} />}
+                                onClick={() => openSendAdvice(record)}
+                              />
+                            )}
                             <RowActionButton
                               title="Delete payment"
                               variant="danger"
@@ -462,6 +508,45 @@ export function StageWisePaymentPage() {
           void reload()
         }}
       />
+
+      <Modal
+        isOpen={adviceRecord != null}
+        onClose={() => setAdviceRecord(null)}
+        title="Send payment advice"
+        description="Verify the recipients, then send. The vendor gets the standard Payment Advice email with this payment's details filled in."
+        size="lg"
+        footer={(
+          <>
+            <Button type="button" variant="outline" onClick={() => setAdviceRecord(null)}>Cancel</Button>
+            <Button type="button" disabled={sendingAdvice} onClick={() => void handleSendAdvice()}>
+              {sendingAdvice ? 'Sending…' : 'Send'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <Input
+            label="To"
+            required
+            value={adviceTo}
+            onChange={(e) => setAdviceTo(e.target.value)}
+            placeholder="vendor@example.com"
+            hint="Separate multiple addresses with commas."
+          />
+          <Input
+            label="Cc"
+            value={adviceCc}
+            onChange={(e) => setAdviceCc(e.target.value)}
+            placeholder="optional@example.com"
+          />
+          <Textarea
+            label="Remarks (optional)"
+            value={adviceRemarks}
+            onChange={(e) => setAdviceRemarks(e.target.value)}
+            rows={3}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

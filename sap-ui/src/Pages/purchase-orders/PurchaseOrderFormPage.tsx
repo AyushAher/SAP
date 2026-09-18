@@ -31,6 +31,7 @@ import {
   buildPaymentTermDescription,
   applyWarehouseToPoLines,
   calculatePurchaseOrderTotals,
+  dispatchAddressSourceForLocation,
   dispatchLocationForWarehouse,
   formatPoAmount,
   hasGstPaymentTerm,
@@ -48,7 +49,7 @@ import {
   toDocumentSpecialLines,
   toSapDocumentLine,
   firstPositiveLocationCode,
-  usesPbbplDispatchLocationMapping,
+  usesBranchDispatchLocationMapping,
   validatePaymentTermsForSave,
   warehouseForDispatchLocation,
   type PaymentPercentBasis,
@@ -65,6 +66,7 @@ import {
   searchSalesPersons,
   searchVendors,
   searchWarehouses,
+  getWarehouseAddress,
   formatWarehouseOptionLabel,
   formatEmployeeShipToLabel,
   lookupBusinessPartner,
@@ -183,8 +185,6 @@ export function PurchaseOrderFormPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const authBranchId = useAppSelector((state) => state.auth.branchId)
-  const companyDb = useAppSelector((state) => state.auth.companyDb)
-  const usesDispatchLocationMapping = usesPbbplDispatchLocationMapping(companyDb)
   const invalidatePurchaseOrders = useInvalidatePurchaseOrders()
   const {
     data: purchaseOrder,
@@ -295,6 +295,8 @@ export function PurchaseOrderFormPage() {
     RoundingDiffAmount: 0,
     DocumentLines: [],
   })
+  const formBranchId = Number(form.BPLId) || authBranchId
+  const usesDispatchLocationMapping = usesBranchDispatchLocationMapping(formBranchId)
   const [lines, setLines] = useState<PurchaseOrderLineItem[]>([])
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermRow[]>([])
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentTermDraft())
@@ -437,10 +439,21 @@ export function PurchaseOrderFormPage() {
 
   const applyDispatchLocation = useCallback((location: string) => {
     setDispatchLocation(location)
-    const warehouse = warehouseForDispatchLocation(location)
+    const warehouse = warehouseForDispatchLocation(formBranchId, location)
     if (!warehouse) return
     applyWarehouseToLines(warehouse)
-  }, [applyWarehouseToLines])
+
+    // Sheet3: Factory/Office ship from the warehouse's own address — auto-fill it so the user
+    // does not have to look it up and type it manually. Customer/SubContractor Loc keep using
+    // the Dispatch To Business Partner's address book (unchanged, set elsewhere).
+    if (dispatchAddressSourceForLocation(formBranchId, location) === 'whse') {
+      void getWarehouseAddress(warehouse).then((address) => {
+        if (address?.formattedAddress) {
+          setLogistics((prev) => ({ ...prev, dispatchAddress: address.formattedAddress }))
+        }
+      })
+    }
+  }, [applyWarehouseToLines, formBranchId])
 
   /** A saved document only stores HSN/SAC entry numbers, so fetch the code+description to show. */
   const resolveIndiaCodeLabels = useCallback(async (loaded: PurchaseOrderLineItem[]) => {
@@ -586,7 +599,7 @@ export function PurchaseOrderFormPage() {
       const lineWh = ((purchaseOrder.DocumentLines as PurchaseOrderLineItem[] | undefined) ?? [])
         .map((line) => (line.WarehouseCode ?? '').trim())
         .find(Boolean)
-      setDispatchLocation(dispatchLocationForWarehouse(wh || lineWh) ?? '')
+      setDispatchLocation(dispatchLocationForWarehouse(Number(record.BPLId) || authBranchId, wh || lineWh) ?? '')
       setHydratedId(String(id))
     })()
 
@@ -705,6 +718,18 @@ export function PurchaseOrderFormPage() {
     if (!form.CardCode) {
       setError('Select a business partner.')
       toast.error('Select a business partner.')
+      return
+    }
+    if (!logistics.priceBasis) {
+      setError('Price Basis is required.')
+      toast.error('Price Basis is required.')
+      setActiveTab('logistics')
+      return
+    }
+    if (!otherTerms.deliveryTerms?.trim()) {
+      setError('Delivery Terms is required.')
+      toast.error('Delivery Terms is required.')
+      setActiveTab('other')
       return
     }
     const deliveryDate = parsePoDisplayDate(deliveryDateDisplay)
@@ -923,24 +948,37 @@ export function PurchaseOrderFormPage() {
                     options={[...PO_DISPATCH_LOCATION_OPTIONS]}
                     value={dispatchLocation}
                     onChange={(value) => applyDispatchLocation(value)}
-                    placeholder="Factory / Office / BP Loc"
+                    placeholder="Factory / Office / Customer Loc / SubContractor Loc"
                   />
                 ) : null}
-                <SearchableSelect
-                  label="Warehouse"
-                  value={String(form.U_Warehouse ?? '')}
-                  selectedLabel={warehouseLabel}
-                  placeholder="Search warehouse..."
-                  onSearch={searchWarehouseOptions}
-                  onChange={(code, option) => {
-                    const loc = (option?.meta as MasterWarehouse | undefined)?.Location
-                    setWarehouseLabel(option?.label ?? code)
-                    applyWarehouseToLines(code, loc != null && Number.isFinite(loc) ? loc : undefined)
-                    if (usesDispatchLocationMapping) {
-                      setDispatchLocation(dispatchLocationForWarehouse(code) ?? '')
-                    }
-                  }}
-                />
+                {/* Dispatch Location already sets the warehouse for branches with a Sheet3 mapping —
+                    a separate header Warehouse field there just duplicates it. Service docs (which have
+                    no per-line warehouse of their own) and branches without a mapping still need it. */}
+                {(!usesDispatchLocationMapping || isServiceDoc) && (
+                  <SearchableSelect
+                    label="Warehouse"
+                    value={String(form.U_Warehouse ?? '')}
+                    selectedLabel={warehouseLabel}
+                    placeholder="Search warehouse..."
+                    onSearch={searchWarehouseOptions}
+                    onChange={(code, option) => {
+                      const loc = (option?.meta as MasterWarehouse | undefined)?.Location
+                      setWarehouseLabel(option?.label ?? code)
+                      applyWarehouseToLines(code, loc != null && Number.isFinite(loc) ? loc : undefined)
+                      if (usesDispatchLocationMapping) {
+                        const resolvedLocation = dispatchLocationForWarehouse(formBranchId, code) ?? ''
+                        setDispatchLocation(resolvedLocation)
+                        if (dispatchAddressSourceForLocation(formBranchId, resolvedLocation) === 'whse') {
+                          void getWarehouseAddress(code).then((address) => {
+                            if (address?.formattedAddress) {
+                              setLogistics((prev) => ({ ...prev, dispatchAddress: address.formattedAddress }))
+                            }
+                          })
+                        }
+                      }
+                    }}
+                  />
+                )}
                 <Select
                   label="Branch"
                   options={branchOptions}
@@ -1049,7 +1087,7 @@ export function PurchaseOrderFormPage() {
                     value={logistics.priceBasis ?? ''}
                     onChange={(value) => setLogistics({ ...logistics, priceBasis: value || undefined })}
                     placeholder="Select price basis"
-                    clearable
+                    required
                   />
                   <Select
                     label="Mode of Transport"
@@ -1179,7 +1217,7 @@ export function PurchaseOrderFormPage() {
                   description={FORM_TAB_HEADINGS.other.description}
                 >
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Input label="Delivery Terms" value={otherTerms.deliveryTerms ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, deliveryTerms: e.target.value })} />
+                  <Input label="Delivery Terms" value={otherTerms.deliveryTerms ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, deliveryTerms: e.target.value })} required />
                   <Input label="Inspection By" value={otherTerms.inspectionBy ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, inspectionBy: e.target.value })} />
                   <OtherTermUdfField
                     label="Transportation"

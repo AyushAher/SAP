@@ -7,8 +7,9 @@ import { RowActionsMenu } from '@/Components/shared/RowActionsMenu'
 import { rowActionIconClassName } from '@/Components/shared/RowActions'
 import { Badge, Button, DataTable, type DataTableColumn } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
-import { formatPoDisplayDate } from '@/helpers/lib/utils'
+import { formatPoDisplayDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import { formatCodeWithName } from '@/helpers/masterLookup'
+import { isPurchaseRequestReadOnly, purchaseRequestStatusLabel } from '@/helpers/purchaseRequestForm'
 import { useEnrichedListFetch } from '@/hooks/useEnrichedListFetch'
 import { usePurchaseRequestListFetcher } from '@/hooks/usePurchaseRequests'
 import { getBranchesApi } from '@/Requests/auth'
@@ -23,14 +24,19 @@ import {
 
 const extractors = {
   projectCodes: (row: PurchaseRequest) => row.Project,
-  cardCodes: (row: PurchaseRequest) => row.CardCode,
 }
 
 const SYNC_POLL_MS = 3000
 
-function formatPoValue(value?: number): string {
-  if (value == null) return '—'
-  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function requiredDateOf(row: PurchaseRequest): string | undefined {
+  const raw = row.RequiredDate ?? row.RequriedDate ?? row.DocDueDate ?? row.DueDate
+  if (typeof raw === 'string' || raw instanceof Date) return toIsoDateOnly(raw)
+  return undefined
+}
+
+function usernameOf(row: PurchaseRequest): string {
+  const name = String(row.RequesterName ?? '').trim()
+  return name || String(row.Requester ?? '').trim() || '—'
 }
 
 function isRunningStatus(status?: string | null): boolean {
@@ -205,13 +211,13 @@ export function PurchaseRequestListPage() {
 
   const columns = useMemo<DataTableColumn<PurchaseRequest>[]>(() => [
     { key: 'DocEntry', header: 'Doc Entry', sortable: true, filterable: true, accessor: (r) => r.DocEntry },
-    { key: 'DocNum', header: 'Doc Num', sortable: true, filterable: true, accessor: (r) => r.DocNum },
+    { key: 'DocNum', header: 'Document No', sortable: true, filterable: true, accessor: (r) => r.DocNum },
     {
       key: 'DocDate',
-      header: 'PR Date',
+      header: 'Posting Date',
       sortable: true,
       filterable: true,
-      accessor: (r) => (r.DocDate ? formatPoDisplayDate(r.DocDate) : '—'),
+      accessor: (r) => (r.DocDate ? formatPoDisplayDate(String(r.DocDate)) : '—'),
     },
     {
       key: 'BPLId',
@@ -221,17 +227,6 @@ export function PurchaseRequestListPage() {
       accessor: (r) => resolveBranchLabel(r),
     },
     {
-      key: 'CardCode',
-      header: 'Business Partner',
-      sortable: true,
-      filterable: true,
-      accessor: (r) => {
-        const lookup = lookupMaps.businessPartners[r.CardCode ?? '']
-        const name = lookup ?? r.CardName
-        return formatCodeWithName(r.CardCode, name)
-      },
-    },
-    {
       key: 'Project',
       header: 'Project',
       sortable: true,
@@ -239,19 +234,14 @@ export function PurchaseRequestListPage() {
       accessor: (r) => formatCodeWithName(r.Project, lookupMaps.projects[r.Project ?? '']),
     },
     {
-      key: 'Requester',
-      header: 'Requester',
+      key: 'RequiredDate',
+      header: 'Required Date',
       sortable: true,
       filterable: true,
-      accessor: (r) => String(r.RequesterName || r.Requester || '—'),
-    },
-    {
-      key: 'DocTotal',
-      header: 'Value',
-      sortable: true,
-      headerClassName: 'text-right',
-      cellClassName: 'text-right tabular-nums',
-      accessor: (r) => formatPoValue(r.DocTotal),
+      accessor: (r) => {
+        const iso = requiredDateOf(r)
+        return iso ? formatPoDisplayDate(iso) : '—'
+      },
     },
     {
       key: 'DocumentStatus',
@@ -259,10 +249,17 @@ export function PurchaseRequestListPage() {
       sortable: true,
       filterable: true,
       render: (r) => (
-        <Badge variant={r.DocumentStatus === 'bost_Open' ? 'success' : 'default'}>
-          {r.DocumentStatus === 'bost_Close' ? 'Close' : r.DocumentStatus === 'bost_Open' ? 'Open' : r.DocumentStatus ?? '-'}
+        <Badge variant={r.DocumentStatus === 'bost_Open' && !isPurchaseRequestReadOnly(r) ? 'success' : 'default'}>
+          {purchaseRequestStatusLabel(r)}
         </Badge>
       ),
+    },
+    {
+      key: 'Requester',
+      header: 'Username',
+      sortable: true,
+      filterable: true,
+      accessor: (r) => usernameOf(r),
     },
     {
       key: 'actions',
@@ -297,7 +294,7 @@ export function PurchaseRequestListPage() {
               {
                 key: 'cancel',
                 label: 'Cancel in SAP',
-                disabled: docEntry == null || row.DocumentStatus === 'bost_Close',
+                disabled: docEntry == null || isPurchaseRequestReadOnly(row),
                 icon: <Ban className={rowActionIconClassName} />,
                 onClick: () => docEntry != null && void handleCancelRow(docEntry),
               },

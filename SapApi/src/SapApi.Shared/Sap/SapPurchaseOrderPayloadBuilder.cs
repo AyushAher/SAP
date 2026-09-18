@@ -360,6 +360,8 @@ public static class SapPurchaseOrderPayloadBuilder
     /// SAP DocumentSpecialLines (dslt_Text) inserted after the item row whose FreeText they carry.
     /// Header special lines from the client are kept when line FreeText is empty.
     /// AfterLineNumber follows the LineNum assigned on the prepared document line.
+    /// Service documents carry their line remark on the U_FreeTxt UDF instead (see PrepareLines) —
+    /// never duplicated onto DocumentSpecialLines.
     /// </summary>
     internal static List<SapDocumentSpecialLine>? PrepareSpecialLines(
         List<SapInventoryTransferItemsRequests>? lines,
@@ -368,7 +370,7 @@ public static class SapPurchaseOrderPayloadBuilder
         bool isService)
     {
         var fromLines = new List<SapDocumentSpecialLine>();
-        if (lines is { Count: > 0 })
+        if (!isService && lines is { Count: > 0 })
         {
             var preparedIndex = 0;
             foreach (var line in lines)
@@ -395,6 +397,11 @@ public static class SapPurchaseOrderPayloadBuilder
 
         if (fromLines.Count > 0)
             return fromLines;
+
+        // Service documents never carry DocumentSpecialLines — even ones the client echoed back
+        // from a prior (pre-UDF) load — since their remark now lives on U_FreeTxt.
+        if (isService)
+            return null;
 
         var fromHeader = existing?
             .Where(s => !string.IsNullOrWhiteSpace(s.LineText))
@@ -428,8 +435,10 @@ public static class SapPurchaseOrderPayloadBuilder
                 {
                     LineNum = line.LineNum,
                     ItemDescription = NullIfWhiteSpace(line.ItemDescription),
+                    // Service PO remarks go on the U_FreeTxt line UDF, not DocumentSpecialLines
+                    // (dslt_Text) — that table stays reserved for item-line remarks.
                     FreeText = null,
-                    UFreeTxt = null,
+                    UFreeTxt = Truncate(NullIfWhiteSpace(line.FreeText) ?? NullIfWhiteSpace(line.UFreeTxt), 100),
                     AccountCode = NullIfWhiteSpace(line.AccountCode),
                     Quantity = line.Quantity,
                     UnitPrice = line.UnitPrice,

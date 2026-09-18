@@ -147,6 +147,54 @@ public class SapPurchaseRequestServiceWriteTests
     }
 
     [Test]
+    public async Task CancelPurchaseRequest_PostsCancelThenPersistsSapStatus()
+    {
+        _context.PurchaseRequests.Add(new PurchaseRequest
+        {
+            CompanyDb = CompanyDb,
+            DocEntry = 148,
+            DocNum = 6,
+            DocumentStatus = "bost_Open",
+            Cancelled = "tNO",
+            CreatedOn = DateTime.UtcNow,
+            LastModifiedOn = DateTime.UtcNow,
+            SyncedAtUtc = DateTime.UtcNow,
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        string? cancelUrl = null;
+        _http.Setup(h => h.PostAsync<object, object>(
+                It.IsAny<string>(),
+                It.IsAny<object>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string u, object? _, CancellationToken _) => cancelUrl = u)
+            .ReturnsAsync((object?)null);
+        _http.Setup(h => h.GetOrThrowAsync<SapPurchaseRequestsResponse>(
+                It.Is<string>(url => url.Contains("PurchaseRequests(148)", StringComparison.Ordinal)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapPurchaseRequestsResponse
+            {
+                DocEntry = 148,
+                DocNum = 6,
+                DocumentStatus = "bost_Close",
+                Cancelled = "tYES",
+            });
+
+        var result = await _sut.CancelPurchaseRequest(148);
+
+        cancelUrl.Should().Contain("PurchaseRequests(148)/Cancel");
+        result.Should().NotBeNull();
+        result!.DocumentStatus.Should().Be("bost_Close");
+        result.Cancelled.Should().Be("tYES");
+
+        _context.ChangeTracker.Clear();
+        var stored = await _context.PurchaseRequests.SingleAsync(x => x.DocEntry == 148);
+        stored.DocumentStatus.Should().Be("bost_Close");
+        stored.Cancelled.Should().Be("tYES");
+    }
+
+    [Test]
     public async Task GetPurchaseRequests_merges_document_special_lines_from_sap()
     {
         var po = new PurchaseRequest

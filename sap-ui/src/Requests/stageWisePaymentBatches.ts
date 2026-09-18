@@ -39,6 +39,8 @@ export interface StageWisePaymentBatch {
   modeOfPaymentLabel?: string
   account?: string
   accountLabel?: string
+  vendorBankCode?: string
+  vendorBankDetails?: string
   journalRemark?: string
   referenceNo?: string
   postingDate?: string
@@ -118,6 +120,7 @@ export async function withdrawStageWisePaymentBatch(batchId: number): Promise<St
 export async function updateBatchAdditionalDetails(batchId: number, payload: {
   modeOfPayment?: string
   account?: string
+  vendorBankCode?: string
   journalRemark?: string
   referenceNo?: string
   postingDate?: string
@@ -158,3 +161,4 @@ export async function deleteStageWisePaymentBatch(batchId: number) {
 export async function downloadStageWisePaymentBatchPdf(batchId: number): Promise<Blob> {
   return apiDownloadGet(`/stage-wise-payment-batches/${batchId}/pdf`)
 }
+

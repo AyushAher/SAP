@@ -63,6 +63,11 @@ public class StageWisePaymentPageService(
         var banks = Constants.BankAccounts.GetBanksForBplId(po.BPLId)
             .Select(b => new StageWisePaymentBankOption { Key = b.Key, Value = b.Value })
             .ToList();
+        var vendor = await masterDataService.GetBusinessPartnerWithAddressesAsync(po.CardCode ?? string.Empty, cancellationToken);
+        var vendorBanks = (vendor?.BPBankAccounts ?? [])
+            .Select(MapVendorBank)
+            .Where(a => !string.IsNullOrWhiteSpace(a.Display))
+            .ToList();
 
         return new StageWisePaymentPageDataResponse
         {
@@ -79,6 +84,8 @@ public class StageWisePaymentPageService(
             ApInvoices = await apInvoicesTask,
             WithholdingTaxCodes = await wtCodesTask,
             PaymentSummary = StageWisePaymentCalculations.BuildPaymentSummary(po, activeRecords),
+            VendorBankAccounts = vendorBanks,
+            VendorEmail = NullIfWhiteSpace(vendor?.EmailAddress),
         };
     }
 
@@ -259,7 +266,14 @@ public class StageWisePaymentPageService(
         };
     }
 
-    private static string? ResolveOutgoingPaymentNumber(StageWisePayment record)
+    /// <summary>
+    /// True once SAP has an actual outgoing payment posted against this record — the gate for
+    /// offering "Send Payment Advice" (there is nothing to advise a vendor about before that).
+    /// </summary>
+    public static bool HasSapOutgoingPayment(StageWisePayment record) =>
+        !string.IsNullOrWhiteSpace(ResolveOutgoingPaymentNumber(record));
+
+    public static string? ResolveOutgoingPaymentNumber(StageWisePayment record)
     {
         var documentNumbers = record.ApDownPaymentInvoiceEntryNumber?
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -362,6 +376,25 @@ public class StageWisePaymentPageService(
             _ => true,
         };
     }
+
+    static VendorBankAccountOption MapVendorBank(SapBpBankAccount account)
+    {
+        var parts = new[] { account.BankCode, account.AccountNo, account.AccountName, account.Branch }
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p!.Trim())
+            .ToArray();
+        return new VendorBankAccountOption
+        {
+            BankCode = account.BankCode?.Trim() ?? string.Empty,
+            AccountNo = NullIfWhiteSpace(account.AccountNo),
+            AccountName = NullIfWhiteSpace(account.AccountName),
+            Branch = NullIfWhiteSpace(account.Branch),
+            Display = string.Join(" / ", parts),
+        };
+    }
+
+    static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     static List<int> ParseApprovalRequestIds(string? approvalRequestIds) =>
         approvalRequestIds?

@@ -15,8 +15,12 @@ export interface ProductionOrderLine {
   DocNum?: string
   /** WOR1 U_DwgNo. */
   DrawingNo?: string
-  /** WOR1 U_FreeTxt. Drawing name is the default when this is empty. */
+  /** WOR1 U_DwgName. */
+  DrawingName?: string
+  /** WOR1 U_FreeTxt. Blank stays blank — never filled from drawing name or sub-assembly no. */
   FreeText?: string
+  /** Portal status copied from the sub-assembly header: Planned / Released / Complete. */
+  Status?: string
 }
 
 /**

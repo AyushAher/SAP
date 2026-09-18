@@ -23,7 +23,8 @@ import {
   toDocumentSpecialLines,
   firstPositiveLocationCode,
   nextUnusedLineNum,
-  usesPbbplDispatchLocationMapping,
+  usesBranchDispatchLocationMapping,
+  dispatchAddressSourceForLocation,
   validatePaymentTermsForSave,
   warehouseForDispatchLocation,
   withItemsPerUnit,
@@ -343,25 +344,58 @@ describe('logistics SAP field mapping', () => {
   })
 })
 
-describe('PBBPL dispatch location ↔ warehouse', () => {
-  it('maps Factory / Office / BP Loc to Store1 / Store5 / PBPL(S)', () => {
-    expect(warehouseForDispatchLocation('Factory')).toBe('Store1')
-    expect(warehouseForDispatchLocation('Office')).toBe('Store5')
-    expect(warehouseForDispatchLocation('BP Loc')).toBe('PBPL(S)')
-    expect(warehouseForDispatchLocation('Other')).toBeUndefined()
+describe('branch dispatch location ↔ warehouse (Sheet3 table)', () => {
+  it('maps Privilege Biksons (branch 1): Factory/Office/Customer Loc/SubContractor Loc', () => {
+    expect(warehouseForDispatchLocation(1, 'Factory')).toBe('Store1')
+    expect(warehouseForDispatchLocation(1, 'Office')).toBe('Store5')
+    expect(warehouseForDispatchLocation(1, 'Customer Loc')).toBe('PBPL(S)')
+    expect(warehouseForDispatchLocation(1, 'SubContractor Loc')).toBe('SUBCON')
+    expect(warehouseForDispatchLocation(1, 'Other')).toBeUndefined()
   })
 
-  it('reverse-maps warehouses back to location type', () => {
-    expect(dispatchLocationForWarehouse('Store1')).toBe('Factory')
-    expect(dispatchLocationForWarehouse('Store5')).toBe('Office')
-    expect(dispatchLocationForWarehouse('PBPL(S)')).toBe('BP Loc')
-    expect(dispatchLocationForWarehouse('DRP')).toBeUndefined()
+  it('maps Privilege Energex (branch 5): Factory/Office/Customer Loc mapped, SubContractor Loc has no fixed warehouse', () => {
+    expect(warehouseForDispatchLocation(5, 'Factory')).toBe('PEPL(P)')
+    expect(warehouseForDispatchLocation(5, 'Office')).toBe('Store9')
+    expect(warehouseForDispatchLocation(5, 'Customer Loc')).toBe('PEPL(S)')
+    expect(warehouseForDispatchLocation(5, 'SubContractor Loc')).toBeUndefined()
   })
 
-  it('applies only for PBBPL company databases', () => {
-    expect(usesPbbplDispatchLocationMapping('PBBPL_UAT')).toBe(true)
-    expect(usesPbbplDispatchLocationMapping('PBBPL_LIVE')).toBe(true)
-    expect(usesPbbplDispatchLocationMapping('OTHER_DB')).toBe(false)
+  it('maps S M Projects (branch 3) and De Design (branch 4): only Office is mapped', () => {
+    expect(warehouseForDispatchLocation(3, 'Office')).toBe('Store3')
+    expect(warehouseForDispatchLocation(3, 'Factory')).toBeUndefined()
+    expect(warehouseForDispatchLocation(3, 'Customer Loc')).toBeUndefined()
+    expect(warehouseForDispatchLocation(4, 'Office')).toBe('Store4')
+    expect(warehouseForDispatchLocation(4, 'Factory')).toBeUndefined()
+  })
+
+  it('reverse-maps warehouses back to location type, per branch', () => {
+    expect(dispatchLocationForWarehouse(1, 'Store1')).toBe('Factory')
+    expect(dispatchLocationForWarehouse(1, 'Store5')).toBe('Office')
+    expect(dispatchLocationForWarehouse(1, 'PBPL(S)')).toBe('Customer Loc')
+    expect(dispatchLocationForWarehouse(1, 'SUBCON')).toBe('SubContractor Loc')
+    expect(dispatchLocationForWarehouse(1, 'DRP')).toBeUndefined()
+    expect(dispatchLocationForWarehouse(5, 'PEPL(S)')).toBe('Customer Loc')
+    expect(dispatchLocationForWarehouse(3, 'Store3')).toBe('Office')
+    // Store3 only belongs to S M Projects, not Biksons.
+    expect(dispatchLocationForWarehouse(1, 'Store3')).toBeUndefined()
+  })
+
+  it('applies only for branches that have a dispatch-location table', () => {
+    expect(usesBranchDispatchLocationMapping(1)).toBe(true)
+    expect(usesBranchDispatchLocationMapping(3)).toBe(true)
+    expect(usesBranchDispatchLocationMapping(4)).toBe(true)
+    expect(usesBranchDispatchLocationMapping(5)).toBe(true)
+    expect(usesBranchDispatchLocationMapping(99)).toBe(false)
+    expect(usesBranchDispatchLocationMapping(undefined)).toBe(false)
+  })
+
+  it('resolves the dispatch-address source (warehouse vs BP address book) per branch/location', () => {
+    expect(dispatchAddressSourceForLocation(1, 'Factory')).toBe('whse')
+    expect(dispatchAddressSourceForLocation(1, 'Office')).toBe('whse')
+    expect(dispatchAddressSourceForLocation(1, 'Customer Loc')).toBe('bp')
+    expect(dispatchAddressSourceForLocation(1, 'SubContractor Loc')).toBe('bp')
+    expect(dispatchAddressSourceForLocation(5, 'SubContractor Loc')).toBe('bp')
+    expect(dispatchAddressSourceForLocation(3, 'Factory')).toBeUndefined()
   })
 })
 
@@ -495,6 +529,15 @@ describe('toSapDocumentLine', () => {
   it('falls back to the header project when the line has none', () => {
     const payload = toSapDocumentLine(itemLine, { isService: false, fallbackProject: 'PRJ-9' })
     expect(payload.ProjectCode).toBe('PRJ-9')
+  })
+
+  it('sends RequiredDate on item and service lines when provided', () => {
+    expect(toSapDocumentLine(itemLine, { isService: false, requiredDate: '2026-09-05' }).RequiredDate).toBe('2026-09-05')
+    expect(toSapDocumentLine(
+      { ItemDescription: 'LAND', AccountCode: '_SYS00000000670', Quantity: 1 },
+      { isService: true, requiredDate: '2026-09-05' },
+    ).RequiredDate).toBe('2026-09-05')
+    expect(toSapDocumentLine(itemLine, { isService: false }).RequiredDate).toBeUndefined()
   })
 
   it('keeps service lines to account, SAC, amounts, location and warehouse for Loc. fill', () => {

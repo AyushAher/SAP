@@ -497,4 +497,65 @@ public class SapMasterDataServiceTests
                 Filters = [new FilterModel { Field = "__search", Value = term }],
             },
             CancellationToken.None);
+
+    [Test]
+    public async Task ResolveItemGroupCodesAsync_returns_null_codes_when_no_group_name_filter_present()
+    {
+        var request = new PaginationRequest
+        {
+            PageNumber = 1,
+            PageSize = 20,
+            Filters = [new FilterModel { Field = "__search", Operator = "contains", Value = "wire" }],
+        };
+
+        var (codes, remaining) = await _sut.ResolveItemGroupCodesAsync(request, CancellationToken.None);
+
+        codes.Should().BeNull();
+        remaining.Filters.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task ResolveItemGroupCodesAsync_resolves_a_group_name_to_its_sap_codes_and_strips_the_filter()
+    {
+        _http
+            .Setup(h => h.GetAsync<SapItemGroupsResponse>(
+                It.Is<string>(url => url.Contains("ItemGroups", StringComparison.OrdinalIgnoreCase)),
+                true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapItemGroupsResponse
+            {
+                Value = [new SapItemGroupResponse { Number = 103, GroupName = "Consumable" }],
+            });
+
+        var request = new PaginationRequest
+        {
+            PageNumber = 1,
+            PageSize = 20,
+            Filters = [new FilterModel { Field = "ItemsGroupName", Operator = "contains", Value = "Consumable" }],
+        };
+
+        var (codes, remaining) = await _sut.ResolveItemGroupCodesAsync(request, CancellationToken.None);
+
+        codes.Should().BeEquivalentTo([103]);
+        remaining.Filters.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ResolveItemGroupCodesAsync_returns_empty_not_null_when_the_named_group_does_not_exist()
+    {
+        _http
+            .Setup(h => h.GetAsync<SapItemGroupsResponse>(It.IsAny<string>(), true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SapItemGroupsResponse { Value = [] });
+
+        var request = new PaginationRequest
+        {
+            PageNumber = 1,
+            PageSize = 20,
+            Filters = [new FilterModel { Field = "ItemsGroupName", Operator = "contains", Value = "Nonexistent" }],
+        };
+
+        var (codes, _) = await _sut.ResolveItemGroupCodesAsync(request, CancellationToken.None);
+
+        codes.Should().NotBeNull();
+        codes.Should().BeEmpty();
+    }
 }

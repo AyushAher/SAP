@@ -25,6 +25,8 @@ public class StageWisePaymentBatchResponse
     public string? ModeOfPaymentLabel { get; set; }
     public string? Account { get; set; }
     public string? AccountLabel { get; set; }
+    public string? VendorBankCode { get; set; }
+    public string? VendorBankDetails { get; set; }
     public string? JournalRemark { get; set; }
     public string? ReferenceNo { get; set; }
     public DateTime? PostingDate { get; set; }

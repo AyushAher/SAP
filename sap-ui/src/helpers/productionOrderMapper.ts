@@ -99,7 +99,9 @@ export function normalizeProductionOrderLine(raw: ProductionOrderLine | Record<s
     DocumentAbsoluteEntry: readNumber(source, 'DocumentAbsoluteEntry', 'documentAbsoluteEntry'),
     DocNum: readString(source, 'DocNum', 'docNum', 'U_DocNum', 'u_DocNum'),
     DrawingNo: readString(source, 'DrawingNo', 'drawingNo', 'U_DwgNo', 'u_DwgNo'),
+    DrawingName: readString(source, 'DrawingName', 'drawingName', 'U_DwgName', 'u_DwgName'),
     FreeText: readString(source, 'FreeText', 'freeText', 'U_FreeTxt', 'u_FreeTxt'),
+    Status: readString(source, 'Status', 'status'),
   }
 }
 
@@ -173,8 +175,12 @@ export function toProductionOrderPayload(
       }
       const freeText = line.FreeText ?? (typeof next.U_FreeTxt === 'string' ? next.U_FreeTxt : undefined)
       if (freeText) next.U_FreeTxt = freeText
+      else delete next.U_FreeTxt
       const drawingNo = line.DrawingNo ?? (typeof next.U_DwgNo === 'string' ? next.U_DwgNo : undefined)
       if (drawingNo) next.U_DwgNo = drawingNo
+      const drawingName = line.DrawingName ?? (typeof next.U_DwgName === 'string' ? next.U_DwgName : undefined)
+      if (drawingName) next.U_DwgName = drawingName
+      delete next.DrawingName
       return next
     })
   }

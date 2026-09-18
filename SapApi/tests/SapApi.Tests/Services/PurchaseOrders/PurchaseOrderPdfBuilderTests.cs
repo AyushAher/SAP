@@ -122,6 +122,70 @@ public class PurchaseOrderPdfBuilderTests
     }
 
     [Test]
+    public async Task Payment_terms_and_terms_and_conditions_headings_are_bold()
+    {
+        SetupBranchAndProject();
+
+        var result = await _sut.BuildPlaceholdersAsync(MinimalOrder(), "Aditya Aher");
+
+        result["@terms"].Should().Contain("<b>TERMS &amp; CONDITIONS</b>");
+    }
+
+    [Test]
+    public async Task Delivery_clause_falls_back_to_the_row_level_dates_when_no_header_term_is_set()
+    {
+        SetupBranchAndProject();
+        var order = MinimalOrder();
+        order.UDelTerms = null;
+
+        var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
+
+        result["@terms"].Should().Contain("delivered/completed within the timeline mentioned above in the row level.");
+    }
+
+    [Test]
+    public async Task Terms_include_the_new_labour_and_site_safety_clauses_with_the_branch_name()
+    {
+        SetupBranchAndProject();
+
+        var result = await _sut.BuildPlaceholdersAsync(MinimalOrder(), "Aditya Aher");
+
+        result["@terms"].Should().Contain("12. Labour &amp; Statutory Compliance");
+        result["@terms"].Should().Contain("13. Site Safety &amp; Insurance");
+        result["@terms"].Should().Contain("Pune Branch shall not be responsible for any accident");
+        result["@terms"].Should().Contain("14. Confidentiality");
+        result["@terms"].Should().Contain("20. Indemnity");
+    }
+
+    [Test]
+    public async Task Service_lines_show_the_gl_account_code_and_name_instead_of_a_blank_part_no()
+    {
+        SetupBranchAndProject();
+        _http
+            .Setup(h => h.GetAsync<GetAllSapChartOfAccountsResponse>(
+                It.Is<string>(url => url.Contains("ChartOfAccounts", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetAllSapChartOfAccountsResponse
+            {
+                Value = [new SapChartOfAccountResponse { Code = "400100", Name = "Freight & Forwarding" }],
+            });
+
+        var order = MinimalOrder();
+        order.DocType = "dDocument_Service";
+        order.DocumentLines =
+        [
+            new() { AccountCode = "400100", ItemDescription = "LAND", Quantity = 1, UnitPrice = 10000, LineTotal = 10000 },
+        ];
+
+        var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
+
+        result["@items"].Should().Contain("400100");
+        result["@items"].Should().Contain("Freight &amp; Forwarding — LAND");
+    }
+
+    [Test]
     public async Task Amount_in_figures_and_words_use_total_basic_excluding_gst()
     {
         SetupBranchAndProject();
@@ -323,7 +387,6 @@ public class PurchaseOrderPdfBuilderTests
         var result = await _sut.BuildPlaceholdersAsync(order, "Aditya Aher");
 
         result["@items"].Should().Contain("1.2346");
-        result["@items"].Should().Contain("0.075");
         result["@items"].Should().Contain("62.500");
         result["@items"].Should().Contain("77.16");
     }
@@ -441,7 +504,7 @@ public class PurchaseOrderPdfBuilderTests
     {
         DocEntry = 10,
         DocNum = 252610001,
-        BPLId = 2,
+        BPLId = 1, // Privilege Biksons — owns the Store1/Store5 Factory/Office warehouses used below.
         Project = "PB/R&M/25262053",
         DocumentLines = [],
     };

@@ -738,4 +738,62 @@ public class SapPurchaseOrderPayloadBuilderTests
         local.DocumentSpecialLines.Should().BeNull();
         local.DocumentLines![0].FreeText.Should().Be("keep");
     }
+
+    [Test]
+    public void Prepare_ServiceLine_MapsFreeTextToUFreeTxtUdf_NotDocumentSpecialLines()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "S000035",
+            DocType = "dDocument_Service",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    LineNum = 0,
+                    Quantity = 1,
+                    UnitPrice = 12000,
+                    ItemDescription = "PLANT AND MACHINERY",
+                    AccountCode = "_SYS00000000677",
+                    FreeText = "As per drawing D-101",
+                },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        var line = payload.DocumentLines.Should().ContainSingle().Subject;
+        line.FreeText.Should().BeNull();
+        line.UFreeTxt.Should().Be("As per drawing D-101");
+        payload.DocumentSpecialLines.Should().BeNull();
+    }
+
+    [Test]
+    public void Prepare_ServiceLine_IgnoresEchoedHeaderDocumentSpecialLines()
+    {
+        var source = new SapPurchaseOrdersResponse
+        {
+            CardCode = "S000035",
+            DocType = "dDocument_Service",
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    LineNum = 0,
+                    Quantity = 1,
+                    UnitPrice = 12000,
+                    ItemDescription = "PLANT AND MACHINERY",
+                    AccountCode = "_SYS00000000677",
+                },
+            ],
+            DocumentSpecialLines =
+            [
+                new SapDocumentSpecialLine { AfterLineNumber = 0, LineType = "dslt_Text", LineText = "Stale pre-UDF remark" },
+            ],
+        };
+
+        var payload = SapPurchaseOrderPayloadBuilder.Prepare(source, isUpdate: false);
+
+        payload.DocumentSpecialLines.Should().BeNull();
+    }
 }

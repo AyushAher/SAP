@@ -494,6 +494,7 @@ public class StageWisePaymentBatchService(
         {
             batch.ModeOfPayment = request.ModeOfPayment ?? Constants.SapPaymentMeansType.BankTransfer;
             batch.Account = request.Account;
+            batch.VendorBankCode = request.VendorBankCode;
             batch.ReferenceNo = request.ReferenceNo;
             batch.PaymentDate = DateTimeUtcConverter.ToUtc(request.PaymentDate);
         }
@@ -996,6 +997,9 @@ public class StageWisePaymentBatchService(
             ModeOfPaymentLabel = Constants.SapPaymentMeansType.Labels.GetValueOrDefault(batch.ModeOfPayment ?? string.Empty),
             Account = batch.Account,
             AccountLabel = pageData?.BankLabels.GetValueOrDefault(batch.Account ?? string.Empty, batch.Account),
+            VendorBankCode = batch.VendorBankCode,
+            VendorBankDetails = StageWisePaymentPdfBuilder.FormatVendorBankDetails(
+                pageData?.VendorBankAccounts, batch.VendorBankCode),
             JournalRemark = batch.JournalRemark,
             ReferenceNo = batch.ReferenceNo,
             PostingDate = batch.PostingDate,

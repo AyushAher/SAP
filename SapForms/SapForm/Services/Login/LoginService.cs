@@ -17,9 +17,9 @@ namespace SapForm.Services.Login
         /// </summary>
         /// <remarks>Upon successful authentication, a claims-based identity is created and signed in
         /// using cookie authentication. This method must be called in the context of an active HTTP request.</remarks>
-        /// <returns>A task that represents the asynchronous login operation.</returns>
+        /// <returns>The SAP Service Layer session id.</returns>
         /// <exception cref="ApiErrorException">Thrown when the SAP login fails or the response does not contain a valid session identifier.</exception>
-        public async Task SapLogin()
+        public async Task<string> SapLogin()
         {
             var decodedPasswordBytes = Convert.FromBase64String(Environment.GetEnvironmentVariable("SAP_PASSWORD") ??
                                                                 throw new ApiErrorException(
@@ -44,19 +44,20 @@ namespace SapForm.Services.Login
             };
 
             HttpResponseMessage response = await client.SendAsync(request);
-
-            if (response.IsSuccessStatusCode)
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
             {
-                Serilog.Log.Information("Logged in successfully");
-                SapLoginResponse? sapResponse = await response.Content.ReadFromJsonAsync<SapLoginResponse>();
-
-                if (string.IsNullOrEmpty(sapResponse?.SessionId))
-                {
-                    throw new ApiErrorException(sapResponse?.Error?.Message?.Value ?? "Some Error Occurred");
-                }
-
-                await redisCache.SetAsync("sessionId", sapResponse.SessionId, TimeSpan.FromMinutes(sapResponse.SessionTimeout ?? 30));
+                Serilog.Log.Error("SAP login failed: {Status} {Body}", (int)response.StatusCode, body);
+                throw new ApiErrorException(body);
             }
+
+            SapLoginResponse? sapResponse = JsonSerializer.Deserialize<SapLoginResponse>(body);
+            if (string.IsNullOrEmpty(sapResponse?.SessionId))
+                throw new ApiErrorException(sapResponse?.Error?.Message?.Value ?? "SAP login did not return a session id");
+
+            Serilog.Log.Information("Logged in successfully");
+            await redisCache.SetAsync("sessionId", sapResponse.SessionId, TimeSpan.FromMinutes(sapResponse.SessionTimeout ?? 30));
+            return sapResponse.SessionId;
         }
     }
 }

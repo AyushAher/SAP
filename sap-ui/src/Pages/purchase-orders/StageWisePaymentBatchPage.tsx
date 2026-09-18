@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, Trash2, Ban, Download, Undo2 } from 'lucide-react'
+import { AlertTriangle, Trash2, Ban, Download, Undo2, Mail } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { RowActionButton, rowActionIconClassName, rowActionsCellClassName } from '@/Components/shared/RowActions'
 import {
@@ -8,6 +8,7 @@ import {
   Card,
   CardContent,
   Input,
+  Modal,
   SapDateInput,
   Badge,
   SearchableSelect,
@@ -26,6 +27,7 @@ import {
   approveRequest,
   rejectRequest,
 } from '@/Requests/approvals'
+import { pollApprovalOutcome } from '@/helpers/approvalOutcomePolling'
 import {
   createStageWisePaymentBatch,
   updateStageWisePaymentBatch,
@@ -43,7 +45,7 @@ import {
   type BatchPayload,
   type StageWisePaymentBatch,
 } from '@/Requests/stageWisePaymentBatches'
-import type { StageWisePaymentPageData } from '@/Requests/stageWisePayments'
+import { sendPaymentAdvice, type StageWisePaymentPageData } from '@/Requests/stageWisePayments'
 import {
   allocateBatchRowNetAmounts,
   applySequentialBatchRowAdjustments,
@@ -71,6 +73,7 @@ function batchAdditionalDetailsFromBatch(batch: StageWisePaymentBatch) {
   return {
     modeOfPayment: batch.modeOfPayment ?? 'pmtBankTransfer',
     account: batch.account ?? '',
+    vendorBankCode: batch.vendorBankCode ?? '',
     journalRemark: batch.journalRemark ?? '',
     referenceNo: batch.referenceNo ?? '',
     postingDate: toIsoDateOnly(batch.postingDate) ?? todayIsoDate(),
@@ -166,6 +169,7 @@ export function StageWisePaymentBatchPage() {
   const [comment, setComment] = useState('')
   const [modeOfPayment, setModeOfPayment] = useState('pmtBankTransfer')
   const [account, setAccount] = useState('')
+  const [vendorBankCode, setVendorBankCode] = useState('')
   const [journalRemark, setJournalRemark] = useState('')
   const [referenceNo, setReferenceNo] = useState('')
   const [postingDate, setPostingDate] = useState(todayIsoDate)
@@ -173,6 +177,11 @@ export function StageWisePaymentBatchPage() {
   // Safer default: require payment date until we confirm an approval policy applies.
   const [paymentDateRequired, setPaymentDateRequired] = useState(true)
   const [requiresApproval, setRequiresApproval] = useState(false)
+  const [composeOpen, setComposeOpen] = useState(false)
+  const [composeTo, setComposeTo] = useState('')
+  const [composeCc, setComposeCc] = useState('')
+  const [composeRemarks, setComposeRemarks] = useState('')
+  const [sendingAdvice, setSendingAdvice] = useState(false)
 
   const isApproval = mode === 'approval'
   const readOnly = isApproval || (batch ? Boolean(batch.readOnly) : mode !== 'create')
@@ -210,14 +219,24 @@ export function StageWisePaymentBatchPage() {
     [pageData?.bankLabels],
   )
 
-  const accountOptions: SelectOption[] = useMemo(() => {
-    if (!account || bankOptions.some((option) => option.value === account))
-      return bankOptions
+  const vendorBankAccountOptions: SelectOption[] = useMemo(() => {
+    const options = (pageData?.vendorBankAccounts ?? []).map((a) => ({
+      value: a.bankCode,
+      label: a.display || a.bankCode,
+    }))
+    if (!vendorBankCode || options.some((option) => option.value === vendorBankCode))
+      return options
     return [
-      ...bankOptions,
-      { value: account, label: batch?.accountLabel ?? (bankLabel(account) || account) },
+      ...options,
+      { value: vendorBankCode, label: batch?.vendorBankDetails ?? vendorBankCode },
     ]
-  }, [bankOptions, account, batch?.accountLabel, bankLabel])
+  }, [pageData?.vendorBankAccounts, vendorBankCode, batch?.vendorBankDetails])
+
+  useEffect(() => {
+    if (readOnly || vendorBankCode) return
+    const accounts = pageData?.vendorBankAccounts ?? []
+    if (accounts.length === 1) setVendorBankCode(accounts[0].bankCode)
+  }, [readOnly, vendorBankCode, pageData?.vendorBankAccounts])
 
   const wtCodeOptions: SelectOption[] = useMemo(
     () => (pageData?.withholdingTaxCodes ?? []).map((wt) => ({
@@ -235,6 +254,7 @@ export function StageWisePaymentBatchPage() {
     const details = batchAdditionalDetailsFromBatch(batchData)
     setModeOfPayment(details.modeOfPayment)
     setAccount(details.account)
+    setVendorBankCode(details.vendorBankCode)
     setJournalRemark(details.journalRemark)
     setReferenceNo(details.referenceNo)
     setPostingDate(details.postingDate)
@@ -413,9 +433,9 @@ export function StageWisePaymentBatchPage() {
   }, [])
 
   useEffect(() => {
-    if (readOnly || !sharedBank || account) return
+    if (readOnly || !sharedBank) return
     setAccount(sharedBank)
-  }, [readOnly, sharedBank, account])
+  }, [readOnly, sharedBank])
 
   useEffect(() => {
     void loadInitial()
@@ -638,6 +658,7 @@ export function StageWisePaymentBatchPage() {
     return {
       modeOfPayment,
       account,
+      vendorBankCode: vendorBankCode || undefined,
       journalRemark: journalRemark || undefined,
       referenceNo: referenceNo || undefined,
       postingDate,
@@ -693,7 +714,8 @@ export function StageWisePaymentBatchPage() {
         utrNo: needsPaymentDetails ? referenceNo : undefined,
         utrDate: needsPaymentDetails && paymentDate ? paymentDate : undefined,
       })
-      setSuccessMessage('Payment request approved.')
+      setSuccessMessage('Payment request approved. SAP posting continues in the background.')
+      pollApprovalOutcome(Number(approvalRequestId), 'Payment')
       navigate(ROUTES.APPROVALS)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Approve failed')
@@ -777,6 +799,58 @@ export function StageWisePaymentBatchPage() {
     }
   }
 
+  const openComposeMail = () => {
+    setComposeTo(pageData?.vendorEmail ?? '')
+    setComposeCc('')
+    setComposeRemarks('')
+    setComposeOpen(true)
+  }
+
+  const handleSaveAndSend = async () => {
+    if (!batch?.id) return
+    if (showAdditionalDetailsSave) {
+      const payload = buildAdditionalDetailsPayload()
+      if (!payload) return
+      setSubmitting(true)
+      setError(null)
+      try {
+        const result = await updateBatchAdditionalDetails(batch.id, payload)
+        applyLoadedBatch(result)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save additional details')
+        setSubmitting(false)
+        return
+      }
+      setSubmitting(false)
+    }
+    openComposeMail()
+  }
+
+  const handleSendAdvice = async () => {
+    const recordId = batch?.stageWisePaymentId ?? batch?.downPaymentStageWisePaymentId
+    if (!recordId) return
+    const to = composeTo.split(/[;,]/).map((v) => v.trim()).filter(Boolean)
+    if (to.length === 0) {
+      setError('Enter at least one recipient email.')
+      return
+    }
+    setSendingAdvice(true)
+    setError(null)
+    try {
+      await sendPaymentAdvice(recordId, poDocEntry, {
+        to,
+        cc: composeCc.split(/[;,]/).map((v) => v.trim()).filter(Boolean),
+        remarks: composeRemarks.trim() || undefined,
+      })
+      setComposeOpen(false)
+      setSuccessMessage('Payment advice queued for sending. Verify the mailbox if delivery must be confirmed.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send payment advice')
+    } finally {
+      setSendingAdvice(false)
+    }
+  }
+
   const titleSuffix = po?.DocNum ?? po?.DocEntry ?? id
   const pageTitle = isApproval
     ? `Approve Batch Payment (${titleSuffix})`
@@ -839,6 +913,17 @@ export function StageWisePaymentBatchPage() {
             >
               <Download className="mr-2 h-4 w-4" />
               Download PDF
+            </Button>
+          )}
+          {(batch.stageWisePaymentId || batch.downPaymentStageWisePaymentId) && batch.hasSapOutgoingPayment && !isApproval && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submitting || sendingAdvice}
+              onClick={() => void handleSaveAndSend()}
+            >
+              <Mail className="mr-2 h-4 w-4" />
+              Send Payment Advice
             </Button>
           )}
           {batch.canDelete && !isApproval && (
@@ -1080,13 +1165,14 @@ export function StageWisePaymentBatchPage() {
                   menuMinHeight="min-h-52"
                 />
                 <Select
-                  label="Account"
-                  options={accountOptions}
-                  value={account}
-                  onChange={setAccount}
-                  placeholder="Select account"
+                  label="Vendor Bank Details"
+                  options={vendorBankAccountOptions}
+                  value={vendorBankCode}
+                  onChange={setVendorBankCode}
+                  placeholder="Select vendor bank account"
                   disabled={sapPaymentDetailsReadOnly}
-                  required={canEditAdditionalDetails}
+                  required={canEditAdditionalDetails && vendorBankAccountOptions.length > 0}
+                  hint="From the vendor master in SAP. Confirm before sending — paying the wrong account cannot be undone."
                   usePortal
                   minHeight="min-h-[44px]"
                   menuMinHeight="min-h-52"
@@ -1198,6 +1284,45 @@ export function StageWisePaymentBatchPage() {
           </CardContent>
         </Card>
       )}
+
+      <Modal
+        isOpen={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        title="Send payment advice"
+        description="Verify the recipients, then send. The vendor gets the standard Payment Advice email with this payment's details filled in."
+        size="lg"
+        footer={(
+          <>
+            <Button type="button" variant="outline" onClick={() => setComposeOpen(false)}>Cancel</Button>
+            <Button type="button" disabled={sendingAdvice} onClick={() => void handleSendAdvice()}>
+              {sendingAdvice ? 'Sending…' : 'Send'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <Input
+            label="To"
+            required
+            value={composeTo}
+            onChange={(e) => setComposeTo(e.target.value)}
+            placeholder="vendor@example.com"
+            hint="Separate multiple addresses with commas."
+          />
+          <Input
+            label="Cc"
+            value={composeCc}
+            onChange={(e) => setComposeCc(e.target.value)}
+            placeholder="optional@example.com"
+          />
+          <Textarea
+            label="Remarks (optional)"
+            value={composeRemarks}
+            onChange={(e) => setComposeRemarks(e.target.value)}
+            rows={3}
+          />
+        </div>
+      </Modal>
 
     </div>
   )

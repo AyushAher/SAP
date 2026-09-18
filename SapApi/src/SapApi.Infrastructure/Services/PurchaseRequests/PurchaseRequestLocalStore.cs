@@ -8,6 +8,7 @@ using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Models;
+using SapApi.Shared.Responses;
 using SapApi.Shared.Responses.Sap;
 using Serilog;
 
@@ -69,6 +70,55 @@ public class PurchaseRequestLocalStore(
         return PaginationResponseFactory.Create(request, data, totalCount);
     }
 
+    /// <summary>
+    /// Every line of every purchase request matching the report filters, for the report PDF —
+    /// no pagination (a print run needs the whole filtered set), capped so an unbounded filter
+    /// cannot pull in the entire local mirror.
+    /// </summary>
+    public async Task<List<PurchaseRequestReportLineResponse>> ListReportLinesAsync(
+        List<FilterModel> filters,
+        CancellationToken cancellationToken = default)
+    {
+        const int maxDocuments = 2000;
+
+        var query = db.PurchaseRequests
+            .AsNoTracking()
+            .Where(x => x.CompanyDb == CompanyDb);
+
+        (query, _) = await ApplyPurchaseRequestListFiltersAsync(query, filters, cancellationToken);
+
+        var documents = await query
+            .Include(x => x.Lines)
+            .OrderBy(x => x.DocDate).ThenBy(x => x.DocNum)
+            .Take(maxDocuments)
+            .ToListAsync(cancellationToken);
+
+        var rows = new List<PurchaseRequestReportLineResponse>();
+        foreach (var doc in documents)
+        {
+            var itemType = doc.DocType == Constants.PurchaseOrderDocType.Document_Service ? "Service" : "Item";
+            foreach (var line in doc.Lines.OrderBy(l => l.LineNum))
+            {
+                rows.Add(new PurchaseRequestReportLineResponse
+                {
+                    DocNum = doc.DocNum ?? doc.DocEntry,
+                    PostingDate = doc.DocDate,
+                    UserName = !string.IsNullOrWhiteSpace(doc.RequesterName) ? doc.RequesterName : doc.Requester,
+                    RequiredDate = line.RequiredDate ?? doc.RequiredDate,
+                    ProjectCode = line.ProjectCode ?? doc.Project,
+                    ItemType = itemType,
+                    ItemCode = line.ItemCode,
+                    Description = line.ItemDescription,
+                    FreeText = line.FreeText,
+                    Quantity = line.Quantity,
+                    Unit = line.UoMCode,
+                });
+            }
+        }
+
+        return rows;
+    }
+
     public async Task<SapPurchaseRequestsResponse?> GetFromDbAsync(
         int docEntry,
         bool includeLines,
@@ -108,6 +158,7 @@ public class PurchaseRequestLocalStore(
             };
             db.PurchaseRequests.Add(entity);
             PurchaseRequestMapper.ApplyHeader(entity, sap, now);
+            await ResolveRequesterNameAsync(entity, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
 
             entity.Lines = PurchaseRequestMapper.MapLines(entity.Id, sap.DocumentLines);
@@ -117,8 +168,30 @@ public class PurchaseRequestLocalStore(
         }
 
         PurchaseRequestMapper.ApplyHeader(entity, sap, now);
+        await ResolveRequesterNameAsync(entity, cancellationToken);
         await ReplaceChildRowsFromSapAsync(entity, sap, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// SAP leaves RequesterName blank for many Employee-type requests (OPRQ.Requester only
+    /// carries the employee ID). Falls back to the employee master so the list/PDF show a name
+    /// instead of a raw ID.
+    /// </summary>
+    private async Task ResolveRequesterNameAsync(PurchaseRequest entity, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(entity.RequesterName))
+            return;
+        if (entity.ReqType != Constants.SapPurchaseRequestReqType.Employee)
+            return;
+        if (!int.TryParse(entity.Requester, out var employeeId))
+            return;
+
+        var employee = await masterDataService.GetEmployeeByIdAsync(employeeId, cancellationToken);
+        var name = string.Join(' ', new[] { employee?.FirstName, employee?.LastName }
+            .Where(part => !string.IsNullOrWhiteSpace(part)));
+        if (!string.IsNullOrWhiteSpace(name))
+            entity.RequesterName = name;
     }
 
     /// <summary>
@@ -764,6 +837,17 @@ public class PurchaseRequestLocalStore(
                 continue;
             }
 
+            if (filter.Field.Equals("Project", StringComparison.OrdinalIgnoreCase)
+                && filter.Operator is "gte" or "lte")
+            {
+                // Project range (report filter): direct code comparison, not a name search —
+                // "from"/"to" bound an alphanumeric range of project codes.
+                query = filter.Operator == "gte"
+                    ? query.Where(x => x.Project != null && string.Compare(x.Project, term) >= 0)
+                    : query.Where(x => x.Project != null && string.Compare(x.Project, term) <= 0);
+                continue;
+            }
+
             if (filter.Field.Equals("Project", StringComparison.OrdinalIgnoreCase))
             {
                 // Match mid-string on project code (local) and project name (via master lookup of
@@ -779,6 +863,36 @@ public class PurchaseRequestLocalStore(
                     query = query.Where(x => x.Project != null && matchingCodes.Contains(x.Project));
                 }
 
+                continue;
+            }
+
+            if (filter.Field.Equals("Username", StringComparison.OrdinalIgnoreCase)
+                || filter.Field.Equals("Requester", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x =>
+                    (x.Requester != null && x.Requester.ToLower().Contains(termLower)) ||
+                    (x.RequesterName != null && x.RequesterName.ToLower().Contains(termLower)));
+                continue;
+            }
+
+            if (filter.Field.Equals("Period", StringComparison.OrdinalIgnoreCase)
+                && DateTime.TryParse($"{term}-01", out var periodStart))
+            {
+                var start = DateTime.SpecifyKind(new DateTime(periodStart.Year, periodStart.Month, 1), DateTimeKind.Utc);
+                var end = start.AddMonths(1);
+                query = query.Where(x => x.DocDate != null && x.DocDate >= start && x.DocDate < end);
+                continue;
+            }
+
+            if (filter.Field.Equals("RequiredDate", StringComparison.OrdinalIgnoreCase)
+                || filter.Field.Equals("RequriedDate", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining.Add(new FilterModel
+                {
+                    Field = nameof(PurchaseRequest.RequiredDate),
+                    Operator = filter.Operator,
+                    Value = filter.Value,
+                });
                 continue;
             }
 

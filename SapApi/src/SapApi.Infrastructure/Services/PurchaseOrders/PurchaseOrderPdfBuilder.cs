@@ -54,22 +54,26 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
         var totalBasic = TotalBasic(order);
         var deliveryFallback = order.DocDueDate ?? order.DueDate;
 
+        var isServiceDoc = FormatDocType(order.DocType) == "Service";
         var lines = order.DocumentLines ?? [];
         var itemCodes = lines
             .Select(l => l.ItemCode)
             .Where(c => !string.IsNullOrWhiteSpace(c))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var inventoryUomByItem = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var itemNameByItem = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var itemCode in itemCodes)
         {
             var item = await masterDataService.GetItemByCodeAsync(itemCode!, cancellationToken: cancellationToken);
-            if (!string.IsNullOrWhiteSpace(item?.InventoryUom))
-                inventoryUomByItem[itemCode!] = item.InventoryUom!;
             if (!string.IsNullOrWhiteSpace(item?.ItemName))
                 itemNameByItem[itemCode!] = item.ItemName!;
         }
+
+        var accountNameByCode = isServiceDoc
+            ? await masterDataService.GetChartOfAccountNamesByCodesAsync(
+                lines.Select(l => l.AccountCode ?? string.Empty).ToList(),
+                cancellationToken)
+            : [];
 
         var specialLines = (order.DocumentSpecialLines ?? [])
             .Where(s => !string.IsNullOrWhiteSpace(s.LineText))
@@ -82,23 +86,37 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
         {
             var line = lines[index];
             var purchaseQty = FormatQtyWithUom(line.Quantity, line.UoMCode);
-            inventoryUomByItem.TryGetValue(line.ItemCode ?? string.Empty, out var inventoryUom);
-            var stockQty = FormatQtyWithUom(line.InventoryQuantity ?? DeriveInventoryQty(line), inventoryUom);
             var unitPrice = FormatPrice(currency, line.UnitPrice);
             var lineTotal = FormatMoney(currency, line.LineTotal ?? line.LineGrandTotal);
             itemNameByItem.TryGetValue(line.ItemCode ?? string.Empty, out var itemName);
-            var description = string.IsNullOrWhiteSpace(line.ItemDescription)
-                ? itemName
-                : line.ItemDescription;
+
+            string partNo;
+            string description;
+            if (isServiceDoc && !string.IsNullOrWhiteSpace(line.AccountCode))
+            {
+                partNo = line.AccountCode!;
+                accountNameByCode.TryGetValue(line.AccountCode!, out var accountName);
+                description = string.IsNullOrWhiteSpace(accountName)
+                    ? line.ItemDescription ?? string.Empty
+                    : string.IsNullOrWhiteSpace(line.ItemDescription)
+                        ? accountName
+                        : $"{accountName} — {line.ItemDescription}";
+            }
+            else
+            {
+                partNo = line.ItemCode ?? string.Empty;
+                description = string.IsNullOrWhiteSpace(line.ItemDescription)
+                    ? itemName ?? string.Empty
+                    : line.ItemDescription;
+            }
 
             itemsHtml.Append($"""
                 <tr>
                     <td class="center">{sr}</td>
-                    <td class="part-no">{Escape(line.ItemCode)}</td>
+                    <td class="part-no">{Escape(partNo)}</td>
                     <td>{Escape(description)}</td>
                     <td class="center">{Escape(FormatDate(deliveryFallback))}</td>
                     <td class="center">{Escape(purchaseQty)}</td>
-                    <td class="center">{Escape(stockQty)}</td>
                     <td class="right">{Escape(unitPrice)}</td>
                     <td class="right">{Escape(lineTotal)}</td>
                 </tr>
@@ -132,13 +150,13 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
         {
             itemsHtml.Append("""
                 <tr>
-                    <td colspan="8" class="center">No line items</td>
+                    <td colspan="7" class="center">No line items</td>
                 </tr>
                 """);
         }
 
-        var terms = FormatTermsHtml(BuildTermsOfContract(order));
         var entityName = branch?.BplName ?? string.Empty;
+        var terms = FormatTermsHtml(BuildTermsOfContract(order, entityName));
         var projectDisplay = FormatProject(order.Project, projectName);
 
         return new Dictionary<string, string>
@@ -242,7 +260,7 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
         var contact = order.UShipTo ?? order.UContactPerson ?? string.Empty;
         var warehouseCode = ResolveDispatchWarehouse(order);
 
-        if (Constants.PoDispatchWarehouses.IsFactoryOrOffice(warehouseCode))
+        if (Constants.PoDispatchWarehouses.IsFactoryOrOffice(order.BPLId, warehouseCode))
         {
             var warehouse = await masterDataService.GetWarehouseByCodeAsync(
                 warehouseCode, cancellationToken: cancellationToken);
@@ -348,11 +366,17 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
         return $"{trimmedCode} - {trimmedName}";
     }
 
+    private static readonly HashSet<string> BoldTermsHeadings = new(StringComparer.Ordinal)
+    {
+        "PAYMENT TERMS",
+        "TERMS & CONDITIONS",
+    };
+
     private static string FormatTermsHtml(string terms) =>
         string.Join("<br>",
             terms.Replace("\r\n", "\n", StringComparison.Ordinal)
                 .Split('\n')
-                .Select(Escape));
+                .Select(line => BoldTermsHeadings.Contains(line) ? $"<b>{Escape(line)}</b>" : Escape(line)));
 
     private static string BuildSpecialLineRow(string? text)
     {
@@ -364,16 +388,9 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             .Replace("\n", "<br>", StringComparison.Ordinal);
         return $"""
                 <tr>
-                    <td colspan="8" class="special-lines">Document Special Lines: {escaped}</td>
+                    <td colspan="7" class="special-lines">Document Special Lines: {escaped}</td>
                 </tr>
                 """;
-    }
-
-    private static double? DeriveInventoryQty(SapInventoryTransferItemsRequests line)
-    {
-        if (line.Quantity is null) return null;
-        var factor = line.UnitsOfMeasurment is > 0 ? line.UnitsOfMeasurment.Value : 1;
-        return line.Quantity.Value * factor;
     }
 
     private static string FormatQtyWithUom(double? qty, string? uom = null)
@@ -416,7 +433,7 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
             _ => string.IsNullOrWhiteSpace(docType) ? "Purchase Order" : docType.Trim(),
         };
 
-    private static string BuildTermsOfContract(SapPurchaseOrdersResponse order)
+    private static string BuildTermsOfContract(SapPurchaseOrdersResponse order, string entityName)
     {
         var lines = new List<string>();
         var paymentTerms = order.CreateUdfList()
@@ -436,28 +453,36 @@ public class PurchaseOrderPdfBuilder(SapMasterDataService masterDataService)
         }
 
         var priceBasis = TermValue(order.UPriceBasis);
+        // No header Delivery Term on file: point the reader at the per-line Delivery Date column
+        // instead of leaving a grammatically broken blank ("within . Delivery timelines...").
         var deliveryTerms = TermValue(order.UDelTerms);
+        var deliveryTermsClause = deliveryTerms.Length > 0
+            ? deliveryTerms
+            : "the timeline mentioned above in the row level";
         var inspectionBy = TermValue(order.UInspectionBy);
         var packaging = TermValue(order.UTransportation);
+        var branchName = string.IsNullOrWhiteSpace(entityName) ? "the Company" : entityName;
         lines.Add("TERMS & CONDITIONS");
         lines.Add($"1. Price Basis – Order is placed on {priceBasis} basis.");
         lines.Add("2. Scope & Quality – Supply/work shall strictly conform to PO specifications, drawings, and quality requirements. Any deviation requires prior written approval. Rejected material shall be replaced at supplier's cost.");
         lines.Add("3. Pricing – Prices are firm and fixed. No escalation shall be entertained unless specifically agreed in writing.");
         lines.Add("4. GST Compliance – GST shall be charged as applicable with correct GSTIN and HSN/SAC. ITC shall be availed only upon compliance with GST laws. Any loss of ITC, interest, penalty, or liability arising due to supplier's non-compliance shall be recoverable from the supplier.");
         lines.Add("5. TDS – TDS shall be deducted as per applicable statutory provisions. Exemption benefits, if any, shall be considered only upon submission of valid supporting documents.");
-        lines.Add($"6. Delivery – All materials/services shall be delivered/completed within {deliveryTerms}. Delivery timelines are binding. Delay may result in penalty, cancellation, or procurement from alternate sources at supplier's risk and cost.");
+        lines.Add($"6. Delivery – All materials/services shall be delivered/completed within {deliveryTermsClause}. Delivery timelines are binding. Delay may result in penalty, cancellation, or procurement from alternate sources at supplier's risk and cost.");
         lines.Add($"7. Inspection – Materials/services shall be subject to inspection and approval by {inspectionBy}. Non-conforming supplies shall be rejected and replaced at supplier's cost.");
         lines.Add($"8. Packing & Delivery – Packaging shall be {packaging}. Adequate packing is mandatory. Any transit loss or damage due to improper packing shall be the supplier's responsibility. FOR deliveries shall be made strictly to the specified location.");
         lines.Add("9. Invoicing – Invoice shall mention PO No., GST details, HSN/SAC, item details, and applicable statutory particulars. Supporting documents (DC, LR, E-Way Bill, etc.) shall be submitted to purchase.pune@privilegeboilers.com with account@privilegeboilers.com in CC. Incomplete invoices shall not be processed.");
         lines.Add("10. Payment – Payment shall be made as per PO terms, subject to acceptance of material/services and compliance with contractual requirements. Advances, if any, shall be adjusted as per agreed terms. The Company reserves the right to withhold payment in case of disputes or non-compliance.");
         lines.Add("11. Warranty – Supplier warrants the material/work for 18 months from date of supply or 12 months from commissioning, whichever is earlier. Defects arising during the warranty period shall be rectified/replaced at supplier's cost.");
-        lines.Add("12. Confidentiality – All drawings, specifications, and information provided by the Company shall remain confidential and shall not be disclosed without prior written consent.");
-        lines.Add("13. Termination – The Company reserves the right to terminate the PO for delay, breach, non-performance, or quality issues without liability except for accepted supplies/services.");
-        lines.Add("14. Compliance – Supplier shall comply with all applicable laws including GST, Income Tax, Labour, Environmental, and Safety regulations.");
-        lines.Add("15. Force Majeure – Delays caused by events beyond reasonable control shall be promptly notified to the Company.");
-        lines.Add("16. Jurisdiction – All disputes shall be subject to the exclusive jurisdiction of courts at Pune, Maharashtra.");
-        lines.Add("17. General – No subcontracting shall be permitted without prior written approval. The Company's decision regarding interpretation and execution of the PO shall be final and binding.");
-        lines.Add("18. Indemnity – Supplier shall indemnify and hold harmless the Company against any loss, damage, claim, penalty, interest, or liability arising from breach of contract, statutory non-compliance, defective supply, or negligence on the part of the supplier.");
+        lines.Add("12. Labour & Statutory Compliance – For Service/Job Work Orders, PF, ESIC and all other applicable labour/statutory compliances shall be the Contractor's responsibility.");
+        lines.Add($"13. Site Safety & Insurance – Contractor shall be responsible for the safety, welfare and supervision of its personnel at site. {branchName} shall not be responsible for any accident, injury, death or damage involving Contractor's personnel, except where legally attributable to PBBPL. Valid WC/Employees Compensation Insurance Policy shall be submitted before commencement of work.");
+        lines.Add("14. Confidentiality – All drawings, specifications, and information provided by the Company shall remain confidential and shall not be disclosed without prior written consent.");
+        lines.Add("15. Termination – The Company reserves the right to terminate the PO for delay, breach, non-performance, or quality issues without liability except for accepted supplies/services.");
+        lines.Add("16. Compliance – Supplier shall comply with all applicable laws including GST, Income Tax, Labour, Environmental, and Safety regulations.");
+        lines.Add("17. Force Majeure – Delays caused by events beyond reasonable control shall be promptly notified to the Company.");
+        lines.Add("18. Jurisdiction – All disputes shall be subject to the exclusive jurisdiction of courts at Pune, Maharashtra.");
+        lines.Add("19. General – No subcontracting shall be permitted without prior written approval. The Company's decision regarding interpretation and execution of the PO shall be final and binding.");
+        lines.Add("20. Indemnity – Supplier shall indemnify and hold harmless the Company against any loss, damage, claim, penalty, interest, or liability arising from breach of contract, statutory non-compliance, defective supply, or negligence on the part of the supplier.");
         return string.Join("\n", lines);
     }
 

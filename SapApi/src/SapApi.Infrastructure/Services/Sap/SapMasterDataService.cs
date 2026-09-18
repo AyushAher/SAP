@@ -73,6 +73,56 @@ public class SapMasterDataService(
             cancellationToken);
     }
 
+/// <summary>
+    /// Translates an ItemsGroupName/ItemGroupName/GroupName filter (e.g. "Consumable") into the
+    /// matching ItemsGroupCode values, for callers reading items from the local Postgres mirror
+    /// instead of live SAP. Returns <c>(codes: [], hadGroupFilter: true)</c> — an empty, non-null
+    /// list — when a group filter was present but matched no SAP item group, so the caller can
+    /// return zero rows instead of an unfiltered page. Returns <c>(null, false)</c> when the
+    /// request had no group-name filter at all, in which case no group filtering applies.
+    /// </summary>
+    public async Task<(List<int>? GroupCodes, PaginationRequest Request)> ResolveItemGroupCodesAsync(
+        PaginationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var groupNameFilters = request.Filters
+            .Where(f => f.Field.Equals("ItemsGroupName", StringComparison.OrdinalIgnoreCase)
+                        || f.Field.Equals("ItemGroupName", StringComparison.OrdinalIgnoreCase)
+                        || f.Field.Equals("GroupName", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (groupNameFilters.Count == 0)
+            return (null, request);
+
+        var remaining = request.Filters.Where(f => !groupNameFilters.Contains(f)).ToList();
+        request.Filters = remaining;
+
+        var groupCodes = new HashSet<int>();
+        foreach (var filter in groupNameFilters)
+        {
+            var name = filter.Value?.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            var groups = await SearchAsync<SapItemGroupsResponse, SapItemGroupResponse>(
+                Constants.SapApiUrls.ItemGroupsCollection,
+                SapPaginationProfiles.ItemGroups,
+                new PaginationRequest
+                {
+                    PageNumber = 1,
+                    PageSize = 20,
+                    Filters = [new FilterModel { Field = "GroupName", Operator = "contains", Value = name }],
+                },
+                r => r?.Value,
+                cancellationToken);
+
+            foreach (var group in groups.Data ?? [])
+                groupCodes.Add(group.Number);
+        }
+
+        return (groupCodes.ToList(), request);
+    }
+
     /// <summary>
     /// Translates ItemsGroupName (e.g. "Consumable") into ItemsGroupCode OData filters.
     /// Returns profile=null when the named group does not exist so callers get an empty page
@@ -970,6 +1020,28 @@ public class SapMasterDataService(
         return FilterPurchaseUomOptions(options, search);
     }
 
+    /// <summary>
+    /// The full UoM master (Code + Name), for pickers with no item to derive units from — e.g. a
+    /// purchase order's service lines, which carry no ItemCode and so no UoM group.
+    /// </summary>
+    public async Task<List<PurchaseUomOptionResponse>> GetAllUnitOfMeasurementsAsync(
+        string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        await sapLogin.SapLoginAsync(cancellationToken);
+        var master = await GetCachedUnitOfMeasurementsAsync(cancellationToken);
+        var options = master
+            .Where(u => !string.IsNullOrWhiteSpace(u.Code) && !u.Code!.Equals(ManualUoMCode, StringComparison.OrdinalIgnoreCase))
+            .Select(u => new PurchaseUomOptionResponse
+            {
+                Code = u.Code!.Trim(),
+                Name = string.IsNullOrWhiteSpace(u.Name) ? u.Code!.Trim() : u.Name!.Trim(),
+                Source = PurchaseUomOptionSources.Master,
+            })
+            .ToList();
+        return FilterPurchaseUomOptions(options, search);
+    }
+
     private async Task<ItemsResponse?> GetItemUomProfileAsync(string itemCode, CancellationToken cancellationToken)
     {
         var safeCode = SapPaginationBuilder.EscapeODataString(itemCode);
@@ -1317,6 +1389,43 @@ public class SapMasterDataService(
             Constants.SapApiUrls.WithholdingTaxCodesCollection + queries.GetQueryValue(),
             cancellationToken);
         return response?.Value ?? [];
+    }
+
+    /// <summary>
+    /// Resolves G/L account names for a set of codes — e.g. so a service line's PDF row can show
+    /// "Code - Name" instead of the bare account code. Reuses ChartOfAccounts, the same entity the
+    /// G/L Account picker already queries successfully.
+    /// </summary>
+    public async Task<Dictionary<string, string>> GetChartOfAccountNamesByCodesAsync(
+        IReadOnlyList<string> codes,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var accountCodes = codes.Where(static c => !string.IsNullOrWhiteSpace(c)).Select(static c => c.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (accountCodes.Count == 0)
+            return result;
+
+        await sapLogin.SapLoginAsync(cancellationToken);
+        foreach (var chunk in accountCodes.Chunk(LookupBatchSize))
+        {
+            var filter = string.Join(" or ", chunk.Select(code => $"Code eq '{SapPaginationBuilder.EscapeODataString(code)}'"));
+            var queries = new SapQueries
+            {
+                Filter = filter,
+                Select = "Code,Name",
+                Top = chunk.Length.ToString(),
+            };
+            var response = await GetCachedAsync<GetAllSapChartOfAccountsResponse>(
+                Constants.SapApiUrls.ChartOfAccountsCollection + queries.GetQueryValue(),
+                cancellationToken);
+            foreach (var account in response?.Value ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(account.Code))
+                    result[account.Code] = account.Name ?? string.Empty;
+            }
+        }
+
+        return result;
     }
 
     private async Task<Dictionary<string, string>> LookupItemsBatchAsync(

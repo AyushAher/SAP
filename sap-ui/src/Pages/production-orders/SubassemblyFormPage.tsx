@@ -4,12 +4,15 @@ import { Trash2 } from 'lucide-react'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { SapDataGrid } from '@/Components/shared/SapDataGrid'
 import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
-import { Button, Card, CardContent, Input, SearchableSelect, Textarea } from '@/Components/ui'
+import { Button, Card, CardContent, Input, SearchableSelect, Select, Textarea } from '@/Components/ui'
 import { productionOrderFormPath, ROUTES } from '@/config/constants'
 import {
   buildSubassemblyDraftFromParent,
   buildSubassemblyItemLine,
   formatSubassemblyNo,
+  SUBASSEMBLY_STATUS_OPTIONS,
+  subassemblyDrawingName,
+  subassemblyStatusLabel,
   validateSubassemblyForm,
 } from '@/helpers/productionOrderForm'
 import {
@@ -17,6 +20,7 @@ import {
   newDraftSubassemblyKey,
   upsertDraftSubassembly,
 } from '@/helpers/productionOrderCreateDraft'
+import { ensureItemList, searchItemsCached } from '@/helpers/itemSearchCache'
 import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import {
@@ -25,9 +29,20 @@ import {
   listSubassemblies,
   updateProductionOrder,
 } from '@/Requests/productionOrders'
-import { searchItems } from '@/Requests/masters'
 import type { SelectOption } from '@/types'
 import type { ProductionOrder, ProductionOrderLine } from '@/types/production'
+
+function stampHeaderOntoLines(
+  rows: ProductionOrderLine[],
+  header: { drawingNo?: string; drawingName?: string; status?: string },
+): ProductionOrderLine[] {
+  return rows.map((line) => ({
+    ...line,
+    DrawingNo: header.drawingNo || line.DrawingNo,
+    DrawingName: header.drawingName || line.DrawingName,
+    Status: header.status || line.Status,
+  }))
+}
 
 export function SubassemblyFormPage() {
   const { id, childId } = useParams()
@@ -38,11 +53,15 @@ export function SubassemblyFormPage() {
   const [form, setForm] = useState<ProductionOrder>({})
   const [drawingName, setDrawingName] = useState('')
   const [lines, setLines] = useState<ProductionOrderLine[]>([])
-  const [draft, setDraft] = useState<ProductionOrderLine>({ ItemNo: '', PlannedQuantity: 0 })
+  const [draft, setDraft] = useState<ProductionOrderLine>({ ItemNo: '', PlannedQuantity: 0, Status: 'boposPlanned' })
   const [draftLabel, setDraftLabel] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void ensureItemList().catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -51,32 +70,37 @@ export function SubassemblyFormPage() {
     void (async () => {
       try {
         if (isDraft) {
-          const draft = loadCreateDraft()
-          if (!draft?.header.ItemNumber) {
+          const stored = loadCreateDraft()
+          if (!stored?.header.ItemNumber) {
             throw new Error('Finish the production order header before adding a sub-assembly.')
           }
-          const parentOrder = draft.header
-          const siblings = draft.subassemblies
+          const parentOrder = stored.header
+          const siblings = stored.subassemblies
           if (cancelled) return
           setParent(parentOrder)
           if (childId) {
             const child = siblings.find((row) => row.DraftKey === childId)
             if (!child) throw new Error('That sub-assembly is no longer on this draft.')
+            const name = subassemblyDrawingName(child, parentOrder)
             setForm({
               ...child,
               ItemNumber: parentOrder.ItemNumber ?? child.ItemNumber,
               Warehouse: child.Warehouse || parentOrder.Warehouse,
               IssWarehouse: child.IssWarehouse || parentOrder.IssWarehouse,
+              Status: child.Status || 'boposPlanned',
             })
-            setDrawingName((child.ProductDescription ?? '').trim()
-              && (child.ProductDescription ?? '').trim() !== (parentOrder.ProductDescription ?? '').trim()
-              ? (child.ProductDescription ?? '')
-              : '')
-            setLines(child.ProductionOrderLines ?? [])
+            setDrawingName(name)
+            setDraft((current) => ({ ...current, Status: child.Status || 'boposPlanned' }))
+            setLines(stampHeaderOntoLines(child.ProductionOrderLines ?? [], {
+              drawingNo: child.DrawingNo,
+              drawingName: name,
+              status: child.Status || 'boposPlanned',
+            }))
           } else {
             const next = buildSubassemblyDraftFromParent(parentOrder, siblings)
             setForm({ ...next, DraftKey: newDraftSubassemblyKey(siblings) })
             setDrawingName('')
+            setDraft((current) => ({ ...current, Status: next.Status || 'boposPlanned' }))
             setLines([])
           }
           return
@@ -91,6 +115,8 @@ export function SubassemblyFormPage() {
         if (childId) {
           const child = await getProductionOrder(childId)
           if (cancelled) return
+          const name = subassemblyDrawingName(child, parentOrder)
+          const status = child.Status || 'boposPlanned'
           setForm({
             ...child,
             ItemNumber: parentOrder.ItemNumber ?? child.ItemNumber,
@@ -102,17 +128,20 @@ export function SubassemblyFormPage() {
             IssWarehouse: child.IssWarehouse || parentOrder.IssWarehouse,
             Project: child.Project || parentOrder.Project,
             ProjectName: child.ProjectName || parentOrder.ProjectName,
+            Status: status,
           })
-          const childDesc = (child.ProductDescription ?? '').trim()
-          const parentDesc = (parentOrder.ProductDescription ?? '').trim()
-          const fromLines = (child.ProductionOrderLines ?? [])
-            .map((line) => (line.FreeText ?? '').trim())
-            .find((text) => text && text !== parentDesc)
-          setDrawingName(childDesc && childDesc !== parentDesc ? childDesc : (fromLines ?? ''))
-          setLines(child.ProductionOrderLines ?? [])
+          setDrawingName(name)
+          setDraft((current) => ({ ...current, Status: status }))
+          setLines(stampHeaderOntoLines(child.ProductionOrderLines ?? [], {
+            drawingNo: child.DrawingNo,
+            drawingName: name,
+            status,
+          }))
         } else {
-          setForm(buildSubassemblyDraftFromParent(parentOrder, siblings))
+          const next = buildSubassemblyDraftFromParent(parentOrder, siblings)
+          setForm(next)
           setDrawingName('')
+          setDraft((current) => ({ ...current, Status: next.Status || 'boposPlanned' }))
           setLines([])
         }
       } catch (err) {
@@ -135,7 +164,7 @@ export function SubassemblyFormPage() {
   const itemMap = useItemMasterMap(itemCodes)
 
   const searchItemOptions = async (search: string): Promise<SelectOption[]> => {
-    const response = await searchItems(search)
+    const response = await searchItemsCached(search)
     return (response.data ?? []).map((item) => ({
       value: item.ItemCode ?? '',
       label: `${item.ItemCode ?? ''} - ${item.ItemName ?? ''}`.trim(),
@@ -159,24 +188,28 @@ export function SubassemblyFormPage() {
           ...draft,
           ItemName: draft.ItemName || details?.name,
           DrawingNo: draft.DrawingNo || form.DrawingNo,
-          FreeText: draft.FreeText || drawingName,
+          DrawingName: draft.DrawingName || drawingName,
+          Status: draft.Status || form.Status || 'boposPlanned',
         },
         { ...form, ProductDescription: drawingName, DrawingNo: form.DrawingNo },
         parent,
         lines,
+        { drawingName, status: form.Status || 'boposPlanned' },
       ),
     ])
-    setDraft({ ItemNo: '', PlannedQuantity: 0, FreeText: '' })
+    setDraft({ ItemNo: '', PlannedQuantity: 0, FreeText: '', Status: form.Status || 'boposPlanned' })
     setDraftLabel('')
     setError(null)
   }
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
+    const status = form.Status || 'boposPlanned'
     const payload: ProductionOrder = {
       ...form,
+      Status: status,
       ItemNumber: parent?.ItemNumber ?? form.ItemNumber,
-      ProductDescription: drawingName.trim() || parent?.ProductDescription || form.ProductDescription,
+      ProductDescription: drawingName.trim() || undefined,
       ParentProductionOrderNo: isDraft
         ? form.ParentProductionOrderNo
         : (formatSubassemblyNo(form, parent?.DocumentNumber) || form.ParentProductionOrderNo),
@@ -188,7 +221,9 @@ export function SubassemblyFormPage() {
       ProductionOrderLines: lines.map((line) => ({
         ...line,
         DrawingNo: line.DrawingNo || form.DrawingNo,
-        FreeText: line.FreeText || drawingName.trim() || undefined,
+        DrawingName: line.DrawingName || drawingName.trim() || undefined,
+        FreeText: (line.FreeText ?? '').trim() || undefined,
+        Status: line.Status || status,
       })),
     }
     const message = validateSubassemblyForm(payload, lines)
@@ -204,7 +239,7 @@ export function SubassemblyFormPage() {
         upsertDraftSubassembly({
           ...payload,
           DraftKey: payload.DraftKey || childId || newDraftSubassemblyKey(loadCreateDraft()?.subassemblies ?? []),
-          ProductionOrderLines: lines,
+          ProductionOrderLines: payload.ProductionOrderLines,
         })
         toast.success(childId ? 'Sub-assembly updated.' : 'Sub-assembly added.')
         navigate(parentFormPath)
@@ -248,7 +283,7 @@ export function SubassemblyFormPage() {
       <form className="space-y-6" onSubmit={(e) => void handleSubmit(e)}>
         <Card>
           <CardContent className="space-y-6 pt-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <Input
                 label="Subassembly No."
                 value={subassemblyNo}
@@ -258,12 +293,20 @@ export function SubassemblyFormPage() {
               <Input
                 label="Drawing No."
                 value={form.DrawingNo ?? ''}
-                onChange={(e) => setForm({ ...form, DrawingNo: e.target.value })}
+                onChange={(e) => {
+                  const DrawingNo = e.target.value
+                  setForm({ ...form, DrawingNo })
+                  setLines((current) => current.map((line) => ({ ...line, DrawingNo })))
+                }}
               />
               <Input
                 label="Drawing Name"
                 value={drawingName}
-                onChange={(e) => setDrawingName(e.target.value)}
+                onChange={(e) => {
+                  const nextName = e.target.value
+                  setDrawingName(nextName)
+                  setLines((current) => current.map((line) => ({ ...line, DrawingName: nextName })))
+                }}
               />
               <Input
                 label="Weight"
@@ -275,18 +318,27 @@ export function SubassemblyFormPage() {
                   Weight: e.target.value === '' ? undefined : Number(e.target.value),
                 })}
               />
+              <Select
+                label="Status"
+                value={form.Status ?? 'boposPlanned'}
+                options={SUBASSEMBLY_STATUS_OPTIONS}
+                onChange={(value) => {
+                  setForm({ ...form, Status: value })
+                  setDraft((current) => ({ ...current, Status: value }))
+                  setLines((current) => current.map((line) => ({ ...line, Status: value })))
+                }}
+              />
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="space-y-6 pt-6">
-            <div className="grid gap-4 md:grid-cols-6">
+            <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
               <SearchableSelect
                 label="Item Code"
                 lookupKind="item"
                 usePortal={false}
-                debounceMs={0}
                 value={draft.ItemNo ?? ''}
                 selectedLabel={draftLabel}
                 placeholder="Search item..."
@@ -304,6 +356,11 @@ export function SubassemblyFormPage() {
               />
               <Input label="Item Name" value={draft.ItemName || itemMap[draft.ItemNo ?? '']?.name || ''} disabled />
               <Input
+                label="Free Text"
+                value={draft.FreeText ?? ''}
+                onChange={(e) => setDraft({ ...draft, FreeText: e.target.value })}
+              />
+              <Input
                 label="Qty"
                 type="number"
                 nonNegative
@@ -314,11 +371,6 @@ export function SubassemblyFormPage() {
                 label="Stock UoM"
                 value={itemMap[draft.ItemNo ?? '']?.stockUom || ''}
                 disabled
-              />
-              <Input
-                label="Free Text"
-                value={draft.FreeText ?? ''}
-                onChange={(e) => setDraft({ ...draft, FreeText: e.target.value })}
               />
               <div className="flex items-end">
                 <Button type="button" variant="outline" onClick={handleAdd}>Add item</Button>
@@ -344,7 +396,13 @@ export function SubassemblyFormPage() {
                 { key: 'PlannedQuantity', header: 'Qty', accessor: (row) => row.PlannedQuantity ?? 0 },
                 { key: 'IssuedQuantity', header: 'Issued Qty', accessor: (row) => row.IssuedQuantity ?? 0 },
                 { key: 'DrawingNo', header: 'Drawing No.', accessor: (row) => row.DrawingNo || form.DrawingNo || '—' },
-                { key: 'FreeText', header: 'Free Text', accessor: (row) => row.FreeText || drawingName || '—' },
+                { key: 'DrawingName', header: 'Drawing Name', accessor: (row) => row.DrawingName || drawingName || '—' },
+                { key: 'FreeText', header: 'Free Text', accessor: (row) => row.FreeText?.trim() || '—' },
+                {
+                  key: 'Status',
+                  header: 'Status',
+                  accessor: (row) => subassemblyStatusLabel(row.Status || form.Status),
+                },
                 {
                   key: 'Uom',
                   header: 'Stock UoM',

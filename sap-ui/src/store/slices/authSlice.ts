@@ -58,6 +58,7 @@ function claimsToUser(claims: AuthClaim[], fallbackUserName: string): User {
       'email',
     ) || fallbackUserName,
     name: claimValue(claims, 'FullName', 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name') || fallbackUserName,
+    userName: fallbackUserName,
     role: roles[0] ?? 'Standard',
     roles,
     companyDb: companyDb || undefined,

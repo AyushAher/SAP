@@ -32,6 +32,7 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("BPWithholdingTaxCollection"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<SapWithholdingTaxDataCollectionResponse>? WithholdingTaxDataCollectionResponse { get; set; }
         [JsonPropertyName("BPAddresses"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<SapBusinessPartnerAddress>? BPAddresses { get; set; }
         [JsonPropertyName("ContactEmployees"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<SapBusinessPartnerContact>? ContactEmployees { get; set; }
+        [JsonPropertyName("BPBankAccounts"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<SapBpBankAccount>? BPBankAccounts { get; set; }
     }
 
     public record SapBusinessPartnerAddress
@@ -63,5 +64,16 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName("Phone1"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Phone1 { get; set; }
         [JsonPropertyName("MobilePhone"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? MobilePhone { get; set; }
         [JsonPropertyName("Active"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Active { get; set; }
+    }
+
+    public record SapBpBankAccount
+    {
+        [JsonPropertyName("BankCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? BankCode { get; set; }
+        [JsonPropertyName("AccountNo"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? AccountNo { get; set; }
+        [JsonPropertyName("AccountName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? AccountName { get; set; }
+        [JsonPropertyName("Branch"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Branch { get; set; }
+        [JsonPropertyName("BICSwiftCode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? BicSwiftCode { get; set; }
+        [JsonPropertyName("IBAN"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Iban { get; set; }
+        [JsonPropertyName("Country"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Country { get; set; }
     }
 }

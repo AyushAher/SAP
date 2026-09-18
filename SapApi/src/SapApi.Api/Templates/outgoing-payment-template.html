@@ -124,6 +124,11 @@
             </tr>
             <tr>
                 <td colspan="3">
+                    <b>Vendor Bank Details:</b> {{vendorBankDetails}}
+                </td>
+            </tr>
+            <tr>
+                <td colspan="3">
                     <b>Project Details:</b><br />
                     {{projectNo}} - {{projectName}}
                 </td>
@@ -149,13 +154,17 @@
                 <td class="center">
                 <br>
                 <br>
-                    {{userName}}
+                    {{preparedBy}}
                 </td>
                 <td></td>
                 <td></td>
                 <td></td>
             </tr>
         </table>
+        <p>
+            <b>Printed by:</b> {{printedBy}} &nbsp; <b>Date &amp; Time:</b> {{printedOn}}
+        </p>
+        <p style="text-align: center; font-size: 8px; margin-top: 4px;">&copy; {{copyrightYear}} ConnectEdge. All rights reserved.</p>
     </div>
 </body>
 </html>

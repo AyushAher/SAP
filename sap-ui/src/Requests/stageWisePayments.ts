@@ -38,6 +38,16 @@ export interface StageWisePaymentPageData {
   apInvoices: ApInvoice[]
   withholdingTaxCodes: WtCodeOption[]
   paymentSummary: PaymentSummaryRow[]
+  vendorBankAccounts?: VendorBankAccountOption[]
+  vendorEmail?: string
+}
+
+export interface VendorBankAccountOption {
+  bankCode: string
+  accountNo?: string
+  accountName?: string
+  branch?: string
+  display: string
 }
 
 export type { PaymentTermUdf, StageWisePayment, ApInvoice, PurchaseOrderSummary }
@@ -60,4 +70,12 @@ export async function cancelStageWisePayment(id: number) {
 
 export async function downloadStageWisePaymentPdf(id: number, poDocEntry: number): Promise<Blob> {
   return apiDownloadGet(`/stage-wise-payments/${id}/pdf?poDocEntry=${poDocEntry}`)
+}
+
+export async function sendPaymentAdvice(id: number, poDocEntry: number, payload: {
+  to: string[]
+  cc?: string[]
+  remarks?: string
+}): Promise<void> {
+  await apiPost(`/stage-wise-payments/${id}/send-advice?poDocEntry=${poDocEntry}`, payload)
 }

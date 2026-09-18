@@ -44,6 +44,8 @@ public static class HangfireExtensions
         services.AddScoped<PurchaseOrderSyncJob>();
         services.AddScoped<PurchaseRequestSyncJob>();
         services.AddScoped<ProductionOrderSyncJob>();
+        services.AddScoped<ApprovalSapPostingJob>();
+        services.AddScoped<ItemSyncJob>();
         return services;
     }
 
@@ -71,6 +73,12 @@ public static class HangfireExtensions
 
         // Warm immediately on startup so the first request after deploy doesn't wait for the cron.
         BackgroundJob.Enqueue<MasterDataCacheRefreshJob>(job => job.ExecuteAsync(CancellationToken.None));
+
+        RecurringJob.AddOrUpdate<ItemSyncJob>(
+            ItemSyncJob.RecurringJobId,
+            job => job.ExecuteAllCompaniesAsync(CancellationToken.None),
+            options.ItemSyncCron,
+            new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
 
         return app;
     }

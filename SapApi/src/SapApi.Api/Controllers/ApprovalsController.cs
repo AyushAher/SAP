@@ -1,14 +1,19 @@
+using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Identity;
+using SapApi.Infrastructure.Jobs;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Infrastructure.Sap;
 using SapApi.Shared;
+using SapApi.Shared.Configuration;
 using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Models;
@@ -27,6 +32,8 @@ public class ApprovalsController(
     AppDbContext db,
     IHttpContextAccessor httpContext,
     ICurrentCompanyDbAccessor companyDbAccessor,
+    IOptions<HangfireOptions> hangfireOptions,
+    IServiceProvider services,
     ILogger<ApprovalsController> logger) : ControllerBase
 {
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
@@ -102,6 +109,13 @@ public class ApprovalsController(
 
         if (result?.OverallStatus == ApprovalStatus.Approved)
         {
+            if (TryEnqueueSapPosting(requestId, userId, data))
+            {
+                return Ok(ApiResponse<object>.Ok(
+                    new { result, sapQueued = true },
+                    "Approved. SAP posting is running in the background."));
+            }
+
             var sapResponse = await executionService.ExecuteAsync(result, data, cancellationToken);
             await executionService.FinalizeApprovalAsync(result, data, sapResponse, cancellationToken);
 
@@ -146,6 +160,29 @@ public class ApprovalsController(
             throw new ApiErrorException(
                 BaseErrorCodes.ValidationFailed,
                 "Payment date, reference number, and user remarks are required to finalize a payment approval.");
+    }
+
+    /// <summary>
+    /// Queues the SAP post for any approved document type — approve should not block on Service
+    /// Layer round-trip time. Falls back to the synchronous path when Hangfire is disabled.
+    /// </summary>
+    private bool TryEnqueueSapPosting(int requestId, int userId, ApprovalActionData data)
+    {
+        var hangfire = hangfireOptions.Value;
+        var backgroundJobs = services.GetService<IBackgroundJobClient>();
+        if (!hangfire.Enabled || backgroundJobs is null)
+            return false;
+
+        var companyDb = companyDbAccessor.GetCompanyDbName();
+        backgroundJobs.Enqueue<ApprovalSapPostingJob>(job => job.ExecuteAsync(
+            companyDb,
+            requestId,
+            userId,
+            data.Comment,
+            data.UtrNo,
+            data.UtrDate,
+            CancellationToken.None));
+        return true;
     }
 
     [HttpPost("{requestId:int}/retry-sap")]

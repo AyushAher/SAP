@@ -27,6 +27,7 @@ import { toast } from '@/helpers/toast'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import {
   listPurchaseUoms,
+  listUnitOfMeasurements,
   lookupItem,
   searchGlAccounts,
   searchHsnCodes,
@@ -62,6 +63,8 @@ interface PurchaseOrderLinesEditorProps {
   readOnly?: boolean
   /** Assign LineNum on newly added rows. On edit, omit it so SAP appends the line. */
   assignLineNums?: boolean
+  /** Purchase Request item grid uses a different left-to-right column order. */
+  columnLayout?: 'purchaseOrder' | 'purchaseRequest'
 }
 
 type LineRow = PurchaseOrderLineItem & { __rowIndex: number }
@@ -124,6 +127,7 @@ export function PurchaseOrderLinesEditor({
   title,
   readOnly = false,
   assignLineNums = false,
+  columnLayout = 'purchaseOrder',
 }: PurchaseOrderLinesEditorProps) {
   const isService = isServicePoDocType(docType)
   const resolvedTitle = title ?? (isService ? 'Service Lines' : 'Items')
@@ -206,6 +210,11 @@ export function PurchaseOrderLinesEditor({
 
   const searchPurchaseUomOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
     const uoms = await listPurchaseUoms(draftItemCodeRef.current, search)
+    return uoms.map(purchaseUomOption).filter((o) => o.value)
+  }, [])
+
+  const searchServiceUomOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
+    const uoms = await listUnitOfMeasurements(search)
     return uoms.map(purchaseUomOption).filter((o) => o.value)
   }, [])
 
@@ -401,7 +410,9 @@ export function PurchaseOrderLinesEditor({
       LocationCode: locationCode,
       LocationLabel: locationLabel,
       UoMCode: isService ? undefined : draft.UoMCode,
-      UomName: isService ? undefined : draft.UomName,
+      // Service lines have no UoM in SAP; UomName here is UI-only reference text picked from the
+      // UoM master, not sent to SAP as a line unit — so it is kept for both branches.
+      UomName: draft.UomName,
       MeasureUnit: isService ? undefined : (resolvePurchaseUnit(draft) || undefined),
       UoMEntry: isService ? undefined : draft.UoMEntry,
       StockUom: isService ? undefined : draft.StockUom,
@@ -428,52 +439,111 @@ export function PurchaseOrderLinesEditor({
     onChange(lines.filter((_, i) => i !== index))
   }
 
-  const itemColumns: SapColumn<LineRow>[] = [
-    { key: 'ItemCode', header: 'Item', accessor: (r) => formatCodeWithName(r.ItemCode, r.ItemDescription ?? itemMap[r.ItemCode ?? '']?.name) },
-    {
-      key: 'ItemDescription',
-      header: 'Description',
-      accessor: (r) => readLineItemDescription(r) ?? itemMap[r.ItemCode ?? '']?.name ?? '—',
-    },
-    { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
-    { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
-    { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationLabel || (r.LocationCode != null ? String(r.LocationCode) : '—') },
-    { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => formatPoCell(r.Quantity, SAP_DECIMAL_PLACES.quantities) },
-    { key: 'UoMCode', header: 'Purchase UoM', accessor: (r) => resolvePurchaseUnit(r) || '—' },
-    { key: 'StockQty', header: 'Stock Qty', accessor: (r) => formatPoCell(r.StockQty, SAP_DECIMAL_PLACES.quantities) },
-    { key: 'StockUom', header: 'Stock UoM', accessor: (r) => r.StockUom ?? '—' },
-    {
-      key: 'UnitsOfMeasurment',
-      header: 'Items/Unit',
-      accessor: (r) => {
-        const factor = r.UnitsOfMeasurment ?? calcItemsPerUnit(r.StockQty, r.Quantity)
-        return factor != null ? formatPoCell(factor, 6) : '—'
+  const itemColumns: SapColumn<LineRow>[] = useMemo(() => {
+    const columnByKey: Record<string, SapColumn<LineRow>> = {
+      ItemCode: { key: 'ItemCode', header: 'Item', accessor: (r) => formatCodeWithName(r.ItemCode, r.ItemDescription ?? itemMap[r.ItemCode ?? '']?.name) },
+      ItemDescription: {
+        key: 'ItemDescription',
+        header: 'Description',
+        accessor: (r) => readLineItemDescription(r) ?? itemMap[r.ItemCode ?? '']?.name ?? '—',
       },
-    },
-    {
-      key: 'UseBaseUnits',
-      header: 'Inventory UoM',
-      accessor: (r) => {
-        const flag = r.UseBaseUnits
-          ?? calcUseBaseUnits(r.UnitsOfMeasurment ?? calcItemsPerUnit(r.StockQty, r.Quantity))
-        if (flag === 'tYES') return 'Yes'
-        if (flag === 'tNO') return 'No'
-        return '—'
+      AccountCode: {
+        key: 'AccountCode',
+        header: 'G/L Account',
+        accessor: (r) => r.AccountLabel ?? r.AccountCode ?? '—',
       },
-    },
-    { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice, SAP_DECIMAL_PLACES.prices) },
-    { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => formatPoCell(r.DiscountPercent, SAP_DECIMAL_PLACES.percent) },
-    { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
-    {
-      key: 'AccountCode',
-      header: 'G/L Account',
-      accessor: (r) => r.AccountLabel ?? r.AccountCode ?? '—',
-    },
-    { key: 'HSNEntry', header: 'HSN', accessor: (r) => r.HsnLabel ?? (r.HSNEntry != null ? String(r.HSNEntry) : '—') },
-    { key: 'ProjectCode', header: 'Project', accessor: (r) => r.ProjectCode ?? '—' },
-    { key: 'TaxableAmount', header: 'Taxable', accessor: (r) => formatPoCell(r.TaxableAmount ?? r.LineTotal) },
-    { key: 'GrossTotal', header: 'Gross', accessor: (r) => formatPoCell(r.GrossTotal) },
-  ]
+      FreeText: { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
+      Quantity: { key: 'Quantity', header: 'Purchase Qty', accessor: (r) => formatPoCell(r.Quantity, SAP_DECIMAL_PLACES.quantities) },
+      UoMCode: { key: 'UoMCode', header: 'Purchase UoM', accessor: (r) => resolvePurchaseUnit(r) || '—' },
+      StockQty: {
+        key: 'StockQty',
+        header: columnLayout === 'purchaseRequest' ? 'System Qty' : 'Stock Qty',
+        accessor: (r) => formatPoCell(r.StockQty, SAP_DECIMAL_PLACES.quantities),
+      },
+      StockUom: {
+        key: 'StockUom',
+        header: columnLayout === 'purchaseRequest' ? 'System UoM' : 'Stock UoM',
+        accessor: (r) => r.StockUom ?? '—',
+      },
+      UnitsOfMeasurment: {
+        key: 'UnitsOfMeasurment',
+        header: 'Items/Unit',
+        accessor: (r) => {
+          const factor = r.UnitsOfMeasurment ?? calcItemsPerUnit(r.StockQty, r.Quantity)
+          return factor != null ? formatPoCell(factor, 6) : '—'
+        },
+      },
+      UseBaseUnits: {
+        key: 'UseBaseUnits',
+        header: 'Inventory UoM',
+        accessor: (r) => {
+          const flag = r.UseBaseUnits
+            ?? calcUseBaseUnits(r.UnitsOfMeasurment ?? calcItemsPerUnit(r.StockQty, r.Quantity))
+          if (flag === 'tYES') return 'Yes'
+          if (flag === 'tNO') return 'No'
+          return '—'
+        },
+      },
+      UnitPrice: { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice, SAP_DECIMAL_PLACES.prices) },
+      RemainingOpenQuantity: {
+        key: 'RemainingOpenQuantity',
+        header: 'Open Qty',
+        accessor: (r) => formatPoCell(r.RemainingOpenQuantity ?? r.Quantity, SAP_DECIMAL_PLACES.quantities),
+      },
+      DiscountPercent: { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => formatPoCell(r.DiscountPercent, SAP_DECIMAL_PLACES.percent) },
+      TaxCode: { key: 'TaxCode', header: columnLayout === 'purchaseRequest' ? 'TaxCode' : 'Tax', accessor: (r) => r.TaxCode ?? '—' },
+      HSNEntry: { key: 'HSNEntry', header: 'HSN', accessor: (r) => r.HsnLabel ?? (r.HSNEntry != null ? String(r.HSNEntry) : '—') },
+      ProjectCode: { key: 'ProjectCode', header: 'Project', accessor: (r) => r.ProjectCode ?? '—' },
+      WarehouseCode: { key: 'WarehouseCode', header: 'Whse', accessor: (r) => r.WarehouseCode ?? '—' },
+      LocationCode: { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationLabel || (r.LocationCode != null ? String(r.LocationCode) : '—') },
+      TaxableAmount: { key: 'TaxableAmount', header: columnLayout === 'purchaseRequest' ? 'Taxable Value' : 'Taxable', accessor: (r) => formatPoCell(r.TaxableAmount ?? r.LineTotal) },
+      GrossTotal: { key: 'GrossTotal', header: 'Gross', accessor: (r) => formatPoCell(r.GrossTotal) },
+    }
+
+    const order = columnLayout === 'purchaseRequest'
+      ? [
+          'ItemCode',
+          'ItemDescription',
+          'AccountCode',
+          'FreeText',
+          'Quantity',
+          'UoMCode',
+          'StockQty',
+          'StockUom',
+          'UnitsOfMeasurment',
+          'UnitPrice',
+          'RemainingOpenQuantity',
+          'DiscountPercent',
+          'TaxCode',
+          'ProjectCode',
+          'WarehouseCode',
+          'LocationCode',
+          'TaxableAmount',
+        ]
+      : [
+          'ItemCode',
+          'ItemDescription',
+          'FreeText',
+          'WarehouseCode',
+          'LocationCode',
+          'Quantity',
+          'UoMCode',
+          'StockQty',
+          'StockUom',
+          'UnitsOfMeasurment',
+          'UseBaseUnits',
+          'UnitPrice',
+          'DiscountPercent',
+          'TaxCode',
+          'AccountCode',
+          'HSNEntry',
+          'ProjectCode',
+          'TaxableAmount',
+          'GrossTotal',
+        ]
+
+    return order.map((key) => columnByKey[key]).filter(Boolean)
+  }, [columnLayout, itemMap])
 
   const serviceColumns: SapColumn<LineRow>[] = [
     {
@@ -492,6 +562,7 @@ export function PurchaseOrderLinesEditor({
     { key: 'FreeText', header: 'Free Text', accessor: (r) => r.FreeText?.trim() || '—' },
     { key: 'LocationCode', header: 'Loc.', accessor: (r) => r.LocationLabel || (r.LocationCode != null ? String(r.LocationCode) : '—') },
     { key: 'Quantity', header: 'Qty', accessor: (r) => formatPoCell(r.Quantity, SAP_DECIMAL_PLACES.quantities) },
+    { key: 'UomName', header: 'UOM', accessor: (r) => r.UomName ?? '—' },
     { key: 'UnitPrice', header: 'Unit Price', accessor: (r) => formatPoCell(r.UnitPrice, SAP_DECIMAL_PLACES.prices) },
     { key: 'DiscountPercent', header: 'Disc %', accessor: (r) => formatPoCell(r.DiscountPercent, SAP_DECIMAL_PLACES.percent) },
     { key: 'TaxCode', header: 'Tax', accessor: (r) => r.TaxCode ?? '—' },
@@ -586,6 +657,17 @@ export function PurchaseOrderLinesEditor({
                 label="Description *"
                 value={draft.ItemDescription ?? ''}
                 onChange={(e) => setDraft({ ...draft, ItemDescription: e.target.value })}
+              />
+              <SearchableSelect
+                label="UOM Name"
+                value={draft.UomName ?? ''}
+                selectedLabel={uomLabel}
+                placeholder="Search UOM..."
+                onSearch={searchServiceUomOptions}
+                onChange={(value, option) => {
+                  setUomLabel(option?.label ?? value)
+                  setDraft({ ...draft, UomName: value })
+                }}
               />
             </>
           ) : (

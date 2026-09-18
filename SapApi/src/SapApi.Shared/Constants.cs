@@ -96,15 +96,48 @@ namespace SapApi.Shared
         /// PBBPL Dispatch Location → warehouse (UI Factory / Office / BP Loc).
         /// Header U_Warehouse is not a valid OPOR UDF, so the code lives on document lines.
         /// </summary>
+        /// <summary>
+        /// Dispatch Location (Factory/Office/Customer Loc/SubContractor Loc) → warehouse, per
+        /// business place. Factory/Office ship from the warehouse's own address; Customer Loc and
+        /// SubContractor Loc ship from a Business Partner's address book instead. A branch/location
+        /// combo with no entry has no fixed warehouse.
+        /// </summary>
         public static class PoDispatchWarehouses
         {
-            public const string Factory = "Store1";
-            public const string Office = "Store5";
-            public const string BpLoc = "PBPL(S)";
+            private static readonly IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> WarehouseByBplIdAndLocation =
+                new Dictionary<int, IReadOnlyDictionary<string, string>>
+                {
+                    [1] = new Dictionary<string, string> // Privilege Biksons
+                    {
+                        ["Factory"] = "Store1",
+                        ["Office"] = "Store5",
+                        ["Customer Loc"] = "PBPL(S)",
+                        ["SubContractor Loc"] = "SUBCON",
+                    },
+                    [3] = new Dictionary<string, string> { ["Office"] = "Store3" }, // S M Projects
+                    [4] = new Dictionary<string, string> { ["Office"] = "Store4" }, // De Design Architects
+                    [5] = new Dictionary<string, string> // Privilege Energex
+                    {
+                        ["Factory"] = "PEPL(P)",
+                        ["Office"] = "Store9",
+                        ["Customer Loc"] = "PEPL(S)",
+                    },
+                };
 
-            public static bool IsFactoryOrOffice(string? warehouseCode) =>
-                string.Equals(warehouseCode, Factory, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(warehouseCode, Office, StringComparison.OrdinalIgnoreCase);
+            private static readonly IReadOnlyList<string> WarehouseAddressLocations = ["Factory", "Office"];
+
+            /// <summary>True when this warehouse ships from its own address (Factory/Office) for this
+            /// branch, rather than from a Business Partner's address book (Customer/SubContractor Loc).</summary>
+            public static bool IsFactoryOrOffice(int? bplId, string? warehouseCode)
+            {
+                if (bplId is null || string.IsNullOrWhiteSpace(warehouseCode)
+                    || !WarehouseByBplIdAndLocation.TryGetValue(bplId.Value, out var byLocation))
+                    return false;
+
+                return WarehouseAddressLocations
+                    .Any(loc => byLocation.TryGetValue(loc, out var code)
+                        && string.Equals(code, warehouseCode, StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         public static class Roles
@@ -140,9 +173,11 @@ namespace SapApi.Shared
         public static class SapServiceLayerHeaders
         {
             /// <summary>
-            /// When true, PATCH replaces collection properties (DocumentLines, DocumentSpecialLines)
-            /// instead of merging. Required on PO update because PUT is rejected on this company DB
-            /// with Invalid value [DocumentLines.GrossBuyPrice].
+            /// When true, PATCH replaces collection properties (DocumentLines, DocumentSpecialLines,
+            /// ProductionOrderLines) instead of merging. Required on PO, Purchase Request, and
+            /// Production Order update because PUT is rejected on this company DB (for example
+            /// Invalid value [DocumentLines.GrossBuyPrice]), and a merge PATCH leaves deleted
+            /// lines on the SAP document.
             /// </summary>
             public const string ReplaceCollectionsOnPatch = "B1S-ReplaceCollectionsOnPatch";
         }
@@ -199,7 +234,9 @@ namespace SapApi.Shared
             public const string ParentProductionOrder = "U_DocNum";
             /// <summary>OWOR header and WOR1 line UDF for drawing number.</summary>
             public const string DrawingNo = "U_DwgNo";
-            /// <summary>WOR1 memo UDF for free text (and drawing name when the row has none).</summary>
+            /// <summary>WOR1 line UDF for drawing name. Must not be copied into Free Text.</summary>
+            public const string DrawingName = "U_DwgName";
+            /// <summary>WOR1 memo UDF for free text. Blank stays blank.</summary>
             public const string FreeText = "U_FreeTxt";
         }
         public static class SapProductionOrderStatus

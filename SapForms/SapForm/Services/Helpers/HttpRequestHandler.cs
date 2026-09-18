@@ -32,14 +32,8 @@ namespace SapForm.Services.Helpers
                     client.Timeout = TimeSpan.FromHours(1);
                 if (url.StartsWith(SapServiceLayerUrl))
                 {
-                    var sessionId = await redis.GetAsync<string>("sessionId");
-                    if (string.IsNullOrEmpty(sessionId))
-                    {
-                        LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                        await loginService.SapLogin();
-                    }
-
-                    request.Headers.Add("Cookie", $"B1SESSION={sessionId};");
+                    var sessionId = await EnsureSapSessionAsync();
+                    SetSessionCookie(request, sessionId);
                     request.Headers.Add("Prefer", "odata.maxpagesize=0");
                 }
 
@@ -47,23 +41,22 @@ namespace SapForm.Services.Helpers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    if (typeof(T).IsAssignableTo(typeof(SapBaseResponse)))
+                    var json = await response.Content.ReadAsStringAsync();
+                    if (IsInvalidSapSession(json) && url.StartsWith(SapServiceLayerUrl))
                     {
-                        var json = await response.Content.ReadAsStringAsync();
-                        SapBaseResponse? sapResult = JsonSerializer.Deserialize<SapBaseResponse>(json);
-
-                        if (sapResult?.Error?.Code == 301)
-                        {
-                            LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                            await loginService.SapLogin();
-                            response = await client.SendAsync(request);
-                            if (response.IsSuccessStatusCode)
-                                return await response.Content.ReadFromJsonAsync<T>();
-                        }
-
-                        return JsonSerializer.Deserialize<T>(json);
+                        var sessionId = await EnsureSapSessionAsync(forceRefresh: true);
+                        var retry = new HttpRequestMessage(HttpMethod.Get, url);
+                        SetSessionCookie(retry, sessionId);
+                        retry.Headers.Add("Prefer", "odata.maxpagesize=0");
+                        response = await client.SendAsync(retry);
+                        if (response.IsSuccessStatusCode)
+                            return await response.Content.ReadFromJsonAsync<T>();
+                        json = await response.Content.ReadAsStringAsync();
                     }
-                    else throw new ApiErrorException(await response.Content.ReadAsStringAsync());
+
+                    if (typeof(T).IsAssignableTo(typeof(SapBaseResponse)))
+                        return JsonSerializer.Deserialize<T>(json);
+                    throw new ApiErrorException(json);
                 }
                 T? result = await response.Content.ReadFromJsonAsync<T>();
 
@@ -88,47 +81,35 @@ namespace SapForm.Services.Helpers
                 var request = new HttpRequestMessage(HttpMethod.Put, url);
                 if (url.StartsWith(SapServiceLayerUrl))
                 {
-                    var sessionId = await redis.GetAsync<string>("sessionId");
-                    if (string.IsNullOrEmpty(sessionId))
-                    {
-                        LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                        await loginService.SapLogin();
-                    }
-
-                    request.Headers.Add("Cookie", $"B1SESSION={sessionId};");
+                    SetSessionCookie(request, await EnsureSapSessionAsync());
                     request.Headers.TransferEncodingChunked = false;
                     request.Headers.ExpectContinue = false;
                 }
 
                 var json = JsonSerializer.Serialize(data);
-                var bytes = Encoding.UTF8.GetBytes(json);
-                var content = new ByteArrayContent(bytes);
-                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-                content.Headers.ContentLength = bytes.Length;
-                request.Content = content;
+                request.Content = JsonBytesContent(json);
 
                 HttpResponseMessage response = await client.SendAsync(request);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    if (typeof(TResponse).IsAssignableTo(typeof(SapBaseResponse)))
+                    var errorJson = await response.Content.ReadAsStringAsync();
+                    if (IsInvalidSapSession(errorJson) && url.StartsWith(SapServiceLayerUrl))
                     {
-                        var errorJson = await response.Content.ReadAsStringAsync();
-                        SapBaseResponse? sapResult = JsonSerializer.Deserialize<SapBaseResponse>(errorJson);
-
-                        if (sapResult?.Error?.Code == 301)
-                        {
-                            LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                            await loginService.SapLogin();
-                            response = await client.SendAsync(request);
-                            if (response.IsSuccessStatusCode)
-                                return await response.Content.ReadFromJsonAsync<TResponse>();
-                        }
-
-                        return JsonSerializer.Deserialize<TResponse>(errorJson);
+                        var retry = new HttpRequestMessage(HttpMethod.Put, url);
+                        SetSessionCookie(retry, await EnsureSapSessionAsync(forceRefresh: true));
+                        retry.Headers.TransferEncodingChunked = false;
+                        retry.Headers.ExpectContinue = false;
+                        retry.Content = JsonBytesContent(json);
+                        response = await client.SendAsync(retry);
+                        if (response.IsSuccessStatusCode)
+                            return await ReadSuccessAsync<TResponse>(response);
+                        errorJson = await response.Content.ReadAsStringAsync();
                     }
 
-                    throw new ApiErrorException(await response.Content.ReadAsStringAsync());
+                    if (typeof(TResponse).IsAssignableTo(typeof(SapBaseResponse)))
+                        return JsonSerializer.Deserialize<TResponse>(errorJson);
+                    throw new ApiErrorException(errorJson);
                 }
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
@@ -149,39 +130,29 @@ namespace SapForm.Services.Helpers
             {
                 var request = new HttpRequestMessage(HttpMethod.Patch, url);
                 if (url.StartsWith(SapServiceLayerUrl))
-                {
-                    var sessionId = await redis.GetAsync<string>("sessionId");
-                    if (string.IsNullOrEmpty(sessionId))
-                    {
-                        LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                        await loginService.SapLogin();
-                    }
-
-                    request.Headers.Add("Cookie", $"B1SESSION={sessionId};");
-                }
-                request.Content = new StringContent(JsonSerializer.Serialize(data));
+                    SetSessionCookie(request, await EnsureSapSessionAsync());
+                var patchJson = JsonSerializer.Serialize(data);
+                request.Content = new StringContent(patchJson);
 
                 HttpResponseMessage response = await client.SendAsync(request);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    if (typeof(TResponse).IsAssignableTo(typeof(SapBaseResponse)))
+                    var json = await response.Content.ReadAsStringAsync();
+                    if (IsInvalidSapSession(json) && url.StartsWith(SapServiceLayerUrl))
                     {
-                        var json = await response.Content.ReadAsStringAsync();
-                        SapBaseResponse? sapResult = JsonSerializer.Deserialize<SapBaseResponse>(json);
-
-                        if (sapResult?.Error?.Code == 301)
-                        {
-                            LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                            await loginService.SapLogin();
-                            response = await client.SendAsync(request);
-                            if (response.IsSuccessStatusCode)
-                                return await response.Content.ReadFromJsonAsync<TResponse>();
-                        }
-
-                        return JsonSerializer.Deserialize<TResponse>(json);
+                        var retry = new HttpRequestMessage(HttpMethod.Patch, url);
+                        SetSessionCookie(retry, await EnsureSapSessionAsync(forceRefresh: true));
+                        retry.Content = new StringContent(patchJson);
+                        response = await client.SendAsync(retry);
+                        if (response.IsSuccessStatusCode)
+                            return await ReadSuccessAsync<TResponse>(response);
+                        json = await response.Content.ReadAsStringAsync();
                     }
-                    else throw new ApiErrorException(await response.Content.ReadAsStringAsync());
+
+                    if (typeof(TResponse).IsAssignableTo(typeof(SapBaseResponse)))
+                        return JsonSerializer.Deserialize<TResponse>(json);
+                    throw new ApiErrorException(json);
                 }
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
@@ -204,50 +175,40 @@ namespace SapForm.Services.Helpers
                 var request = new HttpRequestMessage(HttpMethod.Post, url);
                 if (url.StartsWith(SapServiceLayerUrl))
                 {
-                    var sessionId = await redis.GetAsync<string>("sessionId");
-                    if (string.IsNullOrEmpty(sessionId))
-                    {
-                        LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                        await loginService.SapLogin();
-                    }
-
-                    request.Headers.Add("Cookie", $"B1SESSION={sessionId};");
+                    SetSessionCookie(request, await EnsureSapSessionAsync());
                     request.Headers.TransferEncodingChunked = false;
                     request.Headers.ExpectContinue = false;
                 }
+                string? postJson = null;
                 if (data is not null)
                 {
-                    var json = JsonSerializer.Serialize(data);
-                    var bytes = Encoding.UTF8.GetBytes(json);
-
-                    var content = new ByteArrayContent(bytes);
-                    content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-                    content.Headers.ContentLength = bytes.Length;
-
-                    request.Content = content;
+                    postJson = JsonSerializer.Serialize(data);
+                    request.Content = JsonBytesContent(postJson);
                 }
 
                 HttpResponseMessage response = await client.SendAsync(request);
 
                 if (response.IsSuccessStatusCode)
                     return await response.Content.ReadFromJsonAsync<TResponse>();
-                if (typeof(TResponse).IsAssignableTo(typeof(SapBaseResponse)))
+
+                var json = await response.Content.ReadAsStringAsync();
+                if (IsInvalidSapSession(json) && url.StartsWith(SapServiceLayerUrl))
                 {
-                    var json = await response.Content.ReadAsStringAsync();
-                    SapBaseResponse? sapResult = JsonSerializer.Deserialize<SapBaseResponse>(json);
-
-                    if (sapResult?.Error?.Code == 301)
-                    {
-                        LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                        await loginService.SapLogin();
-                        response = await client.SendAsync(request);
-                        if (response.IsSuccessStatusCode)
-                            return await response.Content.ReadFromJsonAsync<TResponse>();
-                    }
-
-                    return JsonSerializer.Deserialize<TResponse>(json);
+                    var retry = new HttpRequestMessage(HttpMethod.Post, url);
+                    SetSessionCookie(retry, await EnsureSapSessionAsync(forceRefresh: true));
+                    retry.Headers.TransferEncodingChunked = false;
+                    retry.Headers.ExpectContinue = false;
+                    if (postJson is not null)
+                        retry.Content = JsonBytesContent(postJson);
+                    response = await client.SendAsync(retry);
+                    if (response.IsSuccessStatusCode)
+                        return await response.Content.ReadFromJsonAsync<TResponse>();
+                    json = await response.Content.ReadAsStringAsync();
                 }
-                throw new ApiErrorException(await response.Content.ReadAsStringAsync());
+
+                if (typeof(TResponse).IsAssignableTo(typeof(SapBaseResponse)))
+                    return JsonSerializer.Deserialize<TResponse>(json);
+                throw new ApiErrorException(json);
             }
             catch (Exception ex)
             {
@@ -302,15 +263,7 @@ namespace SapForm.Services.Helpers
             Log.Information("Executing SQL query: {QueryName} with parameters: {Parameters}", queryName, paramKeyValueString);
 
             var request = new HttpRequestMessage(HttpMethod.Post, $"{SapServiceLayerUrl}{SapBaseUrl}/SQLQueries('{queryName}')/List");
-            var sessionId = await redis.GetAsync<string>("sessionId");
-            if (string.IsNullOrEmpty(sessionId))
-            {
-                LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                await loginService.SapLogin();
-                sessionId = await redis.GetAsync<string>("sessionId");
-            }
-
-            request.Headers.Add("Cookie", $"B1SESSION={sessionId};");
+            SetSessionCookie(request, await EnsureSapSessionAsync());
             
             var body = new { ParamList = paramKeyValueString };
             var json = JsonSerializer.Serialize(body);
@@ -333,9 +286,10 @@ namespace SapForm.Services.Helpers
 
                     if (sapResult?.Error?.Code == 301)
                     {
-                        LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                        await loginService.SapLogin();
-                        response = await client.SendAsync(request);
+                        var retry = new HttpRequestMessage(HttpMethod.Post, $"{SapServiceLayerUrl}{SapBaseUrl}/SQLQueries('{queryName}')/List");
+                        SetSessionCookie(retry, await EnsureSapSessionAsync(forceRefresh: true));
+                        retry.Content = JsonBytesContent(json);
+                        response = await client.SendAsync(retry);
                         if (response.IsSuccessStatusCode)
                             return await response.Content.ReadFromJsonAsync<T>();
                     }
@@ -351,15 +305,7 @@ namespace SapForm.Services.Helpers
         private async Task<SapQueryBaseResponse> GetSqlQueryDetailsAsync(string queryName)
         {
             var request = new HttpRequestMessage(HttpMethod.Get, $"{SapServiceLayerUrl}{SapBaseUrl}/SQLQueries('{queryName}')");
-            var sessionId = await redis.GetAsync<string>("sessionId");
-            if (string.IsNullOrEmpty(sessionId))
-            {
-                LoginService loginService = serviceProvider.GetRequiredService<LoginService>();
-                await loginService.SapLogin();
-                sessionId = await redis.GetAsync<string>("sessionId");
-            }
-
-            request.Headers.Add("Cookie", $"B1SESSION={sessionId};");
+            SetSessionCookie(request, await EnsureSapSessionAsync());
             HttpResponseMessage response = await client.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
@@ -367,6 +313,53 @@ namespace SapForm.Services.Helpers
 
             var responseJson = await response.Content.ReadFromJsonAsync<SapQueryBaseResponse>();
             return responseJson ?? throw new ApiErrorException("Failed to retrieve SQL query details.");
+        }
+
+        private async Task<string> EnsureSapSessionAsync(bool forceRefresh = false)
+        {
+            if (!forceRefresh)
+            {
+                var existing = await redis.GetAsync<string>("sessionId");
+                if (!string.IsNullOrEmpty(existing))
+                    return existing;
+            }
+
+            return await serviceProvider.GetRequiredService<LoginService>().SapLogin();
+        }
+
+        private static void SetSessionCookie(HttpRequestMessage request, string sessionId)
+        {
+            request.Headers.Remove("Cookie");
+            request.Headers.Add("Cookie", $"B1SESSION={sessionId};");
+        }
+
+        private static bool IsInvalidSapSession(string json)
+        {
+            try
+            {
+                var sapResult = JsonSerializer.Deserialize<SapBaseResponse>(json);
+                return sapResult?.Error?.Code == 301;
+            }
+            catch
+            {
+                return json.Contains("Invalid session", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        private static ByteArrayContent JsonBytesContent(string json)
+        {
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            content.Headers.ContentLength = bytes.Length;
+            return content;
+        }
+
+        private static async Task<TResponse?> ReadSuccessAsync<TResponse>(HttpResponseMessage response)
+        {
+            if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+                return default;
+            return await response.Content.ReadFromJsonAsync<TResponse>();
         }
     }
 

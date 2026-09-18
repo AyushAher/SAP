@@ -15,6 +15,8 @@ import {
   ChevronRight,
   LogOut,
   ScrollText,
+  FileBarChart,
+  Boxes,
 } from 'lucide-react'
 import { cn } from '@/helpers/lib/utils'
 import { ROUTES } from '@/config/constants'
@@ -29,6 +31,7 @@ const navItems = [
   { to: ROUTES.INVENTORY_TRANSFERS, label: 'Stock Transfer', icon: ArrowLeftRight },
   { to: ROUTES.PURCHASE_ORDERS, label: 'Purchase Order', icon: ShoppingCart },
   { to: ROUTES.PURCHASE_REQUESTS, label: 'Purchase Request', icon: ClipboardList },
+  { to: ROUTES.PURCHASE_REQUEST_REPORT, label: 'PR Report', icon: FileBarChart },
   { to: ROUTES.ISSUE_FOR_PRODUCTION, label: 'Issue For Production', icon: PackageMinus },
   { to: ROUTES.RECEIPT_FROM_PRODUCTION, label: 'Receipt From Production', icon: PackagePlus },
   { to: ROUTES.PRODUCTION_ORDERS, label: 'Production Order', icon: Factory },
@@ -42,6 +45,7 @@ const approvalItems = [
 const adminItems = [
   { to: ROUTES.USER_GROUPS, label: 'User Groups', icon: UsersRound },
   { to: ROUTES.USER_ROLES, label: 'User Role Management', icon: Users },
+  { to: ROUTES.ITEM_CATALOG, label: 'Item Catalog', icon: Boxes },
 ]
 
 export function Sidebar() {
@@ -167,6 +171,11 @@ export function Sidebar() {
             <LogOut className="h-5 w-5 shrink-0" />
             {!collapsed && <span>Logout</span>}
           </button>
+          {!collapsed && (
+            <p className="mt-3 px-3 text-center text-[11px] text-slate-500">
+              &copy; {new Date().getFullYear()} ConnectEdge. All rights reserved.
+            </p>
+          )}
         </div>
       </aside>
     </>

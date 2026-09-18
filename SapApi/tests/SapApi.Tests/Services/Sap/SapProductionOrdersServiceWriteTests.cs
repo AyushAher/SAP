@@ -11,6 +11,7 @@ using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.Sap;
+using SapApi.Shared;
 using SapApi.Shared.Requests;
 using SapApi.Shared.Responses.Sap;
 using SapApi.Tests.Services.ProductionOrders;
@@ -189,11 +190,17 @@ public class SapProductionOrdersServiceWriteTests
     public async Task UpdateProductionOrder_StillPreparesThePayloadAndKeepsSapNames()
     {
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        IReadOnlyDictionary<string, string>? headers = null;
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> h, CancellationToken _) =>
+            {
+                put = body;
+                headers = h;
+            })
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var order = BuildOrder();
@@ -205,6 +212,14 @@ public class SapProductionOrdersServiceWriteTests
         put.Should().NotBeNull();
         put!.CustomerName.Should().BeNull();
         put.ProductionOrderLines!.Single().DocumentAbsoluteEntry.Should().Be(646);
+        headers.Should().ContainKey(Constants.SapServiceLayerHeaders.ReplaceCollectionsOnPatch)
+            .WhoseValue.Should().Be("true");
+        _http.Verify(
+            h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+                It.IsAny<string>(),
+                It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
 
         var json = JsonSerializer.Serialize(put);
         json.Should().Contain("\"ProductionOrderStatus\":\"boposReleased\"");
@@ -217,11 +232,12 @@ public class SapProductionOrdersServiceWriteTests
         await SeedParentAsync();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var order = BuildOrder();
@@ -263,11 +279,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var order = BuildOrder();
@@ -326,11 +343,12 @@ public class SapProductionOrdersServiceWriteTests
             });
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var order = BuildOrder();
@@ -365,11 +383,12 @@ public class SapProductionOrdersServiceWriteTests
     public async Task UpdateProductionOrder_OmitsManualUomPlaceholderSoSapCanCommit()
     {
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 661, DocumentNumber = 25 });
 
         var order = BuildOrder();
@@ -426,11 +445,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 661, DocumentNumber = 25 });
 
         var order = BuildOrder();
@@ -619,11 +639,12 @@ public class SapProductionOrdersServiceWriteTests
                     },
                 ],
             });
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 671, DocumentNumber = 35 });
 
         var order = BuildOrder();
@@ -658,11 +679,13 @@ public class SapProductionOrdersServiceWriteTests
         posted.ProductionOrderLines.Single().PlannedQuantity.Should().Be(2);
         postedTag.Should().Be("0-1");
         posted.ProductionOrderLines.Single().DrawingNo.Should().Be("UAT-DWG-1");
-        posted.ProductionOrderLines.Single().FreeText.Should().Be("Spool A");
+        posted.ProductionOrderLines.Single().DrawingName.Should().Be("Spool A");
+        posted.ProductionOrderLines.Single().FreeText.Should().BeNull();
         postedBaseQuantity.Should().BeNull();
         var json = JsonSerializer.Serialize(posted);
         json.Should().NotContain("Subassemblies");
         json.Should().Contain("\"U_DwgNo\":\"UAT-DWG-1\"");
+        json.Should().Contain("\"U_DwgName\":\"Spool A\"");
         json.Should().Contain("\"U_PrjName\":\"Refinery upgrade\"");
 
         put.Should().NotBeNull();
@@ -678,9 +701,10 @@ public class SapProductionOrdersServiceWriteTests
                 It.IsAny<CancellationToken>()),
             Times.Once);
         _http.Verify(
-            h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+            h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.Is<string>(url => url.Contains("ProductionOrders(671)")),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
 
@@ -728,11 +752,12 @@ public class SapProductionOrdersServiceWriteTests
                     },
                 ],
             });
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 671, DocumentNumber = 35 });
 
         var order = BuildOrder();
@@ -792,11 +817,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var child = BuildSubassembly();
@@ -832,11 +858,12 @@ public class SapProductionOrdersServiceWriteTests
         await SeedParentAsync();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var child = BuildSubassembly();
@@ -864,9 +891,10 @@ public class SapProductionOrdersServiceWriteTests
                 It.IsAny<CancellationToken>()),
             Times.Never);
         _http.Verify(
-            h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+            h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.Is<string>(url => url.Contains("ProductionOrders(646)")),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -894,11 +922,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var child = BuildSubassembly();
@@ -934,9 +963,10 @@ public class SapProductionOrdersServiceWriteTests
         tagged.FreeText.Should().BeNull();
 
         _http.Verify(
-            h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+            h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.Is<string>(url => url.Contains("ProductionOrders(646)")),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         _http.Verify(
@@ -976,11 +1006,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var child = BuildSubassembly();
@@ -1007,7 +1038,8 @@ public class SapProductionOrdersServiceWriteTests
         put.ProductionOrderLines!.Should().OnlyContain(l => l.LineNumber == null && l.DocumentAbsoluteEntry == null);
         put.DrawingNo.Should().Be("PBBPL-A-1234-5");
         put.ProductionOrderLines.Single(l => l.ItemNo == "CHANNEL-200").LocationCode.Should().Be(9);
-        put.ProductionOrderLines.Single(l => l.ItemNo == "CHANNEL-200").FreeText.Should().Be("Test Drawing No.5");
+        put.ProductionOrderLines.Single(l => l.ItemNo == "CHANNEL-200").FreeText.Should().BeNull();
+        put.ProductionOrderLines.Single(l => l.ItemNo == "CHANNEL-200").DrawingName.Should().Be("Test Drawing No.5");
         put.ProductionOrderLines.Single(l => l.ItemNo == "CHANNEL-200").DrawingNo.Should().Be("PBBPL-A-1234-5");
         put.ProductionOrderLines.Single(l => l.ItemNo == "CHANNEL-200").LineText.Should().BeNull();
         put.ProductionOrderLines!.Should().OnlyContain(l => l.IssuedQuantity == null && l.ItemName == null && l.LineText == null);
@@ -1043,11 +1075,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var child = BuildSubassembly();
@@ -1098,11 +1131,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var child = BuildSubassembly();
@@ -1129,6 +1163,7 @@ public class SapProductionOrdersServiceWriteTests
         tagged.LineNumber.Should().Be(2);
         tagged.DocNum.Should().Be("10-1");
         tagged.DrawingNo.Should().Be("PBBPL-A-1234-5");
+        tagged.DrawingName.Should().Be("Test Drawing No.5");
         tagged.FreeText.Should().Be("cut extra");
         tagged.IssuedQuantity.Should().BeNull();
         tagged.BaseQuantity.Should().Be(24);
@@ -1158,11 +1193,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         var parent = BuildOrder();
@@ -1242,11 +1278,12 @@ public class SapProductionOrdersServiceWriteTests
         _context.ChangeTracker.Clear();
 
         SapProductionOrdersResponse? put = null;
-        _http.Setup(h => h.PutAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
+        _http.Setup(h => h.PatchAsync<SapProductionOrdersResponse, SapProductionOrdersResponse>(
                 It.IsAny<string>(),
                 It.IsAny<SapProductionOrdersResponse>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((string _, SapProductionOrdersResponse body, CancellationToken _) => put = body)
+            .Callback((string _, SapProductionOrdersResponse body, IReadOnlyDictionary<string, string> _, CancellationToken _) => put = body)
             .ReturnsAsync(new SapProductionOrdersResponse { AbsoluteEntry = 646, DocumentNumber = 10 });
 
         await _sut.CancelProductionOrderAsync(-1);

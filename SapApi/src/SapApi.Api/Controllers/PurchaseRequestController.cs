@@ -26,11 +26,43 @@ public class PurchaseRequestController(
     ICurrentCompanyDbAccessor companyDbAccessor,
     IHttpContextAccessor httpContextAccessor,
     IOptions<HangfireOptions> hangfireOptions,
-    IServiceProvider services) : ControllerBase
+    IServiceProvider services,
+    IPdfService pdfService,
+    PurchaseRequestPdfBuilder pdfBuilder) : ControllerBase
 {
     [HttpPost("list")]
     public async Task<IActionResult> List([FromBody] PaginationRequest? request, CancellationToken cancellationToken) =>
         Ok(await service.GetAllPurchaseRequestsPaginated(PaginationRequest.Normalize(request), cancellationToken));
+
+    /// <summary>
+    /// Purchase Request report PDF: every line of every request matching the filter dialog
+    /// (username, date range, required-by range, project range, period, branch), read live from
+    /// SAP — the report must reflect SAP's current state, not the local sync mirror's.
+    /// </summary>
+    [HttpPost("report/pdf")]
+    public async Task<IActionResult> ReportPdf([FromBody] List<FilterModel>? filters, CancellationToken cancellationToken)
+    {
+        var rows = await service.GetReportRowsFromSapAsync(filters ?? [], cancellationToken);
+        var placeholders = PurchaseRequestReportPdfBuilder.BuildPlaceholders(rows, filters ?? []);
+        var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
+            "purchase-request-report-template.html", placeholders, cancellationToken);
+        return File(pdfBytes, "application/pdf", $"PurchaseRequestReport({DateTime.UtcNow:yyyyMMddHHmmss}).pdf");
+    }
+
+    [HttpGet("{docEntry:int}/pdf")]
+    public async Task<IActionResult> DownloadPdf(int docEntry, CancellationToken cancellationToken)
+    {
+        var pr = await service.GetPurchaseRequests(docEntry.ToString(), null, cancellationToken);
+        if (pr is null)
+            return NotFound(ApiResponse<object>.Fail("SYS-02", "Purchase request not found"));
+
+        var placeholders = await pdfBuilder.BuildPlaceholdersAsync(pr, cancellationToken);
+        var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
+            "purchase-request-template.html", placeholders, cancellationToken);
+
+        var fileName = $"PurchaseRequisition({pr.DocNum ?? docEntry}).pdf";
+        return File(pdfBytes, "application/pdf", fileName);
+    }
 
     [HttpGet("sync-status")]
     public async Task<IActionResult> SyncStatus(CancellationToken cancellationToken)
@@ -145,6 +177,10 @@ public class PurchaseRequestController(
         return Ok(ApiResponse<object>.Ok(await service.UpdatePurchaseRequest(data, policyRequestId)));
     }
 
+    /// <summary>
+    /// Cancels the purchase request in SAP (<c>POST PurchaseRequests(id)/Cancel</c>).
+    /// HTTP DELETE is not allowed on this company DB.
+    /// </summary>
     [HttpPost("{docEntry:int}/cancel")]
     public async Task<IActionResult> Cancel(int docEntry, CancellationToken cancellationToken) =>
         Ok(ApiResponse<object>.Ok(await service.CancelPurchaseRequest(docEntry, cancellationToken)));

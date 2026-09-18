@@ -5,6 +5,7 @@ using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
+using SapApi.Infrastructure.Services.PaymentAdvice;
 using SapApi.Infrastructure.Services.Sap;
 using SapApi.Shared;
 using SapApi.Shared.Models;
@@ -20,8 +21,10 @@ public class StageWisePaymentsController(
     StageWisePaymentService service,
     StageWisePaymentPageService pageService,
     StageWisePaymentPdfBuilder pdfBuilder,
+    PaymentAdviceService paymentAdviceService,
     SapPurchaseOrderService purchaseOrderService,
     IPdfService pdfService,
+    IMailSender mailSender,
     ICurrentCompanyDbAccessor companyDbAccessor) : ControllerBase
 {
     private string CompanyDb => companyDbAccessor.GetCompanyDbName();
@@ -125,13 +128,81 @@ public class StageWisePaymentsController(
             pageData,
             ClaimsPrincipalDisplayName.GetDisplayName(User),
             cancellationToken,
-            postingDate: postingDate);
+            postingDate: postingDate,
+            preparedBy: await StageWisePaymentPdfBuilder.ResolvePreparedByAsync(
+                db, CompanyDb, record.ApprovalRequestId, cancellationToken),
+            vendorBankDetails: StageWisePaymentPdfBuilder.FormatVendorBankDetails(pageData.VendorBankAccounts));
 
         var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
             "outgoing-payment-template.html", placeholders, cancellationToken);
 
         var fileName = $"Payment Requisition({record.ApDownPaymentInvoiceEntryNumber ?? record.Id.ToString()}).pdf";
         return File(pdfBytes, "application/pdf", fileName);
+    }
+
+    /// <summary>
+    /// Emails the vendor-facing Payment Advice for one stage-wise payment record (single or
+    /// batch-linked). Only meaningful once SAP has an actual outgoing payment posted against the
+    /// record — there is nothing to advise a vendor about before that.
+    /// </summary>
+    [HttpPost("{id:int}/send-advice")]
+    public async Task<IActionResult> SendAdvice(
+        int id,
+        [FromQuery] int poDocEntry,
+        [FromBody] SendPaymentAdviceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var to = (request.To ?? [])
+            .Select(a => a.Trim())
+            .Where(a => a.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (to.Count == 0)
+            return BadRequest(ApiResponse<object>.Fail("SYS-01", "At least one recipient is required."));
+
+        var record = await db.StageWisePayments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.CompanyDb == CompanyDb, cancellationToken);
+        if (record is null)
+            return NotFound(ApiResponse<object>.Fail("SYS-02", "Record not found"));
+
+        if (!StageWisePaymentPageService.HasSapOutgoingPayment(record))
+            return BadRequest(ApiResponse<object>.Fail("SYS-01", "This payment has no outgoing payment posted in SAP yet."));
+
+        var pageData = await pageService.LoadPageDataAsync(poDocEntry, cancellationToken);
+        if (pageData?.PurchaseOrder is null)
+            return NotFound(ApiResponse<object>.Fail("SYS-02", "Purchase order not found"));
+
+        var batch = await db.StageWisePaymentBatches
+            .AsNoTracking()
+            .Where(b => b.CompanyDb == CompanyDb
+                && (b.StageWisePaymentId == id || b.DownPaymentStageWisePaymentId == id))
+            .Select(b => new { b.VendorBankCode, b.PaymentDate })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var placeholders = await paymentAdviceService.BuildPlaceholdersAsync(
+            record,
+            pageData,
+            batch?.VendorBankCode,
+            batch?.PaymentDate,
+            request.Remarks,
+            cancellationToken);
+        var html = await paymentAdviceService.RenderHtmlAsync(placeholders, cancellationToken);
+
+        var po = pageData.PurchaseOrder;
+        var cc = (request.Cc ?? [])
+            .Select(a => a.Trim())
+            .Where(a => a.Length > 0)
+            .ToList();
+
+        await mailSender.SendAsync(new MailMessage
+        {
+            Subject = $"Payment Advice - {po.CardCode} {po.CardName} - PO {po.DocNum ?? po.DocEntry}",
+            Body = html,
+            IsHtml = true,
+            To = to,
+            Cc = cc,
+        }, cancellationToken);
+
+        return Ok(ApiResponse<object>.Ok(new { to, id }, "Payment advice queued for sending"));
     }
 
     [HttpDelete("{id:int}")]

@@ -41,4 +41,26 @@ public class PdfServiceTests
         text.Should().Contain("Price Basis");
         text.Should().Contain("____");
     }
+
+    [Test]
+    public async Task RenderTemplateHtmlAsync_fills_copyrightYear_even_when_the_caller_does_not_pass_it()
+    {
+        var contentRoot = Directory.CreateTempSubdirectory().FullName;
+        Directory.CreateDirectory(Path.Combine(contentRoot, "Templates"));
+        var templatePath = Path.Combine(contentRoot, "Templates", "fixture.html");
+        await File.WriteAllTextAsync(templatePath,
+            "<p>{{greeting}}</p><footer>&copy; {{copyrightYear}} ConnectEdge. All rights reserved.</footer>");
+
+        var env = new Mock<IHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(contentRoot);
+        var sut = new PdfService(env.Object);
+
+        var html = await sut.RenderTemplateHtmlAsync("fixture.html", new Dictionary<string, string> { ["greeting"] = "Hello" });
+
+        html.Should().Contain("<p>Hello</p>");
+        html.Should().Contain($"&copy; {DateTime.UtcNow.Year} ConnectEdge. All rights reserved.");
+        html.Should().NotContain("{{copyrightYear}}");
+
+        Directory.Delete(contentRoot, recursive: true);
+    }
 }

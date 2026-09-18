@@ -32,6 +32,9 @@ public class ProductionOrderTemplateTests
         var tokens = Regex.Matches(html, @"\{\{(?<key>[^}]+)\}\}")
             .Select(m => m.Groups["key"].Value)
             .Distinct()
+            // copyrightYear is injected globally by PdfService.RenderTemplateHtmlAsync for every
+            // template, not passed by individual builders.
+            .Where(t => t != "copyrightYear")
             .ToList();
         tokens.Should().NotBeEmpty();
 

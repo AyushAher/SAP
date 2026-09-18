@@ -15,6 +15,8 @@ public class StageWisePaymentBatch : ISoftDeletable
     public string? WtCode { get; set; }
     public string? ModeOfPayment { get; set; }
     public string? Account { get; set; }
+    /// <summary>Selected vendor bank account (BPBankAccounts.BankCode) this batch pays to.</summary>
+    public string? VendorBankCode { get; set; }
     public string? JournalRemark { get; set; }
     public string? ReferenceNo { get; set; }
     public DateTime? PostingDate { get; set; }

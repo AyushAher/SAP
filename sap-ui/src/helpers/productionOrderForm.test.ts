@@ -12,6 +12,7 @@ import {
   validateProductionOrderForm,
   validateSubassemblyForm,
   validateSubassemblyHeaderForm,
+  subassemblyDrawingName,
   validateSubassemblyItemsForm,
 } from '@/helpers/productionOrderForm'
 import type { ProductionOrder, ProductionOrderLine } from '@/types/production'
@@ -294,21 +295,52 @@ describe('buildSubassemblyItemLine', () => {
       Warehouse: 'Store1',
       ProductionOrderIssueType: 'im_Manual',
       DrawingNo: undefined,
+      DrawingName: undefined,
       FreeText: undefined,
+      Status: 'boposPlanned',
     })
   })
 
-  it('copies drawing no and free text onto the new component', () => {
+  it('copies drawing no, drawing name, status and free text onto the new component', () => {
     expect(buildSubassemblyItemLine(
       { ItemNo: 'RM-2', PlannedQuantity: 1, FreeText: 'cut extra' },
-      { DrawingNo: 'DWG-9', ProductDescription: 'Spool A', Warehouse: 'WIP' },
+      { DrawingNo: 'DWG-9', ProductDescription: 'Spool A', Warehouse: 'WIP', Status: 'boposReleased' },
       { IssWarehouse: 'Store1' },
       [],
+      { drawingName: 'Spool A', status: 'boposReleased' },
     )).toEqual(expect.objectContaining({
       DrawingNo: 'DWG-9',
+      DrawingName: 'Spool A',
       FreeText: 'cut extra',
+      Status: 'boposReleased',
       Warehouse: 'Store1',
     }))
+  })
+
+  it('leaves free text blank when the user did not enter any', () => {
+    expect(buildSubassemblyItemLine(
+      { ItemNo: 'RM-2', PlannedQuantity: 1 },
+      { DrawingNo: 'DWG-9', ProductDescription: 'Spool A', ParentProductionOrderNo: '10/1', Warehouse: 'WIP' },
+      { IssWarehouse: 'Store1' },
+      [],
+      { drawingName: 'Spool A' },
+    )).toEqual(expect.objectContaining({
+      DrawingNo: 'DWG-9',
+      DrawingName: 'Spool A',
+      FreeText: undefined,
+    }))
+  })
+})
+
+describe('subassemblyDrawingName', () => {
+  it('does not treat free text or the parent description as the drawing name', () => {
+    expect(subassemblyDrawingName(
+      {
+        ProductDescription: 'FINISHED GOOD',
+        ProductionOrderLines: [{ FreeText: '10/1', DrawingName: 'Spool A' }],
+      },
+      { ProductDescription: 'FINISHED GOOD' },
+    )).toBe('Spool A')
   })
 })
 

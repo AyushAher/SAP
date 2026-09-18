@@ -49,9 +49,9 @@ public static class SapErrorFormatter
         if (!is2028)
             return message;
 
-        return $"{message} — often a missing document numbering series for the selected branch and posting-date financial year, "
-            + "or a missing master (BP, project, warehouse, employee). "
-            + "Ask a SAP admin to verify document series under Document Numbering for that branch/year.";
+        return $"{message} — SAP could not find a related record. Common causes: Requester is a display name "
+            + "instead of a SAP user code, an item line has no warehouse, or a missing master "
+            + "(BP, project, employee) / numbering series for the branch and posting-date financial year.";
     }
 
     public static string? TryExtractMessage(string? rawJson)

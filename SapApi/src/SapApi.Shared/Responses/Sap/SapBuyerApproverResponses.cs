@@ -47,6 +47,9 @@ public record SapEmployeeInfoResponse
     [JsonPropertyName("eMail"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Email { get; set; }
 
+    [JsonPropertyName("Position"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Position { get; set; }
+
     [JsonIgnore]
     public string DisplayName =>
         string.Join(' ', new[] { FirstName, LastName }.Where(s => !string.IsNullOrWhiteSpace(s))).Trim();

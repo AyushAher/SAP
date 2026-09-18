@@ -35,6 +35,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ProductionOrderSyncState> ProductionOrderSyncStates => Set<ProductionOrderSyncState>();
     public DbSet<ProductionOrderSyncLog> ProductionOrderSyncLogs => Set<ProductionOrderSyncLog>();
     public DbSet<ActionAuditLog> ActionAuditLogs => Set<ActionAuditLog>();
+    public DbSet<Item> Items => Set<Item>();
+    public DbSet<ItemSyncState> ItemSyncStates => Set<ItemSyncState>();
 
     public override int SaveChanges()
     {
@@ -372,6 +374,35 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.HasIndex(e => e.CompanyDb).IsUnique();
         });
 
+        modelBuilder.Entity<Item>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.ItemCode).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.ItemName).HasMaxLength(200);
+            entity.Property(e => e.InventoryUom).HasMaxLength(20);
+            entity.Property(e => e.PurchaseUnit).HasMaxLength(20);
+            entity.Property(e => e.DefaultWarehouse).HasMaxLength(20);
+            entity.HasIndex(e => new { e.CompanyDb, e.ItemCode }).IsUniqueAmongActiveRows();
+            entity.HasIndex(e => new { e.CompanyDb, e.ItemName });
+            entity.HasIndex(e => new { e.CompanyDb, e.ItemsGroupCode });
+        });
+
+        modelBuilder.Entity<ItemSyncState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ConfigureSoftDeleteProperty();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.CompanyDb).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.HangfireJobId).HasMaxLength(64);
+            entity.Property(e => e.LastSyncMessage).HasMaxLength(2000);
+            entity.Property(e => e.LastItemCode).HasMaxLength(50);
+            entity.HasIndex(e => e.CompanyDb).IsUnique();
+        });
+
         modelBuilder.Entity<PurchaseRequest>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -471,6 +502,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             entity.Property(e => e.Warehouse).HasMaxLength(20);
             entity.Property(e => e.Project).HasMaxLength(50);
             entity.Property(e => e.DrawingNo).HasMaxLength(30);
+            entity.Property(e => e.DrawingName).HasMaxLength(100);
             entity.Property(e => e.DocNum).HasMaxLength(25);
             entity.HasIndex(e => new { e.ProductionOrderId, e.LineNumber }).IsUniqueAmongActiveRows();
             entity.HasIndex(e => e.ItemNo);

@@ -1,3 +1,4 @@
+using System.Globalization;
 using SapApi.Domain.Entities;
 using SapApi.Domain.Interfaces;
 using SapApi.Infrastructure.Sap;
@@ -7,6 +8,7 @@ using SapApi.Shared.Enums;
 using SapApi.Shared.Exceptions;
 using SapApi.Shared.Models;
 using SapApi.Shared.Requests;
+using SapApi.Shared.Responses;
 using SapApi.Shared.Responses.Sap;
 using SapApi.Shared.Sap;
 
@@ -36,6 +38,135 @@ namespace SapApi.Infrastructure.Services.Sap
         private Task<GetAllSapPurchaseRequestsResponse?> GetAllPurchaseRequestsInternal(SapQueries sapQueries) =>
             requestHandler.GetAsync<GetAllSapPurchaseRequestsResponse>(
                 Constants.SapApiUrls.GetAllSapPurchaseRequests + sapQueries.GetQueryValue());
+
+        /// <summary>
+        /// Every line of every purchase request matching the report filter dialog (username, date
+        /// range, required-by range, project range, period, branch), read live from SAP rather than
+        /// the local mirror — the report must reflect SAP's current state, not yesterday's sync.
+        /// No $select is sent so SAP returns its full default shape (DocumentLines included), the
+        /// same way the proven single-document fetch already works.
+        /// </summary>
+        public async Task<List<PurchaseRequestReportLineResponse>> GetReportRowsFromSapAsync(
+            IReadOnlyList<FilterModel> filters,
+            CancellationToken cancellationToken = default)
+        {
+            const int maxDocuments = 2000;
+            const int pageSize = 100;
+
+            var filter = BuildReportSapFilter(filters);
+            var documents = new List<SapPurchaseRequestsResponse>();
+            var skip = 0;
+
+            while (documents.Count < maxDocuments)
+            {
+                var top = Math.Min(pageSize, maxDocuments - documents.Count);
+                var queries = new SapQueries
+                {
+                    Filter = filter,
+                    OrderBy = "DocDate,DocNum",
+                    Skip = skip > 0 ? skip.ToString(CultureInfo.InvariantCulture) : null,
+                    Top = top.ToString(CultureInfo.InvariantCulture),
+                };
+
+                var page = await GetAllPurchaseRequestsInternal(queries);
+                var rows = page?.Value ?? [];
+                documents.AddRange(rows);
+
+                if (rows.Count < top)
+                    break;
+
+                skip += rows.Count;
+            }
+
+            return MapToReportLines(documents);
+        }
+
+        private static string? BuildReportSapFilter(IReadOnlyList<FilterModel> filters)
+        {
+            var parts = new List<string>();
+
+            foreach (var filter in filters)
+            {
+                if (filter.Value is null || string.IsNullOrWhiteSpace(filter.Value.ToString()))
+                    continue;
+
+                var term = filter.Value.ToString()!.Trim();
+                var escaped = SapPaginationBuilder.EscapeODataString(term);
+
+                if (filter.Field.Equals("Username", StringComparison.OrdinalIgnoreCase))
+                {
+                    // RequesterName is often blank in this tenant's data — Requester (the code the
+                    // user actually types/is assigned) is the field reliably populated.
+                    parts.Add($"contains(Requester,'{escaped}')");
+                }
+                else if (filter.Field.Equals("DocDate", StringComparison.OrdinalIgnoreCase)
+                    && DateTime.TryParse(term, out var docDate))
+                {
+                    parts.Add(filter.Operator == "lte"
+                        ? $"DocDate le '{docDate:yyyy-MM-dd}'"
+                        : $"DocDate ge '{docDate:yyyy-MM-dd}'");
+                }
+                else if (filter.Field.Equals("RequiredDate", StringComparison.OrdinalIgnoreCase)
+                    && DateTime.TryParse(term, out var requiredDate))
+                {
+                    parts.Add(filter.Operator == "lte"
+                        ? $"RequriedDate le '{requiredDate:yyyy-MM-dd}'"
+                        : $"RequriedDate ge '{requiredDate:yyyy-MM-dd}'");
+                }
+                else if (filter.Field.Equals("Project", StringComparison.OrdinalIgnoreCase))
+                {
+                    parts.Add(filter.Operator == "lte"
+                        ? $"Project le '{escaped}'"
+                        : $"Project ge '{escaped}'");
+                }
+                else if (filter.Field.Equals("Period", StringComparison.OrdinalIgnoreCase)
+                    && DateTime.TryParse($"{term}-01", out var periodStart))
+                {
+                    var start = new DateTime(periodStart.Year, periodStart.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                    var end = start.AddMonths(1);
+                    parts.Add($"DocDate ge '{start:yyyy-MM-dd}'");
+                    parts.Add($"DocDate lt '{end:yyyy-MM-dd}'");
+                }
+                else if (filter.Field.Equals("BPLId", StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(term, out var bplId))
+                {
+                    parts.Add($"BPLId eq {bplId}");
+                }
+            }
+
+            return parts.Count > 0 ? string.Join(" and ", parts) : null;
+        }
+
+        private static List<PurchaseRequestReportLineResponse> MapToReportLines(
+            IReadOnlyList<SapPurchaseRequestsResponse> documents)
+        {
+            var rows = new List<PurchaseRequestReportLineResponse>();
+            foreach (var doc in documents)
+            {
+                var itemType = doc.DocType == Constants.PurchaseOrderDocType.Document_Service ? "Service" : "Item";
+                var lines = (doc.DocumentLines ?? [])
+                    .OrderBy(l => l.LineNum);
+                foreach (var line in lines)
+                {
+                    rows.Add(new PurchaseRequestReportLineResponse
+                    {
+                        DocNum = doc.DocNum ?? doc.DocEntry ?? 0,
+                        PostingDate = doc.DocDate,
+                        UserName = !string.IsNullOrWhiteSpace(doc.RequesterName) ? doc.RequesterName : doc.Requester,
+                        RequiredDate = line.RequiredDate ?? doc.RequiredDate,
+                        ProjectCode = line.ProjectCode ?? doc.Project,
+                        ItemType = itemType,
+                        ItemCode = line.ItemCode,
+                        Description = line.ItemDescription,
+                        FreeText = line.FreeText,
+                        Quantity = line.Quantity,
+                        Unit = line.UoMCode,
+                    });
+                }
+            }
+
+            return rows;
+        }
 
         public async Task<SapPurchaseRequestsResponse?> GetPurchaseRequests(
             string id,
@@ -70,11 +201,19 @@ namespace SapApi.Infrastructure.Services.Sap
             int docEntry,
             CancellationToken cancellationToken = default)
         {
+            // HTTP DELETE is rejected on PurchaseRequests ("The document cannot be removed").
+            // Service Layer cancel is POST .../PurchaseRequests({id})/Cancel.
             await requestHandler.PostAsync<object, object>(
                 Constants.SapApiUrls.CancelSapPurchaseRequests(docEntry),
                 data: null!,
                 cancellationToken);
-            return await GetPurchaseRequests(docEntry.ToString(), cancellationToken: cancellationToken)
+            var detail = await requestHandler.GetOrThrowAsync<SapPurchaseRequestsResponse>(
+                Constants.SapApiUrls.UpdateSapPurchaseRequests(docEntry),
+                cancellationToken);
+            if (detail?.DocEntry is not null)
+                await localStore.UpsertFromSapAsync(detail, cancellationToken);
+            SapPurchaseRequestPayloadBuilder.OmitHiddenUdfDefaultsFromClientResponse(detail);
+            return detail
                    ?? throw new ApiErrorException(
                        BaseErrorCodes.ValidationFailed,
                        $"Purchase request {docEntry} was cancelled in SAP but could not be reloaded.");
@@ -94,7 +233,7 @@ namespace SapApi.Infrastructure.Services.Sap
                 };
             }
 
-            // Resolve OPOR Series for BPL + DocDate FY before POST — missing series surfaces as ODBC -2028.
+            // Resolve OPRQ Series for BPL + DocDate FY before POST — missing series surfaces as ODBC -2028.
             await documentSeriesService.EnsurePurchaseRequestSeriesAsync(payload);
 
             var created = await requestHandler.PostAsync<SapPurchaseRequestsResponse, SapPurchaseRequestsResponse>(
@@ -202,6 +341,9 @@ namespace SapApi.Infrastructure.Services.Sap
                     ?? headerWarehouse;
                 if (warehouseCode is null)
                     continue;
+
+                if (!IsServiceDocument(payload.DocType) && string.IsNullOrWhiteSpace(line.WarehouseCode))
+                    line.WarehouseCode = warehouseCode;
 
                 var warehouse = await masterDataService.GetWarehouseByCodeAsync(warehouseCode);
                 if (warehouse?.Location is > 0)

@@ -35,6 +35,7 @@ describe('authSlice', () => {
     expect(state.isAuthenticated).toBe(true)
     expect(state.token).toBe('jwt-token')
     expect(state.user?.email).toBe('user@test.com')
+    expect(state.user?.userName).toBe('testuser')
     expect(state.user?.role).toBe('Admin')
     expect(localStorage.getItem(STORAGE_KEYS.TOKEN)).toBe('jwt-token')
     expect(localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)).toBe('refresh-token')

@@ -1,5 +1,7 @@
 using SapApi.Domain.Entities;
+using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services.Sap;
+using Microsoft.EntityFrameworkCore;
 using SapApi.Shared;
 using SapApi.Shared.Helpers;
 using SapApi.Shared.Responses;
@@ -13,11 +15,13 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
     public async Task<Dictionary<string, string>> BuildPlaceholdersAsync(
         StageWisePayment record,
         StageWisePaymentPageDataResponse pageData,
-        string? userName,
+        string? printedBy,
         CancellationToken cancellationToken = default,
         string? userRemark = null,
         string? paymentTermOverride = null,
-        DateTime? postingDate = null)
+        DateTime? postingDate = null,
+        string? preparedBy = null,
+        string? vendorBankDetails = null)
     {
         var po = pageData.PurchaseOrder!;
         var recordApInvoice = pageData.ApInvoices.FirstOrDefault(x => x.DocEntry.ToString() == record.ApInvoiceDocEntry)
@@ -75,7 +79,11 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             ["bplAddr"] = branch?.Address ?? string.Empty,
             ["bplGst"] = branch?.FederalTaxID ?? string.Empty,
             ["bplPan"] = branch?.PanNo ?? string.Empty,
-            ["userName"] = userName ?? string.Empty,
+            ["userName"] = EscapePrepared(preparedBy ?? printedBy),
+            ["preparedBy"] = EscapePrepared(preparedBy ?? printedBy),
+            ["printedBy"] = EscapePrepared(printedBy),
+            ["printedOn"] = IndiaTime.FormatPrintedOn(),
+            ["vendorBankDetails"] = vendorBankDetails ?? string.Empty,
             ["wtCode"] = record.WtCode ?? "-",
             ["wtName"] = "-",
             ["wtAmount"] = (record.Tds ?? 0).ToString("N2"),
@@ -179,5 +187,64 @@ public class StageWisePaymentPdfBuilder(SapMasterDataService masterDataService)
             string.Equals(w.WtCode, wtCode, StringComparison.OrdinalIgnoreCase));
         placeholders["wtName"] = wt?.WtName ?? "-";
         placeholders["wtRate"] = wt?.Rate.HasValue == true ? $"{wt.Rate.Value:N2}%" : "-";
+    }
+
+    static string EscapePrepared(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+
+    public static string FormatVendorBankDetails(IEnumerable<VendorBankAccountOption>? accounts)
+    {
+        if (accounts is null)
+            return string.Empty;
+
+        return string.Join(" | ", accounts
+            .Select(a => a.Display)
+            .Where(d => !string.IsNullOrWhiteSpace(d)));
+    }
+
+    /// <summary>
+    /// Formats the vendor bank account the payment is being made to. When a specific account was
+    /// selected (<paramref name="vendorBankCode"/>), only that one is shown — a vendor with several
+    /// accounts on file should not print all of them on a single payment's advice. Falls back to
+    /// every account on file when no selection was made (legacy batches, or a code that no longer
+    /// matches the vendor master).
+    /// </summary>
+    public static string FormatVendorBankDetails(IEnumerable<VendorBankAccountOption>? accounts, string? vendorBankCode)
+    {
+        var list = accounts?.ToList() ?? [];
+        if (!string.IsNullOrWhiteSpace(vendorBankCode))
+        {
+            var selected = list.FirstOrDefault(a => a.BankCode == vendorBankCode);
+            if (selected is not null)
+                return selected.Display ?? string.Empty;
+        }
+
+        return FormatVendorBankDetails(list);
+    }
+
+    public static async Task<string?> ResolvePreparedByAsync(
+        AppDbContext db,
+        string companyDb,
+        string? approvalRequestIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = approvalRequestIds?
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => int.TryParse(id, out var parsed) ? parsed : (int?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList() ?? [];
+        if (ids.Count == 0)
+            return null;
+
+        var name = await db.ApprovalRequests
+            .AsNoTracking()
+            .Where(r => r.CompanyDb == companyDb && ids.Contains(r.Id))
+            .OrderBy(r => r.Id)
+            .Select(r => r.RequesterUser.FullName ?? r.RequesterUser.UserName)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
     }
 }

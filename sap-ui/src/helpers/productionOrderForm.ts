@@ -227,6 +227,32 @@ export function productionOrderStatusLabel(status?: string): string {
   }
 }
 
+/** Sub-assembly header/row status. Complete is SAP Closed (`boposClosed`). */
+export const SUBASSEMBLY_STATUS_OPTIONS = [
+  { value: 'boposPlanned', label: 'Planned' },
+  { value: 'boposReleased', label: 'Released' },
+  { value: 'boposClosed', label: 'Complete' },
+]
+
+export function subassemblyStatusLabel(status?: string): string {
+  return SUBASSEMBLY_STATUS_OPTIONS.find((option) => option.value === status)?.label
+    ?? productionOrderStatusLabel(status)
+}
+
+/** Drawing name stored on the virtual child header, or on component U_DwgName — never Free Text. */
+export function subassemblyDrawingName(
+  child?: ProductionOrder | null,
+  parent?: ProductionOrder | null,
+): string {
+  const childDesc = (child?.ProductDescription ?? '').trim()
+  const parentDesc = (parent?.ProductDescription ?? '').trim()
+  if (childDesc && childDesc !== parentDesc) return childDesc
+  const fromLines = (child?.ProductionOrderLines ?? [])
+    .map((line) => (line.DrawingName ?? '').trim())
+    .find(Boolean)
+  return fromLines ?? ''
+}
+
 /**
  * Component (issue) warehouse for a sub-assembly line. The child header warehouse is the
  * receipt warehouse (WIP / Subcon); components must issue from Store1 (or the parent's
@@ -253,8 +279,10 @@ export function buildSubassemblyItemLine(
   child: ProductionOrder | null,
   parent: ProductionOrder | null,
   lines: ProductionOrderLine[],
+  extras?: { drawingName?: string; status?: string },
 ): ProductionOrderLine {
-  const drawingName = (child?.ProductDescription ?? '').trim()
+  const drawingName = (draft.DrawingName ?? extras?.drawingName ?? '').trim()
+  const status = draft.Status || extras?.status || child?.Status || 'boposPlanned'
   return {
     ItemNo: draft.ItemNo,
     ItemName: draft.ItemName,
@@ -262,7 +290,9 @@ export function buildSubassemblyItemLine(
     Warehouse: subassemblyComponentWarehouse(child, parent, lines),
     ProductionOrderIssueType: draft.ProductionOrderIssueType || 'im_Manual',
     DrawingNo: (draft.DrawingNo ?? child?.DrawingNo ?? '').trim() || undefined,
-    FreeText: (draft.FreeText ?? drawingName).trim() || undefined,
+    DrawingName: drawingName || undefined,
+    FreeText: (draft.FreeText ?? '').trim() || undefined,
+    Status: status,
   }
 }
 

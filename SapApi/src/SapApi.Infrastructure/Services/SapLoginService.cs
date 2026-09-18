@@ -182,7 +182,15 @@ public class SapLoginService(
         var sapResponse = JsonSerializer.Deserialize<SapLoginResponse>(body);
 
         if (!response.IsSuccessStatusCode || string.IsNullOrEmpty(sapResponse?.SessionId))
+        {
+            // The mapped message shown to callers is deliberately generic; SAP's own text never
+            // contains credentials, so it's safe (and, in practice, necessary) to log verbatim —
+            // it's the only way to tell a stale password apart from a license/session-limit error.
+            Log.Warning(
+                "SAP login failed for {UserName} on {CompanyDb}: HTTP {StatusCode} — {SapMessage}",
+                userName, companyDbName, (int)response.StatusCode, sapResponse?.Error?.Message?.Value ?? body);
             throw new ApiErrorException(BaseErrorCodes.IncorrectCredentials, MapSapLoginError(sapResponse));
+        }
 
         return sapResponse;
     }

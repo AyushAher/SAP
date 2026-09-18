@@ -16,6 +16,8 @@ public class StageWisePaymentPageDataResponse
     public List<SapPurchaseInvoicesResponse> ApInvoices { get; set; } = [];
     public List<StageWisePaymentWtCodeOption> WithholdingTaxCodes { get; set; } = [];
     public List<StageWisePaymentSummaryRow> PaymentSummary { get; set; } = [];
+    public List<VendorBankAccountOption> VendorBankAccounts { get; set; } = [];
+    public string? VendorEmail { get; set; }
 }
 
 public class StageWisePaymentRecordDto
@@ -68,4 +70,13 @@ public class StageWisePaymentSummaryRow
     public double Requested { get; set; }
     public double Paid { get; set; }
     public double Balance => POValue - Paid;
+}
+
+public class VendorBankAccountOption
+{
+    public string BankCode { get; set; } = string.Empty;
+    public string? AccountNo { get; set; }
+    public string? AccountName { get; set; }
+    public string? Branch { get; set; }
+    public string Display { get; set; } = string.Empty;
 }

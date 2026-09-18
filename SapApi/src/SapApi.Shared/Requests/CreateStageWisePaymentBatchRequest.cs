@@ -43,6 +43,7 @@ public class UpdateBatchAdditionalDetailsRequest
 {
     public string? ModeOfPayment { get; set; }
     public string? Account { get; set; }
+    public string? VendorBankCode { get; set; }
     public string? JournalRemark { get; set; }
     public string? ReferenceNo { get; set; }
     public DateTime? PostingDate { get; set; }

@@ -76,8 +76,14 @@ export async function getApprovalPaymentContext(id: number) {
   return apiGet<ApprovalPaymentContext>(`/approvals/${id}/payment-context`)
 }
 
+export interface ApproveRequestResult {
+  result?: ApprovalRequest
+  sapQueued?: boolean
+  sapResponse?: unknown
+}
+
 export async function approveRequest(id: number, payload: { comment?: string; utrNo?: string; utrDate?: string }) {
-  return apiPost(`/approvals/${id}/approve`, { action: 'Approve', ...payload })
+  return apiPost<ApproveRequestResult>(`/approvals/${id}/approve`, { action: 'Approve', ...payload })
 }
 
 export async function rejectRequest(id: number, comment?: string) {

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SapApi.Domain.Interfaces;
+using SapApi.Infrastructure.Persistence;
 using SapApi.Infrastructure.Services;
 using SapApi.Shared;
 using SapApi.Shared.Models;
@@ -17,8 +18,11 @@ public class StageWisePaymentBatchesController(
     StageWisePaymentBatchService batchService,
     StageWisePaymentPageService pageService,
     StageWisePaymentPdfBuilder pdfBuilder,
-    IPdfService pdfService) : ControllerBase
+    IPdfService pdfService,
+    AppDbContext db,
+    ICurrentCompanyDbAccessor companyDbAccessor) : ControllerBase
 {
+    private string CompanyDb => companyDbAccessor.GetCompanyDbName();
     [HttpGet("page-data/{poDocEntry:int}")]
     public async Task<IActionResult> GetPageData(int poDocEntry, CancellationToken cancellationToken)
     {
@@ -126,17 +130,25 @@ public class StageWisePaymentBatchesController(
     [HttpGet("{batchId:int}/pdf")]
     public async Task<IActionResult> DownloadPdf(int batchId, CancellationToken cancellationToken)
     {
+        var pdfResult = await BuildBatchPdfAsync(batchId, cancellationToken);
+        return pdfResult is null
+            ? NotFound(ApiResponse<object>.Fail("SYS-02", "Batch payment not found"))
+            : File(pdfResult.Value.PdfBytes, "application/pdf", pdfResult.Value.FileName);
+    }
+
+    private async Task<(byte[] PdfBytes, string FileName)?> BuildBatchPdfAsync(int batchId, CancellationToken cancellationToken)
+    {
         var batch = await batchService.GetBatchAsync(batchId, cancellationToken);
         if (batch is null)
-            return NotFound(ApiResponse<object>.Fail("SYS-02", "Batch payment not found"));
+            return null;
 
         var record = await batchService.GetPrimaryPaymentRecordAsync(batchId, cancellationToken);
         if (record is null)
-            return NotFound(ApiResponse<object>.Fail("SYS-02", "No payment record linked to this batch"));
+            return null;
 
         var pageData = await pageService.LoadPageDataAsync(batch.PoDocEntry, cancellationToken);
         if (pageData?.PurchaseOrder is null)
-            return NotFound(ApiResponse<object>.Fail("SYS-02", "Purchase order not found"));
+            return null;
 
         var paymentTermLabel = string.Join(", ",
             (batch.Lines ?? [])
@@ -151,13 +163,15 @@ public class StageWisePaymentBatchesController(
             cancellationToken,
             userRemark: batch.JournalRemark,
             paymentTermOverride: string.IsNullOrWhiteSpace(paymentTermLabel) ? null : paymentTermLabel,
-            postingDate: batch.PostingDate);
+            postingDate: batch.PostingDate,
+            preparedBy: await StageWisePaymentPdfBuilder.ResolvePreparedByAsync(
+                db, CompanyDb, record.ApprovalRequestId, cancellationToken),
+            vendorBankDetails: StageWisePaymentPdfBuilder.FormatVendorBankDetails(pageData.VendorBankAccounts, batch.VendorBankCode));
 
         var pdfBytes = await pdfService.GeneratePdfFromTemplateAsync(
             "outgoing-payment-template.html", placeholders, cancellationToken);
-
         var fileName = $"Batch Payment Requisition({record.ApDownPaymentInvoiceEntryNumber ?? batchId.ToString()}).pdf";
-        return File(pdfBytes, "application/pdf", fileName);
+        return (pdfBytes, fileName);
     }
 
     [HttpPost("{batchId:int}/cancel")]

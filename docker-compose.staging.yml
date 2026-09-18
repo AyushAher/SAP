@@ -31,6 +31,10 @@ services:
       Security__AesKeyBase64: ${AES_KEY_BASE64:-}
       Jwt__SecretKey: ${JWT_SECRET_KEY}
       Cors__Origins__0: ${CORS_ORIGIN}
+      GraphMail__TenantId: ${GRAPH_TENANT_ID}
+      GraphMail__ClientId: ${GRAPH_CLIENT_ID}
+      GraphMail__ClientSecret: ${GRAPH_CLIENT_SECRET}
+      GraphMail__SenderMailbox: ${GRAPH_SENDER_MAILBOX:-no-reply@connect-edge.privilegeboilers.com}
       Swagger__Enabled: "true"
     depends_on:
       - redis
@@ -68,7 +72,7 @@ services:
     deploy:
       replicas: 1
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 5s
         max_attempts: 5
         window: 120s

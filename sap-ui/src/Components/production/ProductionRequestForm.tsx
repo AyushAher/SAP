@@ -8,7 +8,7 @@ import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
 import { RowActionButton, RowActions, rowActionIconClassName } from '@/Components/shared/RowActions'
 import { SapDataGrid, type SapColumn } from '@/Components/shared/SapDataGrid'
-import { Button, Card, CardContent, Input, SearchableSelect } from '@/Components/ui'
+import { Button, Card, CardContent, Input, SearchableSelect, Select } from '@/Components/ui'
 import { searchItems, searchWarehouses, formatWarehouseOptionLabel, CONSUMABLES_ITEM_GROUP_FILTER } from '@/Requests/masters'
 import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
@@ -66,7 +66,35 @@ export function ProductionRequestForm({
   const [loading, setLoading] = useState(!!id)
   const [saving, setSaving] = useState(false)
   const [workerName, setWorkerName] = useState('')
+  const [selectedSubassembly, setSelectedSubassembly] = useState('')
   const isReceipt = variant === 'receipt'
+
+  /** Distinct sub-assemblies on the selected production order (WOR1 U_DocNum), for the "which
+   * sub-assembly do new items belong to" dropdown — not just the ones already added here. */
+  const subassemblyOptions = useMemo(() => {
+    const lines = selection?.ProductionOrder?.ProductionOrderLines ?? []
+    const byDocNum = new Map<string, { docNum: string; drawingNo?: string; drawingName?: string }>()
+    for (const line of lines) {
+      const docNum = (line.DocNum ?? '').trim()
+      if (!docNum || byDocNum.has(docNum)) continue
+      byDocNum.set(docNum, { docNum, drawingNo: line.DrawingNo, drawingName: line.DrawingName })
+    }
+    return [...byDocNum.values()]
+  }, [selection?.ProductionOrder?.ProductionOrderLines])
+
+  // Once items are added, new items must join the same sub-assembly as what's already selected —
+  // lock the dropdown to it instead of leaving the choice open to a second, inconsistent value.
+  useEffect(() => {
+    const addedLines = selection?.ProductionOrderLinesEntryNumber ?? []
+    const tags = new Set(addedLines.map((line) => (line.DocNum ?? '').trim()).filter(Boolean))
+    if (tags.size === 1) {
+      setSelectedSubassembly([...tags][0])
+    } else if (addedLines.length === 0) {
+      setSelectedSubassembly('')
+    }
+  }, [selection?.ProductionOrderLinesEntryNumber])
+
+  const subassemblyLocked = (selection?.ProductionOrderLinesEntryNumber?.length ?? 0) > 0
 
   const lineItemCodes = useMemo(
     () => [
@@ -219,6 +247,10 @@ export function ProductionRequestForm({
       setError('Warehouse is required.')
       return
     }
+    if (subassemblyOptions.length > 0 && !selectedSubassembly) {
+      setError('Select which sub-assembly this item belongs to.')
+      return
+    }
     const qtyError = validateManualProductionLineQuantities(
       manualLine.IssuedQuantity,
       manualLine.PlannedQuantity,
@@ -230,7 +262,8 @@ export function ProductionRequestForm({
     setAddingLine(true)
     setError(null)
     try {
-      const result = await addProductionOrderLine(String(selection.ProductionOrder.AbsoluteEntry), manualLine)
+      const lineToAdd = selectedSubassembly ? { ...manualLine, DocNum: selectedSubassembly } : manualLine
+      const result = await addProductionOrderLine(String(selection.ProductionOrder.AbsoluteEntry), lineToAdd)
       setSelection((prev) => {
         if (!prev) return prev
         const updatedOrder = result.ProductionOrder
@@ -287,7 +320,8 @@ export function ProductionRequestForm({
   if (loading) return <div className="py-12 text-center text-slate-500">Loading...</div>
 
   const hasProductionOrder = !!selection?.ProductionOrder?.AbsoluteEntry
-  const showWorkerField = showWorkerName && hasProductionOrder
+  const hasSelectedItems = (selection?.ProductionOrderLinesEntryNumber?.length ?? 0) > 0
+  const showWorkerField = showWorkerName && hasProductionOrder && hasSelectedItems
 
   return (
     <div className="space-y-6">
@@ -337,6 +371,19 @@ export function ProductionRequestForm({
         <CardContent className="space-y-4 pt-6">
           <h3 className="text-sm font-semibold text-slate-800">Add To Production Order</h3>
           <form onSubmit={handleAddManualLine} className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+            {subassemblyOptions.length > 0 && (
+              <Select
+                label="Subassembly"
+                value={selectedSubassembly}
+                disabled={subassemblyLocked}
+                options={subassemblyOptions.map((s) => ({
+                  value: s.docNum,
+                  label: [s.docNum, s.drawingNo, s.drawingName].filter(Boolean).join(' - '),
+                }))}
+                onChange={setSelectedSubassembly}
+                placeholder="Select subassembly"
+              />
+            )}
             <SearchableSelect
               label="Item"
               lookupKind="item"
@@ -349,7 +396,11 @@ export function ProductionRequestForm({
                 setManualLine({ ...manualLine, ItemNo: code })
               }}
             />
-            <Input label="Item No." value={manualLine.ItemNo ?? ''} readOnly />
+            <Input
+              label="Item Name"
+              value={manualLine.ItemNo ? itemMasterMap[manualLine.ItemNo]?.name ?? '' : ''}
+              readOnly
+            />
             <Input
               label="Planned Qty."
               type="number"
@@ -402,6 +453,7 @@ export function ProductionRequestForm({
         isOpen={selectionOpen}
         onClose={() => setSelectionOpen(false)}
         onSelected={handleSelection}
+        isReceipt={isReceipt}
       />
 
       <ProductionOrderLinesDialog

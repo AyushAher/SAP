@@ -94,6 +94,7 @@ public class PurchaseRequestLine : ISoftDeletable
 
     public string? ItemCode { get; set; }
     public string? ItemDescription { get; set; }
+    public string? FreeText { get; set; }
     public string? AccountCode { get; set; }
     public double? Quantity { get; set; }
     public DateTime? RequiredDate { get; set; }

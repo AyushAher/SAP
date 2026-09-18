@@ -38,7 +38,8 @@ public class SapErrorFormatterTests
 
         var message = SapErrorFormatter.Format(sap, "{}", HttpStatusCode.BadRequest);
         message.Should().StartWith("No matching records found (ODBC -2028)");
-        message.Should().Contain("numbering series");
+        message.Should().Contain("Requester");
+        message.Should().Contain("warehouse");
     }
 
     [Test]

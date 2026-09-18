@@ -627,6 +627,152 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.ToTable("IssueForProductionRequests");
                 });
 
+            modelBuilder.Entity("SapApi.Domain.Entities.Item", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChapterID")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CompanyDb")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DefaultPurchasingUoMEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DefaultWarehouse")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("GstRelevant")
+                        .HasColumnType("text");
+
+                    b.Property<string>("InventoryItem")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("InventoryUoMEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("InventoryUom")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<double?>("InventoryWeight")
+                        .HasColumnType("double precision");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("ItemGroupCode")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ItemName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("ItemsGroupCode")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastModifiedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("PurchaseItemsPerUnit")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("PurchaseUnit")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("PurchaseVatGroup")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("SyncedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UoMGroupEntry")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyDb", "ItemCode")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("CompanyDb", "ItemName");
+
+                    b.HasIndex("CompanyDb", "ItemsGroupCode");
+
+                    b.ToTable("Items");
+                });
+
+            modelBuilder.Entity("SapApi.Domain.Entities.ItemSyncState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CompanyDb")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("HangfireJobId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("LastItemCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("LastSyncMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("LastSyncedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("LastSyncedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyDb")
+                        .IsUnique();
+
+                    b.ToTable("ItemSyncStates");
+                });
+
             modelBuilder.Entity("SapApi.Domain.Entities.ProductionOrder", b =>
                 {
                     b.Property<int>("Id")
@@ -868,6 +1014,10 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Property<string>("DocNum")
                         .HasMaxLength(25)
                         .HasColumnType("character varying(25)");
+
+                    b.Property<string>("DrawingName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("DrawingNo")
                         .HasMaxLength(30)
@@ -1786,6 +1936,9 @@ namespace SapApi.Infrastructure.Persistence.Migrations
                     b.Property<double?>("DiscountPercent")
                         .HasColumnType("double precision");
 
+                    b.Property<string>("FreeText")
+                        .HasColumnType("text");
+
                     b.Property<double?>("GrossTotal")
                         .HasColumnType("double precision");
 
@@ -2187,6 +2340,9 @@ namespace SapApi.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<string>("VendorBankCode")
+                        .HasColumnType("text");
 
                     b.Property<string>("WtCode")
                         .HasColumnType("text");

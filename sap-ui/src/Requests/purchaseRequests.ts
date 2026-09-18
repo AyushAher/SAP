@@ -1,5 +1,5 @@
 import { apiListPost } from '@/helpers/api/list'
-import type { PaginationRequest, PaginationResponse } from '@/types/api'
+import type { Filter, PaginationRequest, PaginationResponse } from '@/types/api'
 
 export interface PurchaseRequest {
   DocEntry?: number
@@ -186,4 +186,20 @@ export async function getPurchaseRequestSyncStatus() {
 export async function cancelPurchaseRequest(docEntry: number) {
   const { apiPost } = await import('@/helpers/api/client')
   return apiPost<PurchaseRequest>(`/purchase-requests/${docEntry}/cancel`)
+}
+
+export async function downloadPurchaseRequestReportPdf(filters: Filter[]): Promise<Blob> {
+  const { apiDownload } = await import('@/helpers/api/client')
+  return apiDownload('/purchase-requests/report/pdf', filters)
+}
+
+export async function downloadPurchaseRequestPdf(docEntry: number): Promise<void> {
+  const { apiDownloadGet } = await import('@/helpers/api/client')
+  const blob = await apiDownloadGet(`/purchase-requests/${docEntry}/pdf`)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `PurchaseRequisition(${docEntry}).pdf`
+  a.click()
+  URL.revokeObjectURL(url)
 }

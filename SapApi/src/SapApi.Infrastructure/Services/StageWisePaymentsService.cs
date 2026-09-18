@@ -1335,11 +1335,8 @@ public class StageWisePaymentService(
             return (false, operations);
         }
 
-        var linkedDocNums = SplitLinkedDocs(existingRecord.ApDownPaymentInvoiceEntryNumber);
-        var hasSapDocs = linkedDocNums.Count > 0
-            || SplitLinkedDocs(existingRecord.DownPaymentDocEntry).Count > 0
-            || SplitLinkedDocs(existingRecord.PaymentDocEntry).Count > 0
-            || SplitLinkedDocs(existingRecord.ApDownPaymentInvoiceDocEntry).Count > 0;
+        var cancelPlan = StageWisePaymentCancelPlanner.Build(existingRecord);
+        var hasSapDocs = cancelPlan.HasSapDocuments;
 
         if (!hasSapDocs)
         {
@@ -1376,27 +1373,29 @@ public class StageWisePaymentService(
 
         var allCancelledInSap = true;
 
-        foreach (var entry in SplitLinkedDocs(existingRecord.PaymentDocEntry))
+        foreach (var entry in cancelPlan.VendorPaymentDocEntries)
         {
-            var vp = await TryCancelVendorPaymentAsync(entry, operations);
+            var vp = await TryCancelVendorPaymentAsync(existingRecord, entry, operations, lookupByDocNum: false);
             if (vp == CancelAttempt.Failed)
                 allCancelledInSap = false;
         }
 
-        var downPaymentKeys = SplitLinkedDocs(existingRecord.DownPaymentDocEntry)
-            .Concat(SplitLinkedDocs(existingRecord.ApDownPaymentInvoiceDocEntry))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        foreach (var entry in downPaymentKeys)
+        foreach (var entry in cancelPlan.DownPaymentDocEntries)
         {
             if (await TryCancelDownPaymentAsync(entry, operations, preferDocEntry: true) == CancelAttempt.Failed)
                 allCancelledInSap = false;
         }
 
-        foreach (var docNum in SplitLinkedDocs(existingRecord.ApDownPaymentInvoiceEntryNumber))
+        foreach (var docNum in cancelPlan.VendorPaymentDocNums)
         {
-            if (!await TryCancelSapDocumentAsync(docNum, operations))
+            var vp = await TryCancelVendorPaymentAsync(existingRecord, docNum, operations, lookupByDocNum: true);
+            if (vp == CancelAttempt.Failed)
+                allCancelledInSap = false;
+        }
+
+        foreach (var docNum in cancelPlan.DownPaymentDocNums)
+        {
+            if (await TryCancelDownPaymentAsync(docNum, operations, preferDocEntry: false) == CancelAttempt.Failed)
                 allCancelledInSap = false;
         }
 
@@ -1430,62 +1429,90 @@ public class StageWisePaymentService(
         return (true, operations);
     }
 
-    async Task<bool> TryCancelSapDocumentAsync(
-        string docEntry,
-        List<(bool Success, string Message)> operations)
+    async Task<CancelAttempt> TryCancelVendorPaymentAsync(
+        StageWisePayment record,
+        string key,
+        List<(bool Success, string Message)> operations,
+        bool lookupByDocNum)
     {
-        var vendor = await TryCancelVendorPaymentAsync(docEntry, operations);
-        if (vendor == CancelAttempt.Succeeded)
-            return true;
-        if (vendor == CancelAttempt.Failed)
-            return false;
+        var candidates = await ListVendorPaymentsAsync(key, lookupByDocNum);
+        if (candidates.Count == 0)
+            return CancelAttempt.NotFound;
 
-        var down = await TryCancelDownPaymentAsync(docEntry, operations, preferDocEntry: false);
-        return down != CancelAttempt.Failed;
+        var linked = candidates.FirstOrDefault(p =>
+            StageWisePaymentCancelPlanner.IsOutgoingPaymentLinkedToRecord(record, p));
+        if (linked?.DocEntry is null)
+        {
+            operations.Add((true,
+                $"Skipped vendor payment {key}: SAP outgoing is not applied to this payment request."));
+            return CancelAttempt.NotFound;
+        }
+
+        return await CancelVendorPaymentByDocEntryAsync(
+            linked.DocEntry.Value.ToString(), key, operations);
     }
 
-    async Task<CancelAttempt> TryCancelVendorPaymentAsync(
-        string key,
-        List<(bool Success, string Message)> operations)
+    async Task<List<SapVendorPaymentsResponse>> ListVendorPaymentsAsync(string key, bool lookupByDocNum)
     {
-        SapVendorPaymentsResponse? vendorByEntry = null;
+        if (!lookupByDocNum)
+        {
+            var byEntry = await GetVendorPaymentByDocEntrySafeAsync(key);
+            return byEntry is null ? [] : [byEntry];
+        }
+
+        GetAllSapVendorPaymentsResponse? listed;
         try
         {
-            vendorByEntry = await sapVendorPaymentService.GetVendorPayment(key);
+            listed = await sapVendorPaymentService.GetVendorPaymentByDocEntry(key);
         }
         catch
         {
-            vendorByEntry = null;
+            listed = null;
         }
 
-        if (vendorByEntry is not null
-            && string.IsNullOrEmpty(vendorByEntry.Error?.Message?.Value)
-            && vendorByEntry.DocEntry is not null)
-        {
-            var response = await sapVendorPaymentService.CancelVendorPayment(vendorByEntry.DocEntry.ToString() ?? "");
-            var error = response?.Error?.Message?.Value;
-            if (!string.IsNullOrEmpty(error) && !IsAlreadyCancelledMessage(error))
-            {
-                operations.Add((false, $"Failed to cancel vendor payment {key}. SAP Error: {error}"));
-                return CancelAttempt.Failed;
-            }
+        if (listed is null
+            || !string.IsNullOrEmpty(listed.Error?.Message?.Value)
+            || listed.Value is not { Count: > 0 })
+            return [];
 
-            operations.Add((true, $"Vendor payment {key} cancelled in SAP."));
-            return CancelAttempt.Succeeded;
+        var results = new List<SapVendorPaymentsResponse>();
+        foreach (var candidate in listed.Value)
+        {
+            if (candidate.DocEntry is null)
+                continue;
+            var full = await GetVendorPaymentByDocEntrySafeAsync(candidate.DocEntry.Value.ToString());
+            if (full is not null)
+                results.Add(full);
         }
 
-        var vendorPayment = await sapVendorPaymentService.GetVendorPaymentByDocEntry(key);
-        if (vendorPayment is null
-            || !string.IsNullOrEmpty(vendorPayment.Error?.Message?.Value)
-            || vendorPayment.Value is not { Count: > 0 })
-            return CancelAttempt.NotFound;
+        return results;
+    }
 
-        var byNumResponse = await sapVendorPaymentService.CancelVendorPayment(
-            vendorPayment.Value.FirstOrDefault()?.DocEntry.ToString() ?? "");
-        var byNumError = byNumResponse?.Error?.Message?.Value;
-        if (!string.IsNullOrEmpty(byNumError) && !IsAlreadyCancelledMessage(byNumError))
+    async Task<SapVendorPaymentsResponse?> GetVendorPaymentByDocEntrySafeAsync(string docEntry)
+    {
+        try
         {
-            operations.Add((false, $"Failed to cancel vendor payment {key}. SAP Error: {byNumError}"));
+            var payment = await sapVendorPaymentService.GetVendorPayment(docEntry);
+            if (payment is null || !string.IsNullOrEmpty(payment.Error?.Message?.Value) || payment.DocEntry is null)
+                return null;
+            return payment;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    async Task<CancelAttempt> CancelVendorPaymentByDocEntryAsync(
+        string docEntry,
+        string key,
+        List<(bool Success, string Message)> operations)
+    {
+        var response = await sapVendorPaymentService.CancelVendorPayment(docEntry);
+        var error = response?.Error?.Message?.Value;
+        if (!string.IsNullOrEmpty(error) && !IsAlreadyCancelledMessage(error))
+        {
+            operations.Add((false, $"Failed to cancel vendor payment {key}. SAP Error: {error}"));
             return CancelAttempt.Failed;
         }
 
@@ -1529,14 +1556,6 @@ public class StageWisePaymentService(
         operations.Add((true, $"Down payment {key} cancelled in SAP."));
         return CancelAttempt.Succeeded;
     }
-
-    private static List<string> SplitLinkedDocs(string? value) =>
-        value?
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList()
-        ?? [];
 
     private static bool IsAlreadyCancelledMessage(string? message)
     {

@@ -21,6 +21,8 @@ import {
   requiresPaymentFinalizationDetails,
 } from '@/helpers/approvalUtils'
 import { formatDateTime, toIsoDateOnly } from '@/helpers/lib/utils'
+import { toast } from '@/helpers/toast'
+import { pollApprovalOutcome } from '@/helpers/approvalOutcomePolling'
 
 interface RequestViewDialogProps {
   request: ApprovalRequest | null
@@ -97,13 +99,24 @@ export function RequestViewDialog({ request, readOnly = false, onClose, onComple
     setSubmitting(true)
     setError(null)
     try {
-      await approveRequest(detail.id, {
+      const response = await approveRequest(detail.id, {
         comment: comment || 'Approved',
         utrNo: needsPaymentDetails ? utrNo : undefined,
         utrDate: needsPaymentDetails && utrDate ? utrDate : undefined,
       })
       onCompleted()
       onClose()
+      const docNo = response?.result?.sapResponseDocNum ?? response?.result?.sapResponseDocEntry
+      if (docNo) {
+        toast.success(`Approved. SAP Doc No: ${docNo}`)
+      } else if (response?.sapQueued) {
+        toast.info('Approved. SAP posting is running in the background.')
+        pollApprovalOutcome(detail.id, formatDocumentType(detail.documentType))
+      } else if (response?.result?.overallStatus === 'Approved') {
+        toast.success('Approved.')
+      } else {
+        toast.info('Approved. Forwarded for further approval.')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Approve failed')
     } finally {

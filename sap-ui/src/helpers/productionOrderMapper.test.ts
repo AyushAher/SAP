@@ -42,6 +42,7 @@ const sapOrder = {
       UoMCode: 6,
       U_FreeTxt: 'cut to size',
       U_DwgNo: 'DWG-42',
+      U_DwgName: 'Spool A',
     },
   ],
 }
@@ -62,6 +63,7 @@ describe('normalizeProductionOrder', () => {
     expect(view.SalesOrderDocEntry).toBe(156)
     expect(view.ProductionOrderLines?.[0].FreeText).toBe('cut to size')
     expect(view.ProductionOrderLines?.[0].DrawingNo).toBe('DWG-42')
+    expect(view.ProductionOrderLines?.[0].DrawingName).toBe('Spool A')
 
     // The raw SAP names must not survive alongside the friendly ones: two spellings of the same
     // field let a dropdown update one while the outgoing body was built from the other.
@@ -269,6 +271,8 @@ describe('toProductionOrderPayload', () => {
     expect(lines[0].UoMCode).toBe(6)
     expect(lines[0].U_FreeTxt).toBe('cut to size')
     expect(lines[0].U_DwgNo).toBe('DWG-42')
+    expect(lines[0].U_DwgName).toBe('Spool A')
+    expect(lines[0]).not.toHaveProperty('DrawingName')
   })
 })
 

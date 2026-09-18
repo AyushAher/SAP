@@ -524,9 +524,15 @@ export function resolvePurchaseUnit(line: Pick<PurchaseOrderLineItem, 'MeasureUn
  */
 export function toSapDocumentLine(
   line: PurchaseOrderLineItem,
-  options: { isService: boolean; fallbackProject?: string; lineIndex?: number; fallbackLocationCode?: number },
+  options: {
+    isService: boolean
+    fallbackProject?: string
+    lineIndex?: number
+    fallbackLocationCode?: number
+    requiredDate?: string
+  },
 ): Record<string, unknown> {
-  const { isService, fallbackProject, lineIndex, fallbackLocationCode } = options
+  const { isService, fallbackProject, lineIndex, fallbackLocationCode, requiredDate } = options
   const projectCode = line.ProjectCode || fallbackProject || undefined
   const accountCode = line.AccountCode?.trim() || undefined
   const sendAccountCode = isService || isNonInventoryItem(line.InventoryItem)
@@ -552,6 +558,7 @@ export function toSapDocumentLine(
       // on service documents (it triggers GrossBuyPrice).
       WarehouseCode: line.WarehouseCode || undefined,
       LineNum: lineNum,
+      RequiredDate: requiredDate || undefined,
     }
   }
 
@@ -579,6 +586,7 @@ export function toSapDocumentLine(
     UseBaseUnits: line.UseBaseUnits ?? calcUseBaseUnits(itemsPerUnit),
     ProjectCode: projectCode,
     LineNum: lineNum,
+    RequiredDate: requiredDate || undefined,
   }
 }
 
@@ -701,6 +709,8 @@ export function normalizePurchaseOrderLineFromApi(
     GrossTotal: readNumber(source, 'GrossTotal', 'grossTotal') ?? line.GrossTotal,
     FreeText: readPoLineFreeText(source),
     LocationCode: readPoLineLocationCode(source),
+    RemainingOpenQuantity: readNumber(source, 'RemainingOpenQuantity', 'remainingOpenQuantity')
+      ?? line.RemainingOpenQuantity,
   }
 }
 
@@ -743,48 +753,87 @@ export function formatPoAmount(value: number | undefined | null): string {
   return formatSapFixed(value, SAP_DECIMAL_PLACES.amounts)
 }
 
-/**
- * PBBPL branch: Dispatch Location (type of location) → warehouse.
- * Factory → Store1, Office → Store5, BP Loc → PBPL(S).
- */
+/** Dispatch Location (type of location) → warehouse, per branch. See BRANCH_DISPATCH_RULES. */
 export const PO_DISPATCH_LOCATION_OPTIONS = [
   { value: 'Factory', label: 'Factory' },
   { value: 'Office', label: 'Office' },
-  { value: 'BP Loc', label: 'BP Loc' },
+  { value: 'Customer Loc', label: 'Customer Loc' },
+  { value: 'SubContractor Loc', label: 'SubContractor Loc' },
 ] as const
 
 export type PoDispatchLocation = (typeof PO_DISPATCH_LOCATION_OPTIONS)[number]['value']
 
-const PO_DISPATCH_LOCATION_TO_WAREHOUSE: Record<PoDispatchLocation, string> = {
-  Factory: 'Store1',
-  Office: 'Store5',
-  'BP Loc': 'PBPL(S)',
+/** Where the Dispatch Address text should come from for a given location's warehouse. */
+export type DispatchAddressSource = 'whse' | 'bp'
+
+interface DispatchLocationRule {
+  warehouse?: string
+  addressSource: DispatchAddressSource
 }
 
-const PO_WAREHOUSE_TO_DISPATCH_LOCATION: Record<string, PoDispatchLocation> = {
-  Store1: 'Factory',
-  STORE1: 'Factory',
-  Store5: 'Office',
-  STORE5: 'Office',
-  'PBPL(S)': 'BP Loc',
+/**
+ * Branch (BPLId) → Dispatch Location → warehouse + address source. BPLId 1/3/4/5 match
+ * Constants.BankAccounts / PaymentRemarks on the API side (Privilege Biksons, S M Projects,
+ * De Design, Privilege Energex). A branch/location combo with no entry has no fixed warehouse —
+ * the user picks one manually and types the dispatch address.
+ */
+const BRANCH_DISPATCH_RULES: Record<number, Partial<Record<PoDispatchLocation, DispatchLocationRule>>> = {
+  1: {
+    Factory: { warehouse: 'Store1', addressSource: 'whse' },
+    Office: { warehouse: 'Store5', addressSource: 'whse' },
+    'Customer Loc': { warehouse: 'PBPL(S)', addressSource: 'bp' },
+    'SubContractor Loc': { warehouse: 'SUBCON', addressSource: 'bp' },
+  },
+  3: {
+    Office: { warehouse: 'Store3', addressSource: 'whse' },
+  },
+  4: {
+    Office: { warehouse: 'Store4', addressSource: 'whse' },
+  },
+  5: {
+    Factory: { warehouse: 'PEPL(P)', addressSource: 'whse' },
+    Office: { warehouse: 'Store9', addressSource: 'whse' },
+    'Customer Loc': { warehouse: 'PEPL(S)', addressSource: 'bp' },
+    'SubContractor Loc': { addressSource: 'bp' },
+  },
 }
 
-/** True for PBBPL company DBs (UAT/LIVE) — warehouse↔location mapping applies. */
-export function usesPbbplDispatchLocationMapping(companyDb?: string | null): boolean {
-  const db = (companyDb ?? '').trim().toUpperCase()
-  return db.startsWith('PBBPL')
+/** True when this branch has a Dispatch Location → warehouse table at all. */
+export function usesBranchDispatchLocationMapping(branchId?: number | string | null): boolean {
+  return branchId != null && Number(branchId) in BRANCH_DISPATCH_RULES
 }
 
-export function warehouseForDispatchLocation(location?: string | null): string | undefined {
+export function warehouseForDispatchLocation(
+  branchId: number | string | null | undefined,
+  location?: string | null,
+): string | undefined {
+  const rules = BRANCH_DISPATCH_RULES[Number(branchId)]
   const key = (location ?? '').trim() as PoDispatchLocation
-  return PO_DISPATCH_LOCATION_TO_WAREHOUSE[key]
+  return rules?.[key]?.warehouse
 }
 
-export function dispatchLocationForWarehouse(warehouse?: string | null): PoDispatchLocation | undefined {
+export function dispatchLocationForWarehouse(
+  branchId: number | string | null | undefined,
+  warehouse?: string | null,
+): PoDispatchLocation | undefined {
+  const rules = BRANCH_DISPATCH_RULES[Number(branchId)]
   const code = (warehouse ?? '').trim()
-  if (!code) return undefined
-  return PO_WAREHOUSE_TO_DISPATCH_LOCATION[code]
-    ?? PO_WAREHOUSE_TO_DISPATCH_LOCATION[code.toUpperCase()]
+  if (!rules || !code) return undefined
+  const match = Object.entries(rules).find(
+    ([, rule]) => rule?.warehouse?.toUpperCase() === code.toUpperCase(),
+  )
+  return match?.[0] as PoDispatchLocation | undefined
+}
+
+/** Whether the Dispatch Address for this branch/location should read from the warehouse master
+ * ('whse') or from a Business Partner's address book ('bp' — Customer Loc / SubContractor Loc). */
+export function dispatchAddressSourceForLocation(
+  branchId: number | string | null | undefined,
+  location?: string | null,
+): DispatchAddressSource | undefined {
+  const rules = BRANCH_DISPATCH_RULES[Number(branchId)]
+  const key = (location ?? '').trim() as PoDispatchLocation
+  return rules?.[key]?.addressSource
 }
 
 /** Type wording used by existing OPOR descriptions; live SAP ValidValue descriptions win. */

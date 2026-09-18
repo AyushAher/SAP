@@ -177,8 +177,11 @@ export function ProductionOrderFormPage() {
         if (po.ItemNumber) {
           setItemLabel(labels.itemLabel ?? formatCodeWithName(po.ItemNumber, po.ProductDescription))
         }
-        if (po.ProjectName) setProjectName(po.ProjectName)
-        else if (po.Project) setProjectName((await resolveProject(po.Project))?.Name ?? '')
+        if (po.Project) {
+          setProjectName(po.ProjectName ?? nameFromCodeWithNameLabel(labels.projectLabel, po.Project) ?? po.Project)
+        } else {
+          setProjectName('')
+        }
         if (po.SalesOrderDocNum) setSalesOrderLabel(String(po.SalesOrderDocNum))
         if (po.SalesOrderDocEntry) {
           const detail = await getSalesOrder(po.SalesOrderDocEntry)
@@ -227,7 +230,7 @@ export function ProductionOrderFormPage() {
     })
     if (!isItemOnSalesOrder(products, form.ItemNumber)) setItemLabel('')
     if (picked?.CardCode) setCustomerLabel(formatCodeWithName(picked.CardCode, picked.CardName))
-    setProjectName(project ? (await resolveProject(project))?.Name ?? '' : '')
+    setProjectName(project ? (await resolveProject(project))?.Name ?? project : '')
   }
 
   const handlePlannedQuantityChange = (value: number) => {

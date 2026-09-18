@@ -119,6 +119,13 @@ async function runCachedLookup<T>(
   return promise
 }
 
+export function rememberMasterItem(item: MasterItem | undefined): void {
+  const code = item?.ItemCode?.trim()
+  if (!code || !item) return
+  const existing = itemCache.get(code)
+  itemCache.set(code, { ...existing, ...item, ItemCode: code })
+}
+
 export async function resolveItem(code: string): Promise<MasterItem | undefined> {
   return runCachedLookup(code, itemCache, pendingItems, lookupItem)
 }

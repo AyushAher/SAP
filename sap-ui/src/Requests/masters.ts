@@ -290,11 +290,66 @@ export function searchItems(
   }))
 }
 
+/** Admin item-catalog list page — full sort/filter, unlike the narrow search-box helper above. */
+export async function listItemsCatalog(request: PaginationRequest): Promise<PaginationResponse<MasterItem[]>> {
+  const result = await apiListPost<MasterItem>('/masters/items/list', request)
+  return { ...result, data: (result.data ?? []).map((row) => normalizeItem(row as MasterItem)).filter(Boolean) as MasterItem[] }
+}
+
+export interface ItemSyncStatus {
+  companyDb: string
+  upsertedCount: number
+  syncedAtUtc: string
+  message: string
+  mode: string
+  status: string
+  lastItemCode?: string
+  hangfireJobId?: string
+  startedAtUtc?: string
+}
+
+export async function getItemSyncStatus(): Promise<ItemSyncStatus | null> {
+  const { apiGet } = await import('@/helpers/api/client')
+  return apiGet<ItemSyncStatus | null>('/masters/items/sync-status')
+}
+
+export async function enqueueFullItemSyncJob() {
+  const { apiPost } = await import('@/helpers/api/client')
+  return apiPost<{ jobId?: string; status: string; message: string; alreadyRunning: boolean }>(
+    '/masters/items/sync/jobs/full',
+  )
+}
+
+export async function syncItemFromSap(itemCode: string) {
+  const { apiPost } = await import('@/helpers/api/client')
+  return apiPost<ItemSyncStatus>(`/masters/items/${encodeURIComponent(itemCode)}/sync`)
+}
+
 export function searchWarehouses(search: string, pageSize = 20, fields: string[] = WAREHOUSE_DROPDOWN_FIELDS) {
   return searchMaster<MasterWarehouse>('/masters/warehouses/list', search, pageSize, fields).then((res) => ({
     ...res,
     data: (res.data ?? []).map((row) => normalizeWarehouse(row as MasterWarehouse)).filter(Boolean) as MasterWarehouse[],
   }))
+}
+
+export interface WarehouseAddress {
+  warehouseCode: string
+  warehouseName?: string
+  formattedAddress: string
+  city?: string
+  state?: string
+  zipCode?: string
+}
+
+/** Full warehouse address — used to auto-fill Dispatch Address for Factory/Office locations
+ * (Sheet3: those ship from the warehouse's own address, not a Business Partner's). */
+export async function getWarehouseAddress(warehouseCode: string): Promise<WarehouseAddress | null> {
+  const { apiGet } = await import('@/helpers/api/client')
+  try {
+    return await apiGet<WarehouseAddress>(`/masters/warehouses/${encodeURIComponent(warehouseCode)}/address`)
+  } catch {
+    return null
+  }
 }
 
 function normalizeWarehouse(raw: Record<string, unknown> | MasterWarehouse | undefined): MasterWarehouse | undefined {
@@ -416,6 +471,25 @@ export async function listPurchaseUoms(itemCode: string, search = ''): Promise<M
         UoMEntry: uomEntry,
         IsDefault: Boolean(row.IsDefault ?? row.isDefault),
         Source: (row.Source ?? row.source) === 'group' ? 'group' : 'master',
+      } satisfies MasterPurchaseUom
+    }).filter(Boolean) as MasterPurchaseUom[]
+  } catch {
+    return []
+  }
+}
+
+/** The full UoM master — for pickers with no item to derive units from, like a PO service line. */
+export async function listUnitOfMeasurements(search = ''): Promise<MasterPurchaseUom[]> {
+  const { apiGet } = await import('@/helpers/api/client')
+  const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : ''
+  try {
+    const raw = await apiGet<Array<Record<string, unknown>>>(`/masters/uoms${query}`)
+    return (Array.isArray(raw) ? raw : []).map((row) => {
+      const code = String(row.Code ?? row.code ?? '').trim()
+      if (!code) return undefined
+      return {
+        Code: code,
+        Name: String(row.Name ?? row.name ?? '').trim() || undefined,
       } satisfies MasterPurchaseUom
     }).filter(Boolean) as MasterPurchaseUom[]
   } catch {

@@ -10,6 +10,8 @@ using SapApi.Infrastructure.Identity;
 using SapApi.Infrastructure.Sap;
 using SapApi.Infrastructure.Security;
 using SapApi.Infrastructure.Services;
+using SapApi.Infrastructure.Services.Items;
+using SapApi.Infrastructure.Services.PaymentAdvice;
 using SapApi.Infrastructure.Services.ProductionOrders;
 using SapApi.Infrastructure.Services.PurchaseOrders;
 using SapApi.Infrastructure.Services.PurchaseRequests;
@@ -27,6 +29,7 @@ public static class DependencyInjection
         services.Configure<ApplicationConfiguration>(appConfig);
         services.Configure<SapCredentials>(configuration.GetSection(SapCredentials.Label));
         services.Configure<SecurityOptions>(configuration.GetSection(SecurityOptions.Label));
+        services.Configure<GraphMailOptions>(configuration.GetSection(GraphMailOptions.Label));
 
         Constants.SapServiceLayerUrl = appConfig.GetSection("SapServiceLayerUrl").Value
             ?? throw new ArgumentNullException("SapServiceLayerUrl");
@@ -108,6 +111,9 @@ public static class DependencyInjection
             MaxConnectionsPerServer = 20
         });
 
+        services.AddSingleton<IGraphAccessTokenProvider, GraphAccessTokenProvider>();
+        services.AddHttpClient<IMailSender, GraphMailSender>();
+
         if (configuration.GetValue<bool>("Testing:UseNoOpSapLogin"))
             services.AddScoped<ISapLoginService, NoOpSapLoginService>();
         else
@@ -124,7 +130,10 @@ public static class DependencyInjection
         services.AddScoped<StageWisePaymentPageService>();
         services.AddScoped<StageWisePaymentBatchService>();
         services.AddScoped<StageWisePaymentPdfBuilder>();
+        services.AddScoped<PaymentAdviceService>();
         services.AddScoped<PurchaseOrderPdfBuilder>();
+        services.AddScoped<PurchaseRequestPdfBuilder>();
+        services.AddScoped<ItemLocalStore>();
         services.AddScoped<ProductionOrderPdfBuilder>();
         services.AddScoped<IssueForProductionService>();
         services.AddScoped<ReceiptFromProductionService>();

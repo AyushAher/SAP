@@ -15,6 +15,10 @@ namespace SapApi.Shared.Requests
         [JsonPropertyName("Quantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public double? Quantity { get; set; }
 
+        /// <summary>Remaining open quantity after PR→PO conversion (read-only from SAP).</summary>
+        [JsonPropertyName("RemainingOpenQuantity"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? RemainingOpenQuantity { get; set; }
+
         /// <summary>Purchase Request line required date (PRQ1.RequiredDate).</summary>
         [JsonPropertyName("RequiredDate"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DateTime? RequiredDate { get; set; }

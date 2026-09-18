@@ -21,6 +21,12 @@ public class HangfireOptions
     public string MasterDataRefreshCron { get; set; } = "0,45 * * * *";
 
     /// <summary>
+    /// Cron for the full item-master catalog sync into Postgres. Items change far less often than
+    /// the 1-hour master-data cache entries, so this defaults to once a day.
+    /// </summary>
+    public string ItemSyncCron { get; set; } = "0 2 * * *";
+
+    /// <summary>
     /// Synthetic app user id used as the SAP session key for background jobs. Does not need to
     /// exist in AspNetUsers — it only namespaces the distributed session cache entry.
     /// </summary>

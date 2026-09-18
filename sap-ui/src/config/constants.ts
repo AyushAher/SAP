@@ -49,7 +49,9 @@ export const ROUTES = {
   BUSINESS_PARTNER: '/business-partner',
   GRPO: '/grpo',
   AUDIT_LOGS: '/audit-logs',
+  ITEM_CATALOG: '/item-catalog',
   SETTINGS: '/settings',
+  PURCHASE_REQUEST_REPORT: '/reports/purchase-requests',
 } as const
 
 /** OWOR U_DocNum — `{parentDocNum}/{sequence}` on a sub-assembly (legacy: parent DocNum only). */

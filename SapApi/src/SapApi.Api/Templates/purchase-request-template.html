@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Purchase Requisition</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            font-size: 13px;
+        }
+
+        .container {
+            border: 1px solid #000;
+        }
+
+        .entity-block {
+            text-align: center;
+            padding: 8px;
+            border-bottom: 1px solid #000;
+        }
+
+        .entity-name {
+            font-weight: bold;
+            font-size: 15px;
+        }
+
+        .title-block {
+            text-align: center;
+            padding: 4px;
+            border-bottom: 1px solid #000;
+            color: #c00000;
+            font-weight: bold;
+        }
+
+        .info-row {
+            display: table;
+            width: 100%;
+            border-bottom: 1px solid #000;
+        }
+
+        .info-row > div {
+            display: table-cell;
+            padding: 4px 8px;
+            width: 50%;
+        }
+
+        .info-row.single > div {
+            width: 100%;
+        }
+
+        .info-row:not(:last-child) {
+            border-right: none;
+        }
+
+        .info-row > div:first-child {
+            border-right: 1px solid #000;
+        }
+
+        .info-row.single > div:first-child {
+            border-right: none;
+        }
+
+        table.lines {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table.lines, table.lines th, table.lines td {
+            border: 1px solid #000;
+        }
+
+        table.lines th, table.lines td {
+            padding: 4px 8px;
+            font-size: 12px;
+            vertical-align: top;
+        }
+
+        table.lines th {
+            background: #f0f0f0;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        table.signature {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        table.signature td {
+            padding: 4px 8px;
+            vertical-align: top;
+            width: 50%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="entity-block">
+            <div class="entity-name">{{entityName}}</div>
+            <div>{{entityAddress}}</div>
+        </div>
+        <div class="title-block">Purchase Requisition</div>
+        <div class="info-row">
+            <div><b>PR No.:</b> {{prNo}}</div>
+            <div><b>Date:</b> {{postingDate}}</div>
+        </div>
+        <div class="info-row">
+            <div><b>Product No.:</b> {{productNo}} {{productDescription}}</div>
+            <div><b>Project:</b> {{projectCode}}</div>
+        </div>
+        <div class="info-row single">
+            <div><b>Dispatch Address:</b> {{dispatchAddress}}</div>
+        </div>
+        <div class="info-row single">
+            <div><b>Remarks:</b> {{remarks}}</div>
+        </div>
+        <table class="lines">
+            <tr>
+                <th style="width:6%">Sr. No.</th>
+                <th>Product Information</th>
+                <th style="width:12%">Qty</th>
+                <th style="width:12%">UOM</th>
+            </tr>
+            {{rows}}
+        </table>
+        <table class="signature">
+            <tr>
+                <td><b>Prepared By,</b></td>
+                <td><b>Approved By,</b></td>
+            </tr>
+            <tr>
+                <td>{{preparedByName}}</td>
+                <td>{{approvedByName}}</td>
+            </tr>
+            <tr>
+                <td>{{preparedByDesignation}}</td>
+                <td>{{approvedByDesignation}}</td>
+            </tr>
+            <tr>
+                <td>{{preparedByEmail}}</td>
+                <td>{{approvedByEmail}}</td>
+            </tr>
+        </table>
+        <p style="text-align: center; font-size: 8px; margin-top: 8px;">&copy; {{copyrightYear}} ConnectEdge. All rights reserved.</p>
+    </div>
+</body>
+</html>

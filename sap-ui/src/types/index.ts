@@ -2,6 +2,8 @@ export interface User {
   id: string
   email: string
   name: string
+  /** Login name typed at sign-in — use this as the SAP user code (OUSR.USER_CODE). */
+  userName?: string
   role: string
   roles?: string[]
   companyDb?: string

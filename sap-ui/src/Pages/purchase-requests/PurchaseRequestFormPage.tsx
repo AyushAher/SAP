@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Banknote, ClipboardList, Package, Truck } from 'lucide-react'
+import { Package } from 'lucide-react'
 import { PurchaseRequestLinesEditor } from '@/Components/forms/PurchaseRequestLinesEditor'
 import { PageHeader } from '@/Components/shared/PageHeader'
 import { PreviousNextButtons } from '@/Components/shared/PreviousNextButtons'
@@ -20,64 +20,50 @@ import {
 } from '@/Components/ui'
 import { ROUTES } from '@/config/constants'
 import { SAP_DECIMAL_PLACES } from '@/helpers/sapDecimals'
-import { formatBusinessPartnerDisplay, formatCodeWithName, resolveItem, resolveMasterSelectLabels } from '@/helpers/masterLookup'
+import { formatCodeWithName, resolveItem, resolveMasterSelectLabels } from '@/helpers/masterLookup'
 import { formatPoDisplayDate, parsePoDisplayDate, todayIsoDate, toIsoDateOnly } from '@/helpers/lib/utils'
 import {
   applyDocumentSpecialLinesToFormLines,
   applyLogisticsToPo,
-  applyOtherTermsToPo,
-  applyPaymentPercentToTerm,
-  applyPaymentTermsToPo,
-  buildPaymentTermDescription,
   applyWarehouseToPoLines,
   calculatePurchaseRequestTotals,
+  dispatchAddressSourceForLocation,
   dispatchLocationForWarehouse,
   formatPoAmount,
-  hasGstPaymentTerm,
-  isGstPaymentTermType,
-  nextPaymentTermSlot,
   normalizePurchaseRequestHeader,
   normalizePurchaseRequestLineFromApi,
-  parsePaymentTermsFromPo,
-  paymentTermDisplayLabel,
   PO_DISPATCH_LOCATION_OPTIONS,
   readLogisticsFromPo,
-  readOtherTermsFromPo,
-  resolvePaymentTermPercent,
   resolvePurchaseUnit,
   toDocumentSpecialLines,
   toSapDocumentLine,
   firstPositiveLocationCode,
-  usesPbbplDispatchLocationMapping,
-  validatePaymentTermsForSave,
+  isPurchaseRequestReadOnly,
+  usesBranchDispatchLocationMapping,
   warehouseForDispatchLocation,
-  type PaymentPercentBasis,
 } from '@/helpers/purchaseRequestForm'
 import { useAppSelector } from '@/store/hooks'
 import { getBranchesApi } from '@/Requests/auth'
 import {
   fetchBusinessPartnerLogistics,
-  fetchPaymentTermTypes,
-  fetchPurchaseOrderLogisticsOptions as fetchPurchaseRequestLogisticsOptions,
+  getWarehouseAddress,
   searchBusinessPartners,
-  searchEmployees,
   searchProjects,
-  searchSalesPersons,
-  searchVendors,
   searchWarehouses,
   formatWarehouseOptionLabel,
-  formatEmployeeShipToLabel,
   lookupBusinessPartner,
-  lookupEmployee,
   lookupHsnLabels,
   lookupSacLabels,
-  lookupSalesPerson,
   type BusinessPartnerAddressOption,
-  type MasterBusinessPartner,
   type MasterWarehouse,
-  type PaymentTermTypeOption,
 } from '@/Requests/masters'
-import { createPurchaseRequest, updatePurchaseRequest, cancelPurchaseRequest, type PurchaseRequest } from '@/Requests/purchaseRequests'
+import {
+  createPurchaseRequest,
+  updatePurchaseRequest,
+  cancelPurchaseRequest,
+  downloadPurchaseRequestPdf,
+  type PurchaseRequest,
+} from '@/Requests/purchaseRequests'
 import {
   useInvalidatePurchaseRequests,
   usePurchaseRequest,
@@ -86,105 +72,17 @@ import { toast } from '@/helpers/toast'
 import {
   PO_DOC_TYPE,
   PO_DOC_TYPE_OPTIONS,
-  PO_TN,
-  PO_TYPE_OPTIONS,
   isServicePoDocType,
 } from '@/helpers/purchaseRequestTnValidation'
 import type { SelectOption } from '@/types'
-import type {
-  PaymentTermRow,
-  PurchaseRequestLineItem,
-  PurchaseRequestLogistics,
-  PurchaseRequestOtherTerms,
-} from '@/types/purchaseRequest'
-import {
-  PAYMENT_TERM_TYPE_OPTIONS,
-  PRICE_BASIS_OPTIONS,
-  MODE_OF_TRANSPORT_OPTIONS,
-  UNLOADING_OPTIONS,
-  TRANSPORTATION_OPTIONS,
-  TRANSIT_INSURANCE_OPTIONS,
-  PACKING_FORWARDING_OPTIONS,
-  TC_DISPATCH_ADDRESS_OPTIONS,
-} from '@/types/purchaseRequest'
-import { useQuery } from '@tanstack/react-query'
-
-type FormTab = 'items' | 'logistics' | 'payment' | 'other'
-
-/** The items tab has no heading — the tab trigger already names it. */
-const FORM_TAB_HEADINGS: Record<Exclude<FormTab, 'items'>, { label: string; description: string }> = {
-  logistics: { label: 'Logistics', description: 'Dispatch, shipping, and transport details.' },
-  payment: { label: 'Payment Terms', description: 'Define stage-wise payment terms for this order.' },
-  other: { label: 'Other Terms', description: 'Commercial terms, warranty, and additional conditions.' },
-}
-
-type PaymentTermDraft = Omit<PaymentTermRow, 'id'>
-
-function emptyPaymentTermDraft(): PaymentTermDraft {
-  return { type: '', basic: undefined, gst: undefined, stage: '', desc: '' }
-}
-
-const PAYMENT_PERCENT_BASIS_OPTIONS: { value: PaymentPercentBasis; label: string }[] = [
-  { value: 'basic', label: 'Basic amount' },
-  { value: 'gst', label: 'GST amount' },
-]
-
-function paymentTermTypeOptionsFromApi(options: PaymentTermTypeOption[] | undefined): SelectOption[] {
-  const source = options?.length
-    ? options
-    : PAYMENT_TERM_TYPE_OPTIONS.map((o) => ({ value: o.value, description: o.label }))
-  return source.map((o) => ({ value: o.value, label: o.description || o.value }))
-}
-
-function udfOptionsToSelect(options: PaymentTermTypeOption[] | undefined): SelectOption[] {
-  return (options ?? []).map((o) => ({ value: o.value, label: o.description || o.value }))
-}
-
-function withCurrentSelectOption(options: SelectOption[], value?: string): SelectOption[] {
-  const current = (value ?? '').trim()
-  if (!current || options.some((option) => option.value === current)) return options
-  return [...options, { value: current, label: current }]
-}
-
-function OtherTermUdfField({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value?: string
-  options: SelectOption[]
-  onChange: (value: string) => void
-}) {
-  if (options.length > 0) {
-    return (
-      <Select
-        label={label}
-        options={withCurrentSelectOption(options, value)}
-        value={value ?? ''}
-        onChange={(next) => onChange(next || '')}
-        placeholder={`Select ${label.toLowerCase()}`}
-        clearable
-      />
-    )
-  }
-  return (
-    <Input
-      label={label}
-      value={value ?? ''}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  )
-}
+import type { PurchaseOrderLogistics, PurchaseRequestLineItem } from '@/types/purchaseRequest'
 
 export function PurchaseRequestFormPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const authBranchId = useAppSelector((state) => state.auth.branchId)
   const authUserName = useAppSelector((state) => state.auth.user?.name)
-  const companyDb = useAppSelector((state) => state.auth.companyDb)
-  const usesDispatchLocationMapping = usesPbbplDispatchLocationMapping(companyDb)
+  const authLoginName = useAppSelector((state) => state.auth.user?.userName)
   const invalidatePurchaseRequests = useInvalidatePurchaseRequests()
   const {
     data: purchaseRequest,
@@ -192,86 +90,9 @@ export function PurchaseRequestFormPage() {
     error: queryError,
   } = usePurchaseRequest(id)
 
-  const { data: paymentTermTypeOptions } = useQuery({
-    queryKey: ['masters', 'payment-term-types'],
-    queryFn: fetchPaymentTermTypes,
-    staleTime: 20 * 60 * 1000,
-  })
-
-  const { data: logisticsUdfOptions } = useQuery({
-    queryKey: ['masters', 'purchase-order-logistics-options'],
-    queryFn: fetchPurchaseRequestLogisticsOptions,
-    staleTime: 20 * 60 * 1000,
-  })
-
-  const paymentTypeSelectOptions = useMemo(
-    () => paymentTermTypeOptionsFromApi(paymentTermTypeOptions),
-    [paymentTermTypeOptions],
-  )
-
-  const priceBasisSelectOptions = useMemo(
-    () => (logisticsUdfOptions?.priceBasis?.length
-      ? logisticsUdfOptions.priceBasis.map((o) => ({ value: o.value, label: o.description || o.value }))
-      : PRICE_BASIS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
-    [logisticsUdfOptions],
-  )
-
-  const modeOfTransportSelectOptions = useMemo(
-    () => (logisticsUdfOptions?.modeOfTransport?.length
-      ? logisticsUdfOptions.modeOfTransport.map((o) => ({ value: o.value, label: o.description || o.value }))
-      : MODE_OF_TRANSPORT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
-    [logisticsUdfOptions],
-  )
-
-  const unloadingSelectOptions = useMemo(
-    () => (logisticsUdfOptions?.unloading?.length
-      ? udfOptionsToSelect(logisticsUdfOptions.unloading)
-      : UNLOADING_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
-    [logisticsUdfOptions],
-  )
-  const transportationSelectOptions = useMemo(
-    () => (logisticsUdfOptions?.transportation?.length
-      ? udfOptionsToSelect(logisticsUdfOptions.transportation)
-      : TRANSPORTATION_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
-    [logisticsUdfOptions],
-  )
-  const transitInsuranceSelectOptions = useMemo(
-    () => (logisticsUdfOptions?.transitInsurance?.length
-      ? udfOptionsToSelect(logisticsUdfOptions.transitInsurance)
-      : TRANSIT_INSURANCE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
-    [logisticsUdfOptions],
-  )
-  const packingForwardingSelectOptions = useMemo(
-    () => (logisticsUdfOptions?.packingForwarding?.length
-      ? udfOptionsToSelect(logisticsUdfOptions.packingForwarding)
-      : PACKING_FORWARDING_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
-    [logisticsUdfOptions],
-  )
-  const tcDispatchAddressSelectOptions = useMemo(
-    () => (logisticsUdfOptions?.tcDispatchAddress?.length
-      ? udfOptionsToSelect(logisticsUdfOptions.tcDispatchAddress)
-      : TC_DISPATCH_ADDRESS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))),
-    [logisticsUdfOptions],
-  )
-
-  const otherTermsUdfFields = useMemo(
-    () => ({
-      packingForwardingField: logisticsUdfOptions?.packingForwardingField,
-      tcDispatchAddressField: logisticsUdfOptions?.tcDispatchAddressField,
-    }),
-    [logisticsUdfOptions],
-  )
-
-  const paymentTypeLabelMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    for (const opt of paymentTypeSelectOptions) map[opt.value] = opt.label
-    return map
-  }, [paymentTypeSelectOptions])
-
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hydratedId, setHydratedId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<FormTab>('items')
   const [form, setForm] = useState<Record<string, unknown>>({
     CardCode: '',
     CardName: '',
@@ -279,13 +100,6 @@ export function PurchaseRequestFormPage() {
     Comments: '',
     NumAtCard: '',
     DocType: PO_DOC_TYPE.items,
-    SalesPersonCode: undefined,
-    DocumentsOwner: undefined,
-    U_PO_Type: '',
-    U_TRN: '',
-    U_Owner: '',
-    U_Stage: '',
-    U_Warehouse: '',
     Requester: '',
     RequesterName: '',
     ReqType: 12,
@@ -296,29 +110,28 @@ export function PurchaseRequestFormPage() {
     DueDate: '',
     BPLId: authBranchId ?? 1,
     RoundingDiffAmount: 0,
+    U_Warehouse: '',
     DocumentLines: [],
   })
+  const formBranchId = Number(form.BPLId) || authBranchId
+  const usesDispatchLocationMapping = usesBranchDispatchLocationMapping(formBranchId)
   const [lines, setLines] = useState<PurchaseRequestLineItem[]>([])
-  const [paymentTerms, setPaymentTerms] = useState<PaymentTermRow[]>([])
-  const [paymentDraft, setPaymentDraft] = useState(emptyPaymentTermDraft())
-  const [paymentBasis, setPaymentBasis] = useState<PaymentPercentBasis>('basic')
-  const [logistics, setLogistics] = useState<PurchaseRequestLogistics>({})
-  const [otherTerms, setOtherTerms] = useState<PurchaseRequestOtherTerms>({})
 
   useEffect(() => {
-    if (id || !authUserName) return
-    setForm((prev) => (prev.Requester ? prev : { ...prev, Requester: authUserName, ReqCode: authUserName, ReqType: 12 }))
-  }, [id, authUserName])
+    if (id) return
+    const sapUserCode = sapUserCodeFromLogin(authLoginName)
+    if (!sapUserCode) return
+    setForm((prev) => (prev.Requester
+      ? prev
+      : { ...prev, Requester: sapUserCode, RequesterName: authUserName || sapUserCode, ReqType: 12 }))
+  }, [id, authLoginName, authUserName])
 
-  const [vendorLabel, setVendorLabel] = useState('')
   const [projectLabel, setProjectLabel] = useState('')
   const [warehouseLabel, setWarehouseLabel] = useState('')
   const [dispatchLocation, setDispatchLocation] = useState('')
-  const [buyerLabel, setBuyerLabel] = useState('')
-  const [approverLabel, setApproverLabel] = useState('')
+  const [logistics, setLogistics] = useState<PurchaseOrderLogistics>({})
   const [dispatchToLabel, setDispatchToLabel] = useState('')
   const [dispatchAddressOptions, setDispatchAddressOptions] = useState<BusinessPartnerAddressOption[]>([])
-  const [contactPersonLabel, setContactPersonLabel] = useState('')
   const [branchOptions, setBranchOptions] = useState<SelectOption[]>([])
   const [postingDateDisplay, setPostingDateDisplay] = useState(() => formatPoDisplayDate(todayIsoDate()))
   const [deliveryDateDisplay, setDeliveryDateDisplay] = useState('')
@@ -330,24 +143,12 @@ export function PurchaseRequestFormPage() {
   const defaultWarehouse = String(form.U_Warehouse ?? '')
   const docType = String(form.DocType ?? PO_DOC_TYPE.items)
   const isServiceDoc = isServicePoDocType(docType)
-  const usesDrpWarehouse = !isServiceDoc && lines.some((line) => {
-    const wh = (line.WarehouseCode ?? '').trim().toUpperCase()
-    return wh === 'DRP' || wh === 'DRP2'
-  })
+  const isReadOnly = Boolean(id) && isPurchaseRequestReadOnly(form)
 
   const totals = useMemo(
     () => calculatePurchaseRequestTotals(lines, Number(form.RoundingDiffAmount ?? 0)),
     [lines, form.RoundingDiffAmount],
   )
-
-  const searchVendorOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchVendors(search)
-    return (response.data ?? []).map((v) => ({
-      value: v.CardCode ?? '',
-      label: formatBusinessPartnerDisplay(v.CardCode, v.CardName, v.CardForeignName),
-      meta: v,
-    })).filter((o) => o.value)
-  }, [])
 
   const searchBusinessPartnerOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
     const response = await searchBusinessPartners(search)
@@ -381,32 +182,6 @@ export function PurchaseRequestFormPage() {
       }
       return next
     })
-  }, [])
-
-  const searchContactPersonOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchEmployees(search)
-    return (response.data ?? []).map((emp) => {
-      const label = formatEmployeeShipToLabel(emp)
-      return { value: label, label }
-    }).filter((o) => o.value)
-  }, [])
-
-  const searchBuyerOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchSalesPersons(search)
-    return (response.data ?? [])
-      .filter((sp) => sp.SalesEmployeeCode != null && sp.SalesEmployeeCode !== PO_TN.noBuyerCode)
-      .map((sp) => ({
-        value: String(sp.SalesEmployeeCode),
-        label: `${sp.SalesEmployeeCode} - ${sp.SalesEmployeeName ?? ''}`.trim(),
-      }))
-  }, [])
-
-  const searchApproverOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
-    const response = await searchEmployees(search)
-    return (response.data ?? []).map((emp) => ({
-      value: String(emp.EmployeeID),
-      label: emp.DisplayName ?? String(emp.EmployeeID),
-    })).filter((o) => o.value)
   }, [])
 
   const searchProjectOptions = useCallback(async (search: string): Promise<SelectOption[]> => {
@@ -445,12 +220,19 @@ export function PurchaseRequestFormPage() {
 
   const applyDispatchLocation = useCallback((location: string) => {
     setDispatchLocation(location)
-    const warehouse = warehouseForDispatchLocation(location)
+    const warehouse = warehouseForDispatchLocation(formBranchId, location)
     if (!warehouse) return
     applyWarehouseToLines(warehouse)
-  }, [applyWarehouseToLines])
 
-  /** A saved document only stores HSN/SAC entry numbers, so fetch the code+description to show. */
+    if (dispatchAddressSourceForLocation(formBranchId, location) === 'whse') {
+      void getWarehouseAddress(warehouse).then((address) => {
+        if (address?.formattedAddress) {
+          setLogistics((prev) => ({ ...prev, dispatchAddress: address.formattedAddress }))
+        }
+      })
+    }
+  }, [applyWarehouseToLines, formBranchId])
+
   const resolveIndiaCodeLabels = useCallback(async (loaded: PurchaseRequestLineItem[]) => {
     const hsnEntries = loaded.filter((line) => !line.HsnLabel && line.HSNEntry != null).map((line) => line.HSNEntry!)
     const sacEntries = loaded.filter((line) => !line.SacLabel && line.SACEntry != null).map((line) => line.SACEntry!)
@@ -478,6 +260,9 @@ export function PurchaseRequestFormPage() {
       if (authBranchId) setForm((prev) => ({ ...prev, BPLId: authBranchId }))
       setHydratedId(null)
       setDispatchLocation('')
+      setLogistics({})
+      setDispatchToLabel('')
+      setDispatchAddressOptions([])
       setPostingDateDisplay(formatPoDisplayDate(todayIsoDate()))
       setDeliveryDateDisplay('')
       return
@@ -488,14 +273,18 @@ export function PurchaseRequestFormPage() {
     let cancelled = false
     void (async () => {
       const record = normalizePurchaseRequestHeader(purchaseRequest as Record<string, unknown>)
-      const cardCode = String(record.CardCode ?? '')
-      const cardName = String(record.CardName ?? '')
+      const loadedLogistics = readLogisticsFromPo(record)
       setForm({
         ...record,
         DocType: record.DocType || PO_DOC_TYPE.items,
       })
+      setLogistics(loadedLogistics)
+      setDispatchToLabel('')
+      setDispatchAddressOptions([])
       setPostingDateDisplay(formatPoDisplayDate(String(record.DocDate ?? record.PostingDate ?? '')))
-      setDeliveryDateDisplay(formatPoDisplayDate(String(record.DocDueDate ?? record.DueDate ?? '')))
+      setDeliveryDateDisplay(formatPoDisplayDate(String(
+        record.DocDueDate ?? record.DueDate ?? record.RequiredDate ?? record.RequriedDate ?? '',
+      )))
       const rawLines = (purchaseRequest.DocumentLines as PurchaseRequestLineItem[] | undefined) ?? []
       const loadedLines = applyDocumentSpecialLinesToFormLines(
         rawLines.map((line) => {
@@ -524,56 +313,19 @@ export function PurchaseRequestFormPage() {
           return flag ? { ...line, InventoryItem: flag } : line
         }))
       })()
-      setPaymentTerms(parsePaymentTermsFromPo(record))
-      const loadedLogistics = readLogisticsFromPo(record)
-      setLogistics(loadedLogistics)
-      setOtherTerms(readOtherTermsFromPo(record, {
-        packingForwardingField: logisticsUdfOptions?.packingForwardingField,
-        tcDispatchAddressField: logisticsUdfOptions?.tcDispatchAddressField,
-      }))
-      setDispatchToLabel('')
-      setDispatchAddressOptions([])
-      setContactPersonLabel(loadedLogistics.contactPerson ?? '')
-      const buyerCode = record.SalesPersonCode != null ? Number(record.SalesPersonCode) : null
-      const approverId = record.DocumentsOwner != null ? Number(record.DocumentsOwner) : null
-      // Do not set raw codes as labels — wait for master lookups so dropdowns show names.
-      setBuyerLabel('')
-      setApproverLabel('')
       try {
-        const [labels, buyer, approver, vendorMatch, dispatchBp] = await Promise.all([
+        const [labels, dispatchBp] = await Promise.all([
           resolveMasterSelectLabels({
-            vendorCode: cardCode || undefined,
             projectCode: String(record.Project ?? purchaseRequest.Project ?? ''),
           }),
-          buyerCode != null && Number.isFinite(buyerCode) ? lookupSalesPerson(buyerCode) : Promise.resolve(undefined),
-          approverId != null && Number.isFinite(approverId) ? lookupEmployee(approverId) : Promise.resolve(undefined),
-          cardCode ? lookupBusinessPartner(cardCode) : Promise.resolve(undefined),
           loadedLogistics.dispatchTo
             ? lookupBusinessPartner(loadedLogistics.dispatchTo)
             : Promise.resolve(undefined),
         ])
         if (cancelled) return
-        const bpName = cardName || vendorMatch?.CardName || ''
-        const legalName = vendorMatch?.CardForeignName ?? ''
-        if (cardCode) {
-          setVendorLabel(formatBusinessPartnerDisplay(cardCode, bpName, legalName) || labels.vendorLabel || cardCode)
-          if (bpName) {
-            setForm((prev) => ({ ...prev, CardName: bpName }))
-          }
-        }
         const projectCode = String(record.Project ?? purchaseRequest.Project ?? '')
         if (projectCode) {
           setProjectLabel(labels.projectLabel ?? formatCodeWithName(projectCode))
-        }
-        if (buyer) {
-          setBuyerLabel(`${buyer.SalesEmployeeCode} - ${buyer.SalesEmployeeName ?? ''}`.trim())
-        } else if (buyerCode != null && Number.isFinite(buyerCode)) {
-          setBuyerLabel(String(buyerCode))
-        }
-        if (approver?.DisplayName) {
-          setApproverLabel(`${approver.EmployeeID} - ${approver.DisplayName}`.trim())
-        } else if (approverId != null && Number.isFinite(approverId)) {
-          setApproverLabel(String(approverId))
         }
         if (loadedLogistics.dispatchTo) {
           setDispatchToLabel(
@@ -585,77 +337,23 @@ export function PurchaseRequestFormPage() {
         }
       } catch {
         // labels are optional enrichments
-        if (buyerCode != null && Number.isFinite(buyerCode)) setBuyerLabel(String(buyerCode))
-        if (approverId != null && Number.isFinite(approverId)) setApproverLabel(String(approverId))
       }
       if (cancelled) return
       const wh = String(record.U_Warehouse ?? '')
-      if (wh) setWarehouseLabel(wh)
-      const lineWh = ((purchaseRequest.DocumentLines as PurchaseRequestLineItem[] | undefined) ?? [])
-        .map((line) => (line.WarehouseCode ?? '').trim())
-        .find(Boolean)
-      setDispatchLocation(dispatchLocationForWarehouse(wh || lineWh) ?? '')
+      if (wh) {
+        setWarehouseLabel(wh)
+        const recordBranchId = Number(record.BPLId) || authBranchId
+        if (usesBranchDispatchLocationMapping(recordBranchId)) {
+          setDispatchLocation(dispatchLocationForWarehouse(recordBranchId, wh) ?? '')
+        }
+      }
       setHydratedId(String(id))
     })()
 
     return () => {
       cancelled = true
     }
-  }, [id, purchaseRequest, queryLoading, authBranchId, loadDispatchLogisticsOptions, resolveIndiaCodeLabels])
-
-  const handleAddPaymentTerm = () => {
-    const basis: PaymentPercentBasis =
-      paymentBasis === 'gst' || isGstPaymentTermType(paymentDraft.type) ? 'gst' : 'basic'
-    const percent = resolvePaymentTermPercent({ ...paymentDraft, id: basis === 'gst' ? 11 : 0 })
-      ?? (basis === 'gst' ? paymentDraft.gst : paymentDraft.basic)
-    if (!paymentDraft.type && percent == null && !paymentDraft.stage) {
-      setError('Enter at least type, percentage, or stage for the payment term.')
-      return
-    }
-    if (basis === 'gst' && hasGstPaymentTerm(paymentTerms)) {
-      setError('Only one GST payment term is allowed (stored in U_G11).')
-      return
-    }
-    const slot = nextPaymentTermSlot(paymentTerms, paymentDraft.type, basis)
-    if (slot == null) {
-      setError(
-        basis === 'gst'
-          ? 'Only one GST payment term is allowed (stored in U_G11).'
-          : 'Maximum payment terms reached.',
-      )
-      return
-    }
-    const mapped = applyPaymentPercentToTerm(
-      {
-        type: paymentDraft.type || undefined,
-        basic: undefined,
-        gst: undefined,
-        stage: paymentDraft.stage || undefined,
-        desc: undefined,
-      },
-      percent,
-      paymentDraft.type,
-      basis,
-    )
-    const row = {
-      id: slot,
-      ...mapped,
-    }
-    setPaymentTerms([
-      ...paymentTerms,
-      {
-        ...row,
-        desc: buildPaymentTermDescription(row, paymentTypeLabelMap),
-      },
-    ])
-    setPaymentDraft(emptyPaymentTermDraft())
-    setPaymentBasis('basic')
-    setError(null)
-  }
-
-  const handleRemovePaymentTerm = (termId: number) => {
-    setPaymentTerms(paymentTerms.filter((term) => term.id !== termId))
-  }
+  }, [id, purchaseRequest, queryLoading, authBranchId, resolveIndiaCodeLabels, loadDispatchLogisticsOptions])
 
   const buildPayload = (): PurchaseRequest => {
     const docDate = parsePoDisplayDate(postingDateDisplay)
@@ -664,15 +362,15 @@ export function PurchaseRequestFormPage() {
     const docDue = parsePoDisplayDate(deliveryDateDisplay)
       ?? toIsoDateOnly(String(form.DocDueDate ?? form.DueDate ?? ''))
       ?? ''
-    // SAP Document Date (TaxDate) always matches Posting Date (DocDate).
     const taxDate = docDate
-    let payload: Record<string, unknown> = {
+    const payload: Record<string, unknown> = {
       ...form,
       DocumentLines: lines.map((line, index) => toSapDocumentLine(line, {
         isService: isServiceDoc,
         fallbackProject: form.Project ? String(form.Project) : undefined,
         lineIndex: id ? undefined : index,
         fallbackLocationCode: isServiceDoc ? firstPositiveLocationCode(lines) : undefined,
+        requiredDate: docDue || undefined,
       })),
       DocumentSpecialLines: toDocumentSpecialLines(lines),
       DocType: docType,
@@ -681,34 +379,36 @@ export function PurchaseRequestFormPage() {
       TaxDate: taxDate,
       BPL_IDAssignedToInvoice: form.BPLId ?? authBranchId ?? 1,
       BPLId: form.BPLId ?? authBranchId ?? 1,
-      SalesPersonCode: form.SalesPersonCode != null ? Number(form.SalesPersonCode) : undefined,
-      DocumentsOwner: form.DocumentsOwner != null ? Number(form.DocumentsOwner) : undefined,
-      U_PO_Type: form.U_PO_Type || undefined,
-      U_TRN: form.U_TRN || undefined,
       NumAtCard: form.NumAtCard || undefined,
       Comments: form.Comments,
       Requester: form.Requester || undefined,
-      RequesterName: form.RequesterName || undefined,
+      RequesterName: form.RequesterName || authUserName || undefined,
       ReqType: form.ReqType != null ? Number(form.ReqType) : 12,
       RequriedDate: docDue || undefined,
-      U_Owner: form.U_Owner,
-      U_Stage: form.U_Stage,
       RoundingDiffAmount: totals.roundingOff,
     }
-    // Do not send client-calculated totals — SAP computes them.
+    Object.assign(payload, applyLogisticsToPo(payload, logistics))
+    delete payload.ReqCode
     delete payload.DocTotal
     delete payload.VatSum
     delete payload.PostingDate
     delete payload.DueDate
     delete payload.ShipToCode
-    payload = applyPaymentTermsToPo(payload, paymentTerms, paymentTypeLabelMap)
-    payload = applyLogisticsToPo(payload, logistics)
-    payload = applyOtherTermsToPo(payload, otherTerms, otherTermsUdfFields)
+    delete payload.SalesPersonCode
+    delete payload.DocumentsOwner
+    delete payload.U_PO_Type
+    delete payload.U_TRN
+    delete payload.U_Owner
+    delete payload.U_Stage
     return payload as PurchaseRequest
   }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    if (isReadOnly) {
+      toast.error('Cancelled purchase requests cannot be updated.')
+      return
+    }
     if (!lines.length) {
       setError(isServiceDoc ? 'Add at least one service line.' : 'Add at least one line item.')
       toast.error(isServiceDoc ? 'Add at least one service line.' : 'Add at least one line item.')
@@ -721,11 +421,25 @@ export function PurchaseRequestFormPage() {
       toast.error('Required Date is required.')
       return
     }
-    const paymentTermError = validatePaymentTermsForSave(paymentTerms)
-    if (paymentTermError) {
-      setError(paymentTermError)
-      toast.error(paymentTermError)
-      setActiveTab('payment')
+    const requester = String(form.Requester ?? '').trim()
+    if (requester && !looksLikeSapUserCode(requester)) {
+      setError('Requester must be a SAP user code (for example manager), not a display name.')
+      toast.error('Requester must be a SAP user code (for example manager), not a display name.')
+      return
+    }
+    if (usesDispatchLocationMapping && !dispatchLocation.trim()) {
+      setError('Dispatch Location is required.')
+      toast.error('Dispatch Location is required.')
+      return
+    }
+    if (!String(logistics.dispatchTo ?? '').trim() || !String(logistics.dispatchAddress ?? '').trim()) {
+      setError('Dispatch To and Dispatch Address are required.')
+      toast.error('Dispatch To and Dispatch Address are required.')
+      return
+    }
+    if (!isServiceDoc && lines.some((line) => !String(line.WarehouseCode ?? '').trim())) {
+      setError('Each item line needs a warehouse.')
+      toast.error('Each item line needs a warehouse.')
       return
     }
     setSaving(true)
@@ -736,7 +450,6 @@ export function PurchaseRequestFormPage() {
         ? await updatePurchaseRequest(Number(id), payload)
         : await createPurchaseRequest(payload)
 
-      // Above-threshold POs are stored as approval requests until approved — not created in SAP yet.
       if (result?.pendingApproval) {
         toast.info(
           id
@@ -755,7 +468,6 @@ export function PurchaseRequestFormPage() {
         return
       }
 
-      // Never redirect on create unless SAP returned a DocNum.
       const sapError =
         typeof result?.error === 'object' && result.error !== null
           ? ((result.error as { message?: { value?: string } }).message?.value
@@ -816,14 +528,25 @@ export function PurchaseRequestFormPage() {
       <PageHeader
         title={id ? 'Edit Purchase Request' : 'New Purchase Request'}
         action={id ? (
-          <Button
-            type="button"
-            variant="outline"
-            data-testid="purchase-request-cancel-document"
-            onClick={() => void handleCancelDocument()}
-          >
-            Cancel in SAP
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void downloadPurchaseRequestPdf(Number(id))}
+            >
+              Download PDF
+            </Button>
+            {!isReadOnly && (
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="purchase-request-cancel-document"
+                onClick={() => void handleCancelDocument()}
+              >
+                Cancel in SAP
+              </Button>
+            )}
+          </div>
         ) : undefined}
       />
       <BlockingLoader
@@ -831,36 +554,25 @@ export function PurchaseRequestFormPage() {
         label={loading ? 'Loading purchase request...' : 'Saving purchase request...'}
         lockScroll={false}
       />
+      {isReadOnly && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          This purchase request is cancelled in SAP and cannot be updated.
+        </div>
+      )}
       {loadError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>}
 
       <Card>
         <CardContent className="space-y-6 pt-6">
           <form onSubmit={handleSubmit} className="space-y-6" data-testid="purchase-request-form">
             <section className="space-y-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Header</h3>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <SearchableSelect
-                  label="Card Code"
-                  lookupKind="businessPartner"
-                  disabled={!!id}
-                  value={String(form.CardCode ?? '')}
-                  selectedLabel={vendorLabel}
-                  placeholder="Search vendor by code or legal name..."
-                  onSearch={searchVendorOptions}
-                  onChange={(cardCode, option) => {
-                    const meta = option?.meta as MasterBusinessPartner | undefined
-                    const bpName = meta?.CardName ?? ''
-                    const legalName = meta?.CardForeignName ?? ''
-                    setVendorLabel(formatBusinessPartnerDisplay(cardCode, bpName, legalName))
-                    updateForm({ CardCode: cardCode, CardName: bpName })
-                  }}
-                />
                 <Input
                   label="Requester"
                   data-testid="purchase-request-requester"
                   value={String(form.Requester ?? '')}
-                  onChange={(e) => updateForm({ Requester: e.target.value, ReqCode: e.target.value, ReqType: 12 })}
-                  placeholder="SAP user code"
+                  disabled={isReadOnly}
+                  onChange={(e) => updateForm({ Requester: e.target.value, ReqType: 12 })}
+                  placeholder="SAP user code (e.g. manager)"
                 />
                 <Select
                   label="Type"
@@ -881,17 +593,11 @@ export function PurchaseRequestFormPage() {
                   }}
                   placeholder="Select type"
                 />
-                <Select
-                  label="Request Type"
-                  options={PO_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                  value={String(form.U_PO_Type ?? '')}
-                  onChange={(value) => updateForm({ U_PO_Type: value })}
-                  placeholder="Select request type"
-                />
                 <Input
                   label="Posting Date"
                   placeholder="DD/MM/YYYY"
                   value={postingDateDisplay}
+                  disabled={isReadOnly}
                   onChange={(e) => setPostingDateDisplay(e.target.value)}
                   onBlur={() => {
                     const iso = parsePoDisplayDate(postingDateDisplay)
@@ -906,6 +612,7 @@ export function PurchaseRequestFormPage() {
                   lookupKind="project"
                   value={String(form.Project ?? '')}
                   selectedLabel={projectLabel}
+                  disabled={isReadOnly}
                   placeholder="Search project by code or name..."
                   onSearch={searchProjectOptions}
                   onChange={(projectCode, option) => {
@@ -918,6 +625,7 @@ export function PurchaseRequestFormPage() {
                   required
                   placeholder="DD/MM/YYYY"
                   value={deliveryDateDisplay}
+                  disabled={isReadOnly}
                   onChange={(e) => setDeliveryDateDisplay(e.target.value)}
                   onBlur={() => {
                     const iso = parsePoDisplayDate(deliveryDateDisplay)
@@ -934,21 +642,25 @@ export function PurchaseRequestFormPage() {
                 <Input
                   label="Vendor Ref."
                   value={String(form.NumAtCard ?? '')}
+                  disabled={isReadOnly}
                   onChange={(e) => updateForm({ NumAtCard: e.target.value })}
                 />
                 {usesDispatchLocationMapping ? (
                   <Select
                     label="Dispatch Location"
+                    required
                     options={[...PO_DISPATCH_LOCATION_OPTIONS]}
                     value={dispatchLocation}
+                    disabled={isReadOnly}
                     onChange={(value) => applyDispatchLocation(value)}
-                    placeholder="Factory / Office / BP Loc"
+                    placeholder="Factory / Office / Customer Loc / SubContractor Loc"
                   />
                 ) : null}
                 <SearchableSelect
                   label="Warehouse"
                   value={String(form.U_Warehouse ?? '')}
                   selectedLabel={warehouseLabel}
+                  disabled={isReadOnly}
                   placeholder="Search warehouse..."
                   onSearch={searchWarehouseOptions}
                   onChange={(code, option) => {
@@ -956,7 +668,15 @@ export function PurchaseRequestFormPage() {
                     setWarehouseLabel(option?.label ?? code)
                     applyWarehouseToLines(code, loc != null && Number.isFinite(loc) ? loc : undefined)
                     if (usesDispatchLocationMapping) {
-                      setDispatchLocation(dispatchLocationForWarehouse(code) ?? '')
+                      const resolvedLocation = dispatchLocationForWarehouse(formBranchId, code) ?? ''
+                      setDispatchLocation(resolvedLocation)
+                      if (dispatchAddressSourceForLocation(formBranchId, resolvedLocation) === 'whse') {
+                        void getWarehouseAddress(code).then((address) => {
+                          if (address?.formattedAddress) {
+                            setLogistics((prev) => ({ ...prev, dispatchAddress: address.formattedAddress }))
+                          }
+                        })
+                      }
                     }
                   }}
                 />
@@ -964,29 +684,65 @@ export function PurchaseRequestFormPage() {
                   label="Branch"
                   options={branchOptions}
                   value={String(form.BPLId ?? authBranchId ?? '')}
+                  disabled={isReadOnly}
                   onChange={(value) => updateForm({ BPLId: Number(value) })}
                   placeholder="Select branch"
+                />
+                <SearchableSelect
+                  label="Dispatch To / Ship To (BP Code & Name)"
+                  lookupKind="businessPartner"
+                  required
+                  disabled={isReadOnly}
+                  value={logistics.dispatchTo ?? ''}
+                  selectedLabel={dispatchToLabel}
+                  placeholder="Search BP code or name..."
+                  onSearch={searchBusinessPartnerOptions}
+                  onChange={(cardCode, option) => {
+                    setDispatchToLabel(option?.label ?? cardCode)
+                    setLogistics({
+                      ...logistics,
+                      dispatchTo: cardCode || undefined,
+                      dispatchAddress: undefined,
+                    })
+                    void loadDispatchLogisticsOptions(cardCode, true)
+                  }}
+                />
+                <Select
+                  label="Address from BP"
+                  options={dispatchAddressOptions.map((a) => ({
+                    value: a.formattedAddress,
+                    label: a.addressName
+                      ? `${a.addressName}${a.addressType ? ` (${a.addressType.replace(/^bo_/, '')})` : ''} — ${a.formattedAddress}`
+                      : a.formattedAddress,
+                  }))}
+                  value={
+                    dispatchAddressOptions.some((a) => a.formattedAddress === (logistics.dispatchAddress ?? ''))
+                      ? (logistics.dispatchAddress ?? '')
+                      : ''
+                  }
+                  onChange={(value) => setLogistics({ ...logistics, dispatchAddress: value || undefined })}
+                  placeholder={dispatchAddressOptions.length ? 'Select address...' : 'Select Dispatch To first'}
+                  clearable
+                  disabled={isReadOnly || !logistics.dispatchTo || dispatchAddressOptions.length === 0}
+                />
+                <Input
+                  label="Dispatch Address"
+                  required
+                  value={logistics.dispatchAddress ?? ''}
+                  disabled={isReadOnly}
+                  onChange={(e) => setLogistics({ ...logistics, dispatchAddress: e.target.value.slice(0, 120) })}
+                  hint="Maximum 120 characters."
                 />
               </div>
             </section>
 
             <section>
-              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FormTab)}>
-                <TabsList aria-label="Purchase order sections" className="-mx-1 px-1">
+              <Tabs value="items" onValueChange={() => undefined}>
+                <TabsList aria-label="Purchase request contents" className="-mx-1 px-1">
                   <TabsTrigger value="items" icon={<Package className="h-4 w-4" />} badge={lines.length || undefined}>
                     {isServiceDoc ? 'Services' : 'Items'}
                   </TabsTrigger>
-                  <TabsTrigger value="logistics" icon={<Truck className="h-4 w-4" />}>
-                    Logistics
-                  </TabsTrigger>
-                  <TabsTrigger value="payment" icon={<Banknote className="h-4 w-4" />} badge={paymentTerms.length}>
-                    Payment Terms
-                  </TabsTrigger>
-                  <TabsTrigger value="other" icon={<ClipboardList className="h-4 w-4" />}>
-                    Other Terms
-                  </TabsTrigger>
                 </TabsList>
-
                 <TabsContent value="items">
                   <PurchaseRequestLinesEditor
                     lines={lines}
@@ -995,287 +751,20 @@ export function PurchaseRequestFormPage() {
                     defaultProject={String(form.Project ?? '')}
                     docType={docType}
                     assignLineNums={!id}
+                    readOnly={isReadOnly}
+                    columnLayout="purchaseRequest"
                   />
-                </TabsContent>
-
-                <TabsContent
-                  value="logistics"
-                  title={FORM_TAB_HEADINGS.logistics.label}
-                  description={FORM_TAB_HEADINGS.logistics.description}
-                >
-                  <div className="grid gap-4 md:grid-cols-2">
-                  <SearchableSelect
-                    label={usesDrpWarehouse
-                      ? 'Dispatch To / Ship To (BP Code & Name) *'
-                      : 'Dispatch To / Ship To (BP Code & Name)'}
-                    lookupKind="businessPartner"
-                    value={logistics.dispatchTo ?? ''}
-                    selectedLabel={dispatchToLabel}
-                    placeholder="Search BP code or name..."
-                    onSearch={searchBusinessPartnerOptions}
-                    onChange={(cardCode, option) => {
-                      setDispatchToLabel(option?.label ?? cardCode)
-                      setLogistics({
-                        ...logistics,
-                        dispatchTo: cardCode || undefined,
-                        dispatchAddress: undefined,
-                      })
-                      void loadDispatchLogisticsOptions(cardCode, true)
-                    }}
-                    hint={usesDrpWarehouse ? 'Required for DRP / DRP2.' : undefined}
-                  />
-                  <Select
-                    label="Address from BP"
-                    options={dispatchAddressOptions.map((a) => ({
-                      value: a.formattedAddress,
-                      label: a.addressName
-                        ? `${a.addressName}${a.addressType ? ` (${a.addressType.replace(/^bo_/, '')})` : ''} — ${a.formattedAddress}`
-                        : a.formattedAddress,
-                    }))}
-                    value={
-                      dispatchAddressOptions.some((a) => a.formattedAddress === (logistics.dispatchAddress ?? ''))
-                        ? (logistics.dispatchAddress ?? '')
-                        : ''
-                    }
-                    onChange={(value) => setLogistics({ ...logistics, dispatchAddress: value || undefined })}
-                    placeholder={dispatchAddressOptions.length ? 'Select address...' : 'Select Dispatch To first'}
-                    clearable
-                    disabled={!logistics.dispatchTo || dispatchAddressOptions.length === 0}
-                  />
-                  <Input
-                    label="Dispatch Address"
-                    value={logistics.dispatchAddress ?? ''}
-                    onChange={(e) => setLogistics({ ...logistics, dispatchAddress: e.target.value.slice(0, 120) })}
-                    hint={usesDrpWarehouse
-                      ? 'Required for DRP / DRP2. Maximum 120 characters.'
-                      : 'Maximum 120 characters.'}
-                  />
-                  <SearchableSelect
-                    label="Contact Person"
-                    value={logistics.contactPerson ?? ''}
-                    selectedLabel={contactPersonLabel}
-                    placeholder="Search employee name or phone..."
-                    onSearch={searchContactPersonOptions}
-                    onChange={(value, option) => {
-                      const label = option?.label ?? value
-                      setContactPersonLabel(label)
-                      setLogistics({ ...logistics, contactPerson: value || undefined })
-                    }}
-                  />
-                  <Select
-                    label="Price Basis"
-                    options={priceBasisSelectOptions}
-                    value={logistics.priceBasis ?? ''}
-                    onChange={(value) => setLogistics({ ...logistics, priceBasis: value || undefined })}
-                    placeholder="Select price basis"
-                    clearable
-                  />
-                  <Select
-                    label="Mode of Transport"
-                    options={modeOfTransportSelectOptions}
-                    value={logistics.modeOfTransport ?? ''}
-                    onChange={(value) => setLogistics({ ...logistics, modeOfTransport: value || undefined })}
-                    placeholder="Select mode of transport"
-                    clearable
-                  />
-                </div>
-                </TabsContent>
-
-                <TabsContent
-                  value="payment"
-                  title={FORM_TAB_HEADINGS.payment.label}
-                  description={FORM_TAB_HEADINGS.payment.description}
-                >
-                <div className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                    <Select
-                      label="Type"
-                      options={paymentTypeSelectOptions}
-                      value={paymentDraft.type ?? ''}
-                      onChange={(value) => {
-                        const nextBasis: PaymentPercentBasis =
-                          isGstPaymentTermType(value) ? 'gst' : paymentBasis
-                        if (isGstPaymentTermType(value)) setPaymentBasis('gst')
-                        const percent =
-                          resolvePaymentTermPercent({
-                            ...paymentDraft,
-                            id: nextBasis === 'gst' ? 11 : 0,
-                          }) ?? (nextBasis === 'gst' ? paymentDraft.gst : paymentDraft.basic)
-                        setPaymentDraft(applyPaymentPercentToTerm(paymentDraft, percent, value, nextBasis))
-                      }}
-                      placeholder="Select type"
-                    />
-                    <Select
-                      label="Percent applies to"
-                      options={PAYMENT_PERCENT_BASIS_OPTIONS}
-                      value={isGstPaymentTermType(paymentDraft.type) ? 'gst' : paymentBasis}
-                      onChange={(value) => {
-                        const nextBasis = (value === 'gst' ? 'gst' : 'basic') as PaymentPercentBasis
-                        setPaymentBasis(nextBasis)
-                        const percent =
-                          resolvePaymentTermPercent({
-                            ...paymentDraft,
-                            id: nextBasis === 'gst' ? 11 : 0,
-                          }) ?? (nextBasis === 'gst' ? paymentDraft.gst : paymentDraft.basic)
-                        setPaymentDraft(
-                          applyPaymentPercentToTerm(paymentDraft, percent, paymentDraft.type, nextBasis),
-                        )
-                      }}
-                    />
-                    <Input
-                      label="Payment %"
-                      type="number"
-                      min="0"
-                      nonNegative
-                      decimalPlaces={SAP_DECIMAL_PLACES.percent}
-                      value={(() => {
-                        const basis =
-                          paymentBasis === 'gst' || isGstPaymentTermType(paymentDraft.type) ? 'gst' : 'basic'
-                        const v = resolvePaymentTermPercent({
-                          ...paymentDraft,
-                          id: basis === 'gst' ? 11 : 0,
-                        })
-                        return v != null ? String(v) : ''
-                      })()}
-                      onChange={(e) => {
-                        const percent = e.target.value === '' ? undefined : Number(e.target.value)
-                        const basis: PaymentPercentBasis =
-                          paymentBasis === 'gst' || isGstPaymentTermType(paymentDraft.type) ? 'gst' : 'basic'
-                        setPaymentDraft(
-                          applyPaymentPercentToTerm(paymentDraft, percent, paymentDraft.type, basis),
-                        )
-                      }}
-                    />
-                    <Input
-                      label="Stage"
-                      value={paymentDraft.stage ?? ''}
-                      onChange={(e) => setPaymentDraft({ ...paymentDraft, stage: e.target.value })}
-                    />
-                    <div className="flex items-end">
-                      <Button type="button" onClick={handleAddPaymentTerm} data-testid="purchase-request-add-payment-term">Add</Button>
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto rounded-lg border border-slate-200">
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-slate-50 text-left text-slate-600">
-                        <tr>
-                          <th className="px-3 py-2 font-medium">#</th>
-                          <th className="px-3 py-2 font-medium">Type</th>
-                          <th className="px-3 py-2 font-medium">Payment %</th>
-                          <th className="px-3 py-2 font-medium">Stage</th>
-                          <th className="px-3 py-2 font-medium">Description</th>
-                          <th className="px-3 py-2 font-medium">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paymentTerms.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="px-3 py-6 text-center text-slate-500">No payment terms added.</td>
-                          </tr>
-                        ) : paymentTerms.map((term) => (
-                          <tr key={term.id} className="border-t border-slate-100">
-                            <td className="px-3 py-2">{term.id}</td>
-                            <td className="px-3 py-2">{paymentTypeLabelMap[term.type ?? ''] ?? term.type ?? '—'}</td>
-                            <td className="px-3 py-2">{resolvePaymentTermPercent(term) ?? '—'}</td>
-                            <td className="px-3 py-2">{term.stage ?? '—'}</td>
-                            <td className="px-3 py-2">{paymentTermDisplayLabel(term, paymentTypeLabelMap)}</td>
-                            <td className="px-3 py-2">
-                              <Button type="button" variant="outline" size="sm" onClick={() => handleRemovePaymentTerm(term.id)}>
-                                Remove
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                </TabsContent>
-
-                <TabsContent
-                  value="other"
-                  title={FORM_TAB_HEADINGS.other.label}
-                  description={FORM_TAB_HEADINGS.other.description}
-                >
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Input label="Delivery Terms" value={otherTerms.deliveryTerms ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, deliveryTerms: e.target.value })} />
-                  <Input label="Inspection By" value={otherTerms.inspectionBy ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, inspectionBy: e.target.value })} />
-                  <OtherTermUdfField
-                    label="Transportation"
-                    value={otherTerms.transportation}
-                    options={transportationSelectOptions}
-                    onChange={(value) => setOtherTerms({ ...otherTerms, transportation: value })}
-                  />
-                  <Input label="Supervision" value={otherTerms.supervision ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, supervision: e.target.value })} />
-                  <OtherTermUdfField
-                    label="Transit Insurance"
-                    value={otherTerms.transitInsurance}
-                    options={transitInsuranceSelectOptions}
-                    onChange={(value) => setOtherTerms({ ...otherTerms, transitInsurance: value })}
-                  />
-                  <Input label="Drawing & Documents" value={otherTerms.drawingDocuments ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, drawingDocuments: e.target.value })} />
-                  <Input label="Loading" value={otherTerms.loading ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, loading: e.target.value })} />
-                  <OtherTermUdfField
-                    label="Packing Forwarding"
-                    value={otherTerms.packingForwarding}
-                    options={packingForwardingSelectOptions}
-                    onChange={(value) => setOtherTerms({ ...otherTerms, packingForwarding: value })}
-                  />
-                  <Input label="Warranty" value={otherTerms.warranty ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, warranty: e.target.value })} />
-                  <OtherTermUdfField
-                    label="Unloading"
-                    value={otherTerms.unloading}
-                    options={unloadingSelectOptions}
-                    onChange={(value) => setOtherTerms({ ...otherTerms, unloading: value })}
-                  />
-                  <Input label="Any Other Remark" value={otherTerms.otherRemark ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, otherRemark: e.target.value })} />
-                  <Input label="Painting" value={otherTerms.painting ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, painting: e.target.value })} />
-                  <Input label="Test Certificates" value={otherTerms.testCertificates ?? ''} onChange={(e) => setOtherTerms({ ...otherTerms, testCertificates: e.target.value })} />
-                  <OtherTermUdfField
-                    label="TC Dispatch Address"
-                    value={otherTerms.tcDispatchAddress}
-                    options={tcDispatchAddressSelectOptions}
-                    onChange={(value) => setOtherTerms({ ...otherTerms, tcDispatchAddress: value })}
-                  />
-                </div>
                 </TabsContent>
               </Tabs>
             </section>
 
             <section className="grid gap-4 border-t border-slate-200 pt-4 md:grid-cols-2">
-              <div className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <SearchableSelect
-                    label="Buyer *"
-                    value={form.SalesPersonCode != null ? String(form.SalesPersonCode) : ''}
-                    selectedLabel={buyerLabel}
-                    placeholder="Search buyer..."
-                    onSearch={searchBuyerOptions}
-                    onChange={(value, option) => {
-                      const code = value ? Number(value) : undefined
-                      setBuyerLabel(option?.label ?? value)
-                      updateForm({ SalesPersonCode: Number.isFinite(code) ? code : undefined })
-                    }}
-                  />
-                  <SearchableSelect
-                    label="Approver *"
-                    value={form.DocumentsOwner != null ? String(form.DocumentsOwner) : ''}
-                    selectedLabel={approverLabel}
-                    placeholder="Search approver..."
-                    onSearch={searchApproverOptions}
-                    onChange={(value, option) => {
-                      const empId = value ? Number(value) : undefined
-                      setApproverLabel(option?.label ?? value)
-                      updateForm({ DocumentsOwner: Number.isFinite(empId) ? empId : undefined })
-                    }}
-                  />
-                </div>
-                <Textarea
-                  label="User Remarks"
-                  value={String(form.Comments ?? '')}
-                  onChange={(e) => updateForm({ Comments: e.target.value })}
-                />
-              </div>
+              <Textarea
+                label="User Remarks"
+                value={String(form.Comments ?? '')}
+                disabled={isReadOnly}
+                onChange={(e) => updateForm({ Comments: e.target.value })}
+              />
               <div className="space-y-3 rounded-lg bg-slate-50 p-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-600">Total Before Discount</span>
@@ -1290,6 +779,7 @@ export function PurchaseRequestFormPage() {
                   type="number"
                   decimalPlaces={SAP_DECIMAL_PLACES.amounts}
                   value={String(form.RoundingDiffAmount ?? 0)}
+                  disabled={isReadOnly}
                   onChange={(e) => updateForm({ RoundingDiffAmount: Number(e.target.value) })}
                 />
                 <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-base">
@@ -1300,7 +790,7 @@ export function PurchaseRequestFormPage() {
             </section>
 
             <div className="flex flex-wrap items-center gap-3">
-              <Button type="submit" isLoading={saving} data-testid="purchase-request-submit">Submit</Button>
+              <Button type="submit" isLoading={saving} disabled={isReadOnly} data-testid="purchase-request-submit">Submit</Button>
               <Button type="button" variant="outline" data-testid="purchase-request-back" onClick={() => navigate(ROUTES.PURCHASE_REQUESTS)}>Back</Button>
               <PreviousNextButtons
                 id={id}
@@ -1313,4 +803,14 @@ export function PurchaseRequestFormPage() {
       </Card>
     </div>
   )
+}
+
+function looksLikeSapUserCode(value: string): boolean {
+  const code = value.trim()
+  return code.length > 0 && code.length <= 25 && !code.includes(' ') && !code.includes('@')
+}
+
+function sapUserCodeFromLogin(loginName: string | undefined): string {
+  const code = loginName?.trim() ?? ''
+  return looksLikeSapUserCode(code) ? code : ''
 }

@@ -137,57 +137,18 @@ public class SapPurchaseRequestPayloadBuilderTests
     }
 
     [Test]
-    public void Prepare_Create_IncludesOtherTermsUdfJsonNames()
+    public void Prepare_Create_OmitsPurchaseOrderOnlyUdfs()
     {
         var source = new SapPurchaseRequestsResponse
         {
             CardCode = "V001",
             UDelTerms = "FOB",
-            UInspectionBy = "QC",
-            UTransportation = "Road",
-            USupervision = "Site",
-            UTransitIns = "Vendor",
-            UDrawDocs = "GA",
-            ULoading = "Vendor",
-            UWarranty = "12m",
-            UUnloading = "Buyer",
-            UOtherRemark = "Careful",
-            UPainting = "Epoxy",
-            UTestCerts = "MTC",
-            DocumentLines =
-            [
-                new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
-            ],
-        };
-
-        var payload = SapPurchaseRequestPayloadBuilder.Prepare(source, isUpdate: false);
-        var json = System.Text.Json.JsonSerializer.Serialize(payload);
-
-        json.Should().Contain("\"U_DL\":\"FOB\"");
-        json.Should().Contain("\"U_INSPBY\":\"QC\"");
-        json.Should().Contain("\"U_TRANS\":\"Road\"");
-        json.Should().Contain("\"U_SUPR\":\"Site\"");
-        json.Should().Contain("\"U_TRANINSU\":\"Vendor\"");
-        json.Should().Contain("\"U_DRA_DOC\":\"GA\"");
-        json.Should().Contain("\"U_LOAD\":\"Vendor\"");
-        json.Should().Contain("\"U_WARR\":\"12m\"");
-        json.Should().Contain("\"U_UN_LOAD\":\"Buyer\"");
-        json.Should().Contain("\"U_ANOTHREM\":\"Careful\"");
-        json.Should().Contain("\"U_PAIN\":\"Epoxy\"");
-        json.Should().Contain("\"U_TC\":\"MTC\"");
-        json.Should().NotContain("U_DelTerms");
-        json.Should().NotContain("U_InspectionBy");
-        json.Should().NotContain("U_Warranty");
-    }
-
-    [Test]
-    public void Prepare_Create_IncludesPackingForwardingAndTcDispatchUdf()
-    {
-        var source = new SapPurchaseRequestsResponse
-        {
-            CardCode = "V001",
+            UGstText = "client must not override",
+            UTdsText = "client must not override",
             UPackingForwarding = "IN OUR SCOPE",
             UTcDispatchAddress = "H.O. ADDRESS",
+            UDisId = "C000030",
+            UDispachAdd = "Pune plant",
             DocumentLines =
             [
                 new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
@@ -197,8 +158,62 @@ public class SapPurchaseRequestPayloadBuilderTests
         var payload = SapPurchaseRequestPayloadBuilder.Prepare(source, isUpdate: false);
         var json = JsonSerializer.Serialize(payload);
 
-        json.Should().Contain("\"U_PAC_FOR\":\"IN OUR SCOPE\"");
-        json.Should().Contain("\"U_TCDISADD\":\"H.O. ADDRESS\"");
+        payload.UGstText.Should().BeNull();
+        payload.UTdsText.Should().BeNull();
+        payload.UDelTerms.Should().BeNull();
+        payload.UPackingForwarding.Should().BeNull();
+        payload.UDisId.Should().BeNull();
+        payload.UGst1.Should().BeNull();
+        json.Should().NotContain("U_GST_");
+        json.Should().NotContain("U_TDS_");
+        json.Should().NotContain("U_DL");
+        json.Should().NotContain("U_PAC_FOR");
+        json.Should().NotContain("U_DisID");
+        json.Should().NotContain("\"U_G1\"");
+    }
+
+    [Test]
+    public void Prepare_Create_DropsDisplayNameRequesterAndNonNumericReqCode()
+    {
+        var payload = SapPurchaseRequestPayloadBuilder.Prepare(
+            new SapPurchaseRequestsResponse
+            {
+                Requester = "Aditya Aher",
+                ReqCode = "Aditya Aher",
+                ReqType = Constants.SapPurchaseRequestReqType.User,
+                DocumentLines =
+                [
+                    new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
+                ],
+            },
+            isUpdate: false);
+
+        payload.Requester.Should().BeNull();
+        payload.ReqCode.Should().BeNull();
+        payload.ReqType.Should().BeNull();
+        payload.RequesterName.Should().Be("Aditya Aher");
+        JsonSerializer.Serialize(payload).Should().NotContain("ReqCode");
+    }
+
+    [Test]
+    public void Prepare_Create_KeepsSapUserCodeRequesterWithoutReqCode()
+    {
+        var payload = SapPurchaseRequestPayloadBuilder.Prepare(
+            new SapPurchaseRequestsResponse
+            {
+                Requester = "manager",
+                ReqCode = "manager",
+                ReqType = Constants.SapPurchaseRequestReqType.User,
+                DocumentLines =
+                [
+                    new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
+                ],
+            },
+            isUpdate: false);
+
+        payload.Requester.Should().Be("manager");
+        payload.ReqCode.Should().BeNull();
+        payload.ReqType.Should().Be(Constants.SapPurchaseRequestReqType.User);
     }
 
     [Test]
@@ -411,7 +426,7 @@ public class SapPurchaseRequestPayloadBuilderTests
     }
 
     [Test]
-    public void Prepare_Create_SendsDispatchToPartnerOnDisIdAndAddress()
+    public void Prepare_Create_DoesNotSendDispatchToPartnerUdfs()
     {
         var source = new SapPurchaseRequestsResponse
         {
@@ -424,40 +439,12 @@ public class SapPurchaseRequestPayloadBuilderTests
 
         var payload = SapPurchaseRequestPayloadBuilder.Prepare(source, isUpdate: false);
 
-        payload.UDisId.Should().Be("C000030");
-        payload.UDispachAdd.Should().Be("Pune plant");
+        payload.UDisId.Should().BeNull();
+        payload.UDispachAdd.Should().BeNull();
         payload.UCardCode.Should().BeNull();
-        payload.UShipTo.Should().Be("Ravi Kumar (9876543210)");
+        payload.UShipTo.Should().BeNull();
         payload.UContactPerson.Should().BeNull();
-    }
-
-    [Test]
-    public void Prepare_Create_MovesLegacyDispatchCardCodeOntoDisId()
-    {
-        var source = new SapPurchaseRequestsResponse
-        {
-            CardCode = "S000744",
-            UCardCode = "C000030",
-        };
-
-        var payload = SapPurchaseRequestPayloadBuilder.Prepare(source, isUpdate: false);
-
-        payload.UDisId.Should().Be("C000030");
-        payload.UCardCode.Should().BeNull();
-    }
-
-    [Test]
-    public void Prepare_Create_TruncatesDispatchAddressToFieldSize()
-    {
-        var source = new SapPurchaseRequestsResponse
-        {
-            CardCode = "S000744",
-            UDispachAdd = new string('A', 200),
-        };
-
-        var payload = SapPurchaseRequestPayloadBuilder.Prepare(source, isUpdate: false);
-
-        payload.UDispachAdd.Should().HaveLength(120);
+        payload.ShipToCode.Should().BeNull();
     }
 
     [Test]
@@ -475,11 +462,11 @@ public class SapPurchaseRequestPayloadBuilderTests
 
         payload.ShipToCode.Should().BeNull();
         payload.UWarehouse.Should().BeNull();
-        payload.UDisId.Should().Be("C000030");
+        payload.UDisId.Should().BeNull();
     }
 
     [Test]
-    public void Prepare_Create_KeepsShipToCode_WhenItIsAddressName()
+    public void Prepare_Create_OmitsShipToCode()
     {
         var source = new SapPurchaseRequestsResponse
         {
@@ -490,7 +477,7 @@ public class SapPurchaseRequestPayloadBuilderTests
 
         var payload = SapPurchaseRequestPayloadBuilder.Prepare(source, isUpdate: false);
 
-        payload.ShipToCode.Should().Be("PEARLS METALS");
+        payload.ShipToCode.Should().BeNull();
     }
 
     [Test]
@@ -644,13 +631,17 @@ public class SapPurchaseRequestPayloadBuilderTests
     };
 
     [Test]
-    public void Prepare_AlwaysSendsDefaultGstAndTdsUdfText()
+    public void Prepare_DoesNotSendPoGstTdsOrPaymentTermUdfs()
     {
         var source = new SapPurchaseRequestsResponse
         {
             CardCode = "V001",
             UGstText = "client must not override",
             UTdsText = "client must not override",
+            UType1 = "Advance",
+            UBasic1 = 20,
+            UType3 = "Invoice",
+            UGst3 = 100,
             DocumentLines =
             [
                 new SapInventoryTransferItemsRequests { ItemCode = "I1", Quantity = 1, UnitPrice = 1 },
@@ -658,41 +649,17 @@ public class SapPurchaseRequestPayloadBuilderTests
         };
 
         var payload = SapPurchaseRequestPayloadBuilder.Prepare(source, isUpdate: false);
-        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+        var json = JsonSerializer.Serialize(payload);
 
-        payload.UGstText.Should().Be("Extra at Actuals (If Applicable)");
-        payload.UTdsText.Should().Be("As per Government rules");
-        json.Should().Contain("\"U_GST_\":\"Extra at Actuals (If Applicable)\"");
-        json.Should().Contain("\"U_TDS_\":\"As per Government rules\"");
-
-        SapPurchaseRequestPayloadBuilder.OmitHiddenUdfDefaultsFromClientResponse(payload);
         payload.UGstText.Should().BeNull();
         payload.UTdsText.Should().BeNull();
-    }
-
-    [Test]
-    public void Prepare_MovesLegacyGstPercentFromUG3ToUG11()
-    {
-        var source = new SapPurchaseRequestsResponse
-        {
-            CardCode = "V001",
-            UType1 = "Advance",
-            UBasic1 = 20,
-            UType2 = "Invoice",
-            UBasic2 = 80,
-            UType3 = "Invoice",
-            UGst3 = 100,
-        };
-
-        var payload = SapPurchaseRequestPayloadBuilder.Prepare(source, isUpdate: false);
-
-        payload.UGst3.Should().Be(0);
-        payload.UGst11.Should().Be(100);
-        payload.UType11.Should().Be("Invoice");
-        payload.UType3.Should().BeNull();
-        payload.UBasic1.Should().Be(20);
-        payload.UBasic2.Should().Be(80);
-        payload.UBasic11.Should().BeNull();
+        payload.UGst3.Should().BeNull();
+        payload.UGst11.Should().BeNull();
+        payload.UBasic1.Should().BeNull();
+        json.Should().NotContain("U_GST_");
+        json.Should().NotContain("U_TDS_");
+        json.Should().NotContain("\"U_B1\"");
+        json.Should().NotContain("\"U_G11\"");
     }
 
     [Test]
@@ -767,5 +734,72 @@ public class SapPurchaseRequestPayloadBuilderTests
         payload.RequiredDate.Should().Be(new DateTime(2026, 9, 10));
         payload.DocumentLines![0].RequiredDate.Should().Be(new DateTime(2026, 9, 12));
         payload.CardCode.Should().BeNull();
+    }
+
+    [Test]
+    public void Prepare_CopiesHeaderRequiredDateOntoLinesThatOmitIt()
+    {
+        var due = new DateTime(2026, 9, 10);
+        var item = SapPurchaseRequestPayloadBuilder.Prepare(new SapPurchaseRequestsResponse
+        {
+            DocType = Constants.PurchaseOrderDocType.Document_Item,
+            DocDueDate = due,
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    ItemCode = "CO3523639606300000",
+                    Quantity = 1,
+                    WarehouseCode = "Store1",
+                },
+            ],
+        }, isUpdate: true);
+
+        item.RequiredDate.Should().Be(due);
+        item.DocumentLines.Should().ContainSingle().Which.RequiredDate.Should().Be(due);
+
+        var service = SapPurchaseRequestPayloadBuilder.Prepare(new SapPurchaseRequestsResponse
+        {
+            DocType = Constants.PurchaseOrderDocType.Document_Service,
+            DocDueDate = due,
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    AccountCode = "_SYS00000000670",
+                    ItemDescription = "LAND",
+                    Quantity = 1,
+                    LocationCode = 2,
+                },
+            ],
+        }, isUpdate: false);
+
+        service.DocumentLines.Should().ContainSingle().Which.RequiredDate.Should().Be(due);
+    }
+
+    [Test]
+    public void Prepare_Update_SendsOnlyTheLinesProvidedSoReplaceCollectionsCanDelete()
+    {
+        var payload = SapPurchaseRequestPayloadBuilder.Prepare(new SapPurchaseRequestsResponse
+        {
+            DocEntry = 148,
+            DocDueDate = new DateTime(2026, 9, 5),
+            DocumentLines =
+            [
+                new SapInventoryTransferItemsRequests
+                {
+                    LineNum = 0,
+                    ItemCode = "CO3523639606300000",
+                    Quantity = 5,
+                    WarehouseCode = "Store1",
+                    LocationCode = 2,
+                },
+            ],
+        }, isUpdate: true);
+
+        payload.DocEntry.Should().Be(148);
+        payload.DocumentLines.Should().ContainSingle();
+        payload.DocumentLines![0].LineNum.Should().Be(0);
+        payload.DocumentLines[0].Quantity.Should().Be(5);
     }
 }

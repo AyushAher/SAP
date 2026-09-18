@@ -37,7 +37,6 @@ test.describe('Purchase Requests', () => {
 
     await fillRequiredDate(page, todayDdMmYyyy())
     await page.getByTestId('purchase-request-requester').fill('manager')
-    await addPaymentTerm(page, '100')
     await addItemLine(page, SAMPLE_ITEM, SAMPLE_WAREHOUSE, '1')
     await page.getByTestId('purchase-request-submit').click()
     await expectSaved(page)
@@ -88,15 +87,6 @@ async function fillRequiredDate(page: Page, value: string) {
   await requiredDate.fill(value)
   await requiredDate.blur()
   await expect(requiredDate).toHaveValue(value)
-}
-
-async function addPaymentTerm(page: Page, percent: string) {
-  await page.getByRole('tab', { name: /Payment Terms/i }).click()
-  const panel = page.getByRole('tabpanel')
-  await panel.getByLabel('Payment %').fill(percent)
-  await page.getByTestId('purchase-request-add-payment-term').click()
-  await expect(page.getByText('No payment terms added.')).toHaveCount(0)
-  await page.getByRole('tab', { name: /^Items$/i }).click()
 }
 
 async function expectSaved(page: Page) {

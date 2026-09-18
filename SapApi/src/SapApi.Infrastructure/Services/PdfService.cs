@@ -19,14 +19,27 @@ public class PdfService(IHostEnvironment env) : IPdfService
         IDictionary<string, string> placeholders,
         CancellationToken cancellationToken = default)
     {
+        var html = await RenderTemplateHtmlAsync(templateName, placeholders, cancellationToken);
+        return GeneratePdfFromHtml(html);
+    }
+
+    public async Task<string> RenderTemplateHtmlAsync(
+        string templateName,
+        IDictionary<string, string> placeholders,
+        CancellationToken cancellationToken = default)
+    {
         var templatePath = Path.Combine(env.ContentRootPath, "Templates", templateName);
         if (!File.Exists(templatePath))
-            throw new FileNotFoundException($"PDF template not found: {templateName}");
+            throw new FileNotFoundException($"Template not found: {templateName}");
 
         var html = await File.ReadAllTextAsync(templatePath, cancellationToken);
         foreach (var (key, value) in placeholders)
             html = html.Replace("{{" + key + "}}", value);
 
-        return GeneratePdfFromHtml(html);
+        // Every template can use {{copyrightYear}} in its footer without each builder having to
+        // pass it — it's always just "this year", never document-specific data.
+        html = html.Replace("{{copyrightYear}}", DateTime.UtcNow.Year.ToString());
+
+        return html;
     }
 }

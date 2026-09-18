@@ -8,7 +8,7 @@ import {
   ROUTES,
   productionOrderSubassemblyPath,
 } from '@/config/constants'
-import { productionOrderStatusLabel, formatSubassemblyNo, issuedQuantityTotal } from '@/helpers/productionOrderForm'
+import { subassemblyStatusLabel, formatSubassemblyNo, issuedQuantityTotal } from '@/helpers/productionOrderForm'
 import { toast } from '@/helpers/toast'
 import {
   cancelProductionOrder,
@@ -139,7 +139,7 @@ export function ProductionOrderSubassembliesCard({
             { key: 'Weight', header: 'Weight', accessor: (r) => r.Weight ?? '—' },
             { key: 'PlannedQuantity', header: 'Qty', accessor: (r) => r.PlannedQuantity ?? 0 },
             { key: 'IssuedQuantity', header: 'Issued Qty', accessor: (r) => issuedQuantityTotal(r) },
-            { key: 'Status', header: 'Status', accessor: (r) => productionOrderStatusLabel(r.Status) },
+            { key: 'Status', header: 'Status', accessor: (r) => subassemblyStatusLabel(r.Status) },
           ]}
               actions={(row) => (
                 <RowActions>

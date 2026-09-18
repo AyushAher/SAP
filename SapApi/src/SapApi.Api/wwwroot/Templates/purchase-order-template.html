@@ -121,37 +121,36 @@
     <table class="sheet">
         <colgroup>
             <col style="width: 6%" />
-            <col style="width: 20%" />
-            <col style="width: 19%" />
-            <col style="width: 10%" />
-            <col style="width: 11%" />
+            <col style="width: 22%" />
+            <col style="width: 21%" />
             <col style="width: 10%" />
             <col style="width: 12%" />
-            <col style="width: 12%" />
+            <col style="width: 14%" />
+            <col style="width: 15%" />
         </colgroup>
 
         <tr>
-            <td colspan="8" class="entity-name">{{bplName}}</td>
+            <td colspan="7" class="entity-name">{{bplName}}</td>
         </tr>
         <tr>
-            <td colspan="8" class="entity-addr">{{bplAddr}}</td>
+            <td colspan="7" class="entity-addr">{{bplAddr}}</td>
         </tr>
         <tr>
             <td colspan="3"><b>PAN:</b> {{bplPan}}</td>
-            <td colspan="3"><b>GST:</b> {{bplGst}}</td>
+            <td colspan="2"><b>GST:</b> {{bplGst}}</td>
             <td colspan="2"><b>EMAIL:</b> {{bplEmail}}</td>
         </tr>
 
         <tr>
-            <td colspan="8" class="doc-title">Purchase Order</td>
+            <td colspan="7" class="doc-title">Purchase Order</td>
         </tr>
 
         <tr>
-            <td colspan="4" class="party-head">Buy From</td>
+            <td colspan="3" class="party-head">Buy From</td>
             <td colspan="4" class="party-head">Ship To</td>
         </tr>
         <tr class="party">
-            <td colspan="4">
+            <td colspan="3">
                 <span class="party-line"><b>{{buyFromVendor}}</b></span>
                 <span class="party-line">{{buyFromAddress}}</span>
                 <span class="party-line">Pin: {{buyFromPin}} &nbsp; State: {{buyFromState}} &nbsp; State Code: {{buyFromStateCode}}</span>
@@ -169,14 +168,14 @@
 
         <tr>
             <td colspan="3"><b>Order No:</b> {{documentNo}}</td>
-            <td colspan="3"><b>Type:</b> {{documentType}}</td>
+            <td colspan="2"><b>Type:</b> {{documentType}}</td>
             <td colspan="2"><b>Date:</b> {{documentDate}}</td>
         </tr>
         <tr>
-            <td colspan="8"><b>Project Details:</b> {{projectDisplay}}</td>
+            <td colspan="7"><b>Project Details:</b> {{projectDisplay}}</td>
         </tr>
         <tr>
-            <td colspan="8"><b>Reference:</b> {{reference}}</td>
+            <td colspan="7"><b>Reference:</b> {{reference}}</td>
         </tr>
 
         <tr class="items">
@@ -185,7 +184,6 @@
             <th>Item Description</th>
             <th>Delivery Date</th>
             <th>Qty in Purchase Unit</th>
-            <th>Qty in System Unit</th>
             <th>Unit Price</th>
             <th>Total</th>
         </tr>
@@ -193,23 +191,23 @@
         {{@documentSpecialLines}}
 
         <tr>
-            <td colspan="6"><b>Amount in Figures</b></td>
+            <td colspan="5"><b>Amount in Figures</b></td>
             <td colspan="2" class="right">{{amountFigures}}</td>
         </tr>
         <tr>
-            <td colspan="8"><b>Amount in Words:</b> {{amountWords}}</td>
+            <td colspan="7"><b>Amount in Words:</b> {{amountWords}}</td>
         </tr>
 
         <tr>
-            <td colspan="8" class="terms-head">Terms of Contract</td>
+            <td colspan="7" class="terms-head">Terms of Contract</td>
         </tr>
         <tr>
-            <td colspan="8" class="terms">{{@terms}}</td>
+            <td colspan="7" class="terms">{{@terms}}</td>
         </tr>
 
         <tr>
             <td colspan="3"><b>Prepared by:</b></td>
-            <td colspan="3"><b>Approved By:</b></td>
+            <td colspan="2"><b>Approved By:</b></td>
             <td colspan="2"><b>For, {{entityName}}</b></td>
         </tr>
         <tr class="sign">
@@ -217,7 +215,7 @@
                 <span class="party-line">{{buyerName}}</span>
                 <span class="party-line">{{buyerEmail}}</span>
             </td>
-            <td colspan="3">
+            <td colspan="2">
                 <span class="party-line">{{approverName}}</span>
                 <span class="party-line">{{approverEmail}}</span>
             </td>
@@ -233,6 +231,9 @@
         </tr>
         <tr>
             <td colspan="3"><b>Printed by:</b> {{userName}} on {{printedOn}}</td>
+        </tr>
+        <tr>
+            <td colspan="3" style="text-align: center; padding-top: 4px;">&copy; {{copyrightYear}} ConnectEdge. All rights reserved.</td>
         </tr>
     </table>
 </body>

@@ -31,6 +31,9 @@ public class PurchaseOrderTemplateTests
         var tokens = Regex.Matches(html, @"\{\{(?<key>[^}]+)\}\}")
             .Select(m => m.Groups["key"].Value)
             .Distinct()
+            // copyrightYear is injected globally by PdfService.RenderTemplateHtmlAsync for every
+            // template, not passed by individual builders.
+            .Where(t => t != "copyrightYear")
             .ToList();
         tokens.Should().NotBeEmpty();
 
@@ -82,11 +85,11 @@ public class PurchaseOrderTemplateTests
 
     [TestCase("Templates")]
     [TestCase(@"wwwroot/Templates")]
-    public void Qty_headers_use_purchase_and_system_unit_labels(string templateFolder)
+    public void Qty_header_uses_the_purchase_unit_label_and_drops_the_system_unit_column(string templateFolder)
     {
         var html = TemplateHtml(templateFolder);
         html.Should().Contain("Qty in Purchase Unit");
-        html.Should().Contain("Qty in System Unit");
+        html.Should().NotContain("Qty in System Unit");
         html.Should().NotContain(">Purchase Qty<");
         html.Should().NotContain(">Stock Qty<");
     }

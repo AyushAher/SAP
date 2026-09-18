@@ -17,6 +17,7 @@ vi.mock('@/Requests/productionOrders', () => ({
 
 vi.mock('@/Requests/masters', () => ({
   searchItems: vi.fn(),
+  ITEM_DETAIL_FIELDS: ['ItemCode', 'ItemName', 'InventoryUOM'],
 }))
 
 vi.mock('@/helpers/masterLookup', () => ({
@@ -82,6 +83,7 @@ describe('SubassemblyFormPage', () => {
     expect(screen.getByLabelText('Drawing No.')).toBeInTheDocument()
     expect(screen.getByLabelText('Drawing Name')).toBeInTheDocument()
     expect(screen.getByLabelText('Weight')).toBeInTheDocument()
+    expect(screen.getAllByLabelText('Status')).toHaveLength(1)
     expect(screen.getByText('Issued Qty')).toBeInTheDocument()
     expect(screen.getByLabelText('Free Text')).toBeInTheDocument()
 
@@ -141,8 +143,9 @@ describe('SubassemblyFormPage', () => {
     expect(stored).toHaveLength(1)
     expect(stored[0].ParentProductionOrderNo).toBe('0/1')
     expect(stored[0].ProductionOrderLines).toEqual([
-      expect.objectContaining({ ItemNo: 'CHANNEL-200', PlannedQuantity: 2 }),
+      expect.objectContaining({ ItemNo: 'CHANNEL-200', PlannedQuantity: 2, Status: 'boposPlanned' }),
     ])
+    expect(stored[0].ProductionOrderLines?.[0].FreeText).toBeUndefined()
   })
 
   it('saves Drawing Name onto the child product description on update', async () => {
@@ -189,7 +192,13 @@ describe('SubassemblyFormPage', () => {
     expect(updateProductionOrder.mock.calls[0][1].ParentProductionOrderNo).toBe('10/1')
     expect(updateProductionOrder.mock.calls[0][1].Weight).toBe(8)
     expect(updateProductionOrder.mock.calls[0][1].ProductionOrderLines).toEqual([
-      expect.objectContaining({ ItemNo: 'CHANNEL-200', PlannedQuantity: 24 }),
+      expect.objectContaining({
+        ItemNo: 'CHANNEL-200',
+        PlannedQuantity: 24,
+        DrawingNo: 'PBBPL-A-1234-1',
+        DrawingName: 'Steam piping spool',
+        FreeText: undefined,
+      }),
     ])
   })
 })

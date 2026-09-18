@@ -286,6 +286,9 @@ namespace SapApi.Shared.Responses.Sap
         [JsonPropertyName(Constants.SapProductionOrderUdf.DrawingNo), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? DrawingNo { get; set; }
 
+        [JsonPropertyName(Constants.SapProductionOrderUdf.DrawingName), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? DrawingName { get; set; }
+
         /// <summary>WOR1 U_DocNum — distinct from the OWOR header U_DocNum (parent production order).</summary>
         [JsonPropertyName("U_DocNum"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? DocNum { get; set; }

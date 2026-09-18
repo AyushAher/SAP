@@ -13,11 +13,16 @@ interface ProductionOrderSelectionDialogProps {
   isOpen: boolean
   onClose: () => void
   onSelected: (order: ProductionOrder) => void | Promise<void>
+  isReceipt?: boolean
 }
 
 const RELEASED_STATUS = 'boposReleased'
 
-export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: ProductionOrderSelectionDialogProps) {
+export function ProductionOrderSelectionDialog({
+  isOpen,
+  onClose,
+  onSelected,
+}: ProductionOrderSelectionDialogProps) {
   const [selected, setSelected] = useState<ProductionOrder | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -75,17 +80,26 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       accessor: (r) => r.DocumentNumber,
     },
     {
+      key: 'ParentProductionOrderNo',
+      header: 'Subassembly No.',
+      sortable: true,
+      filterable: true,
+      filterOperator: 'contains',
+      accessor: (r) => r.ParentProductionOrderNo || '—',
+    },
+    {
       key: 'Status',
       header: 'Status',
       sortable: true,
       accessor: (r) => r.Status ?? '—',
     },
     {
-      key: 'SalesOrderDocNum',
-      header: 'Sales Order',
+      key: 'DrawingNo',
+      header: 'Drawing',
       sortable: true,
       filterable: true,
-      accessor: (r) => r.SalesOrderDocNum ?? '—',
+      filterOperator: 'contains',
+      accessor: (r) => r.DrawingNo,
     },
     {
       key: 'Project',
@@ -93,21 +107,7 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
       sortable: true,
       filterable: true,
       filterOperator: 'contains',
-      accessor: (r) => r.Project,
-    },
-    {
-      key: 'ProjectName',
-      header: 'Project Name',
-      filterable: true,
-      filterOperator: 'contains',
-      accessor: (r) => r.ProjectName || '—',
-    },
-    {
-      key: 'CustomerName',
-      header: 'Business Partner Name',
-      filterable: true,
-      filterOperator: 'contains',
-      accessor: (r) => r.CustomerName || r.CustomerCode || '—',
+      accessor: (r) => formatCodeWithName(r.Project, r.ProjectName),
     },
     {
       key: 'ItemNumber',
@@ -119,19 +119,11 @@ export function ProductionOrderSelectionDialog({ isOpen, onClose, onSelected }: 
     },
     {
       key: 'Warehouse',
-      header: 'Warehouse',
+      header: 'Receipt Whse',
       sortable: true,
       filterable: true,
       filterOperator: 'contains',
       accessor: (r) => r.Warehouse || '—',
-    },
-    {
-      key: 'DrawingNo',
-      header: 'Drawing No.',
-      sortable: true,
-      filterable: true,
-      filterOperator: 'contains',
-      accessor: (r) => r.DrawingNo,
     },
     {
       key: 'sync',

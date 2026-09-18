@@ -5,7 +5,7 @@ import { formatCodeWithName } from '@/helpers/masterLookup'
 import { useItemMasterMap } from '@/hooks/useItemMasterMap'
 import { normalizeProductionOrderLine } from '@/helpers/productionOrderMapper'
 import { getProductionOrderLines } from '@/Requests/productionOrders'
-import { ensureFinishedGoodReceiptLine } from '@/helpers/productionRequestLines'
+import { ensureFinishedGoodReceiptLine, isFinishedGoodReceiptLine } from '@/helpers/productionRequestLines'
 import type { ProductionOrder, ProductionOrderLine } from '@/types/production'
 
 interface ProductionOrderLinesDialogProps {
@@ -53,9 +53,18 @@ export function ProductionOrderLinesDialog({
     const embedded = order.ProductionOrderLines ?? []
     const applyBom = (bom: ProductionOrderLine[]) => {
       const normalized = bom.map(normalizeProductionOrderLine)
-      setLines(includeFinishedGood && order.ItemNumber
-        ? ensureFinishedGoodReceiptLine(order, normalized)
-        : normalized)
+      if (includeFinishedGood && order.ItemNumber) {
+        const withFg = ensureFinishedGoodReceiptLine(order, normalized)
+        setLines(withFg)
+        const fg = withFg.find((line) => isFinishedGoodReceiptLine(order, line))
+        if (fg) {
+          setSelected((prev) => (
+            prev.some((x) => lineKey(x) === lineKey(fg)) ? prev : [fg, ...prev]
+          ))
+        }
+        return
+      }
+      setLines(normalized)
     }
 
     if (embedded.length > 0) {

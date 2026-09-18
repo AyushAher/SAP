@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Purchase Request Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h2, h3 {
+            text-align: center;
+            margin: 5px 0;
+        }
+
+        p.filters {
+            text-align: center;
+            font-size: 12px;
+            color: #333;
+            margin: 4px 0 12px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        table, th, td {
+            border: 1px solid #000;
+        }
+
+        th, td {
+            padding: 5px 6px;
+            font-size: 11px;
+        }
+
+        th {
+            background: #f0f0f0;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .right {
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <h2>Purchase Request Report</h2>
+    <p class="filters">{{filterSummary}}</p>
+
+    <table>
+        <tr>
+            <th>Sr</th>
+            <th>Document Number</th>
+            <th>Posting Date</th>
+            <th>User Name</th>
+            <th>Required Date</th>
+            <th>Project Code</th>
+            <th>Item Type</th>
+            <th>Item Code</th>
+            <th>Description</th>
+            <th>Free-Text</th>
+            <th>Quantity</th>
+            <th>Unit</th>
+        </tr>
+        {{rows}}
+    </table>
+    <p style="text-align: center; font-size: 8px; margin-top: 8px;">&copy; {{copyrightYear}} ConnectEdge. All rights reserved.</p>
+</body>
+</html>

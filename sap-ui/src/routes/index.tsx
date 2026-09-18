@@ -14,6 +14,7 @@ import { PurchaseOrderListPage } from '@/Pages/purchase-orders/PurchaseOrderList
 import { PurchaseOrderFormPage } from '@/Pages/purchase-orders/PurchaseOrderFormPage'
 import { PurchaseRequestListPage } from '@/Pages/purchase-requests/PurchaseRequestListPage'
 import { PurchaseRequestFormPage } from '@/Pages/purchase-requests/PurchaseRequestFormPage'
+import { PurchaseRequestReportPage } from '@/Pages/reports/PurchaseRequestReportPage'
 import { StageWisePaymentPage } from '@/Pages/purchase-orders/StageWisePaymentPage'
 import { StageWisePaymentBatchPage } from '@/Pages/purchase-orders/StageWisePaymentBatchPage'
 import { InventoryTransferListPage } from '@/Pages/inventory-transfers/InventoryTransferListPage'
@@ -32,6 +33,7 @@ import { ApprovalPoliciesPage } from '@/Pages/approvals/ApprovalPoliciesPage'
 import { UserGroupsPage } from '@/Pages/users/UserGroupsPage'
 import { UserRoleManagementPage } from '@/Pages/users/UserRoleManagementPage'
 import { ActionAuditLogsPage } from '@/Pages/admin/ActionAuditLogsPage'
+import { ItemCatalogListPage } from '@/Pages/admin/ItemCatalogListPage'
 import { SuperAdminGuard } from '@/routes/guards/SuperAdminGuard'
 import { BusinessPartnerPage } from '@/Pages/business-partner/BusinessPartnerPage'
 import { GrpoPage } from '@/Pages/grpo/GrpoPage'
@@ -54,6 +56,7 @@ export const router = createBrowserRouter([
           { path: 'purchase-orders/form/:id?', element: <PurchaseOrderFormPage /> },
           { path: ROUTES.PURCHASE_REQUESTS.slice(1), element: <PurchaseRequestListPage /> },
           { path: 'purchase-requests/form/:id?', element: <PurchaseRequestFormPage /> },
+          { path: ROUTES.PURCHASE_REQUEST_REPORT.slice(1), element: <PurchaseRequestReportPage /> },
           { path: 'purchase-orders/:id/payments', element: <StageWisePaymentPage /> },
           { path: 'purchase-orders/:id/payments/batch', element: <StageWisePaymentBatchPage /> },
           { path: 'purchase-orders/:id/payments/batch/approve/:approvalRequestId', element: <StageWisePaymentBatchPage /> },
@@ -82,6 +85,7 @@ export const router = createBrowserRouter([
               </SuperAdminGuard>
             ),
           },
+          { path: ROUTES.ITEM_CATALOG.slice(1), element: <ItemCatalogListPage /> },
           { path: ROUTES.BUSINESS_PARTNER.slice(1), element: <BusinessPartnerPage /> },
           { path: ROUTES.GRPO.slice(1), element: <GrpoPage /> },
         ],
